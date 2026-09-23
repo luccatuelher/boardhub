@@ -220,6 +220,10 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    no cropping, predictable opened size, and black letterbox only when needed. */
 .lightbox-stage{width:100%;height:100%;max-width:1440px;max-height:900px;margin:auto;background:#000;border-radius:0;overflow:hidden;display:flex;align-items:center;justify-content:center;box-shadow:0 18px 60px rgba(0,0,0,.32);cursor:zoom-out;}
 .lightbox-stage img{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;border-radius:0;animation:lbIn .2s ease;cursor:default;background:#000;display:block;box-sizing:border-box;}
+/* Portrait desktop windows (reported at 1280×2720): width is already the
+   limit there, and the 900px height cap shrank a tall artwork to a strip in
+   the middle of the screen. Let the stage use the full height. */
+@media (min-width:769px) and (orientation:portrait){.lightbox-stage{max-height:none;}}
 .ptask-pill{display:inline-flex;align-items:center;gap:4px;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 9px;border-radius:20px;cursor:pointer;border:none;font-family:'Alegreya Sans',sans-serif;transition:all .12s;}
 .ptask-pill:active{transform:scale(.92);}
 .ptask-Pendente{background:var(--neutral-bg);color:var(--muted);}.ptask-Fazendo{background:var(--warn-bg);color:var(--warn-fg);}.ptask-Concluído{background:var(--ok-bg);color:var(--ok-fg);}.ptask-Atrasado{background:var(--danger-bg);color:var(--danger-fg);}
@@ -1120,6 +1124,14 @@ const BH_KEEP_RECENT=6;   // most recent N rotating snapshots always kept
 const BH_MAX_TOTAL=12;    // cap on the ROTATING tier only — the weekly tier adds
                           // up to 7 more (one per weekday), so the effective
                           // history ceiling is ~19 entries, by design
+                          // (plus up to BH_KEEP_PROTECTED below)
+// Copies holding the side a decision passed over: a conflict, a discard, the
+// state before a restore, import or account switch. Notices send the user to
+// find them BY NAME in the history, so routine churn must not rotate them out.
+// In the rotating tier, six pre-sync captures (one per remote apply: minutes
+// with two active devices) evicted a same-day 'Local (edição simultânea)'.
+const BH_KEEP_PROTECTED=8;
+const BH_PROTECTED_REASONS=new Set(['remoto-concorrente','concurrent-superseded','cloud-superseded','local-prelogin','pre-login-edit','descartado','account-switch','pre-restore','import-source']);
 const bhStateHasData=s=>{
   if(!s)return false;
   const ne=a=>Array.isArray(a)&&a.length>0;
@@ -1172,8 +1184,14 @@ const bhConcurrentDecision=({localSig,remoteSig,lastArchivedSig,remoteHasData})=
 // A stamp in the FUTURE (clock skew) counts as recent: that errs towards the
 // more prominent label and a notice, which is the harmless direction.
 const BH_CONCURRENT_WINDOW_MS=10*60*1000;
-const bhLocalSupersededDecision=({localSig,remoteSig,localAt,now,localHasData,windowMs=BH_CONCURRENT_WINDOW_MS})=>{
+const bhLocalSupersededDecision=({localSig,remoteSig,localAt,now,localHasData,localSynced=false,windowMs=BH_CONCURRENT_WINDOW_MS})=>{
   if(!localHasData)return 'pre-sync';
+  // Local equal to the last acknowledged sync means nothing local is being
+  // passed over: the edit stamp is recent only because that edit was already
+  // pushed. Without this, every remote apply for ten minutes after any edit
+  // was labelled a conflict and raised the "what you edited just now is in the
+  // history" notice.
+  if(localSynced)return 'pre-sync';
   if(!localSig||!remoteSig||localSig===remoteSig)return 'pre-sync';
   if(!localAt)return 'pre-sync';
   const t=new Date(localAt).getTime();
@@ -1354,8 +1372,11 @@ const bhRetention=list=>{
   //    fast auto/pre-sync snapshots churn.
   //  • ROTATING tier (everything else): BH_KEEP_RECENT most recent kept
   //    unconditionally, older thinned to one per calendar day, cap BH_MAX_TOTAL.
-  const dailies=[];const others=[];const migrations=[];
-  list.forEach(e=>((e.reason==='schema-3.4'||e.reason==='schema-4')?migrations:e.reason==='daily'?dailies:others).push(e));
+  //  • PROTECTED tier (BH_PROTECTED_REASONS): the newest BH_KEEP_PROTECTED,
+  //    outside the rotation.
+  const dailies=[];const others=[];const migrations=[];const guarded=[];
+  list.forEach(e=>((e.reason==='schema-3.4'||e.reason==='schema-4')?migrations:e.reason==='daily'?dailies:BH_PROTECTED_REASONS.has(e.reason)?guarded:others).push(e));
+  const keptGuarded=guarded.sort((a,b)=>a.at<b.at?1:-1).slice(0,BH_KEEP_PROTECTED);
   const byWeekday=new Map(); // 0=Sun..6=Sat → newest entry
   dailies.forEach(e=>{
     const wd=new Date(e.at).getDay();
@@ -1369,7 +1390,7 @@ const bhRetention=list=>{
     const day=localDateISO(new Date(e.at));
     if(!seenDays.has(day)){keptOthers.push(e);seenDays.add(day);}
   });
-  return [...migrations,...keptDailies,...keptOthers.slice(0,BH_MAX_TOTAL)].sort((a,b)=>a.at<b.at?1:-1);
+  return [...migrations,...keptGuarded,...keptDailies,...keptOthers.slice(0,BH_MAX_TOTAL)].sort((a,b)=>a.at<b.at?1:-1);
 };
 // ── F1.1: the localStorage safety net ───────────────────────────────────────
 // F1 moved the history into IndexedDB and shipped without the two items the
@@ -2544,6 +2565,17 @@ const bhMergeSync=(base,local,remote)=>{
   if(local===undefined||remote===undefined&&base!==undefined)return undefined;
   const record=v=>v&&typeof v==='object'&&!Array.isArray(v);
   const keyed=v=>Array.isArray(v)&&v.every(x=>record(x)&&x.id!==undefined)&&new Set(v.map(x=>String(x.id))).size===v.length;
+  // No common ancestor: a field or record key that did not exist at the last
+  // acknowledged sync (a project from an older build without miniProjects, a
+  // field first written by a newer build). Both sides are then pure additions,
+  // so merge from an empty base and keep both. Falling through to `return
+  // local` dropped the other device's items, and the push that followed
+  // deleted them from the cloud.
+  if(base===undefined){
+    const flat=v=>Array.isArray(v)&&v.every(x=>x===null||typeof x!=='object');
+    if((keyed(local)&&keyed(remote))||(flat(local)&&flat(remote)))base=[];
+    else if(record(local)&&record(remote))base={};
+  }
   if(keyed(base)&&keyed(local)&&keyed(remote)){
     const b=new Map(base.map(x=>[String(x.id),x])),l=new Map(local.map(x=>[String(x.id),x])),r=new Map(remote.map(x=>[String(x.id),x]));
     const localOrder=local.map(x=>String(x.id)),remoteOrder=remote.map(x=>String(x.id));
@@ -3354,14 +3386,18 @@ const ConfirmHost=()=>{
       // stall half-done, with no error. Resolving as "cancelled" is the only safe
       // outcome: it executes nothing destructive.
       const cur=stRef.current;
-      if(cur&&cur.resolve){try{cur.resolve(false);}catch{/*silent-ok: resolving an already-settled promise is a no-op*/}}
+      if(cur&&cur.resolve){try{cur.resolve(cur.opts&&'dismissValue' in cur.opts?cur.opts.dismissValue:false);}catch{/*silent-ok: resolving an already-settled promise is a no-op*/}}
     };
   },[]);
   if(!st)return null;
   const o=st.opts||{};
   const done=v=>{const r=st.resolve;setSt(null);try{r(v);}catch(e){bhLog('bhConfirm.resolve',e);}};
+  // When "cancel" is a real alternative (keep current versions) rather than
+  // giving up, closing the dialog (Esc, backdrop, X) must not pick it: callers
+  // pass dismissValue (e.g. null) and treat that as "do nothing".
+  const dismiss=()=>done('dismissValue' in o?o.dismissValue:false);
   return (
-    <Modal title={o.title||(o.alertOnly?'Aviso':'Confirmar')} onClose={()=>done(false)} width={o.width||420}>
+    <Modal title={o.title||(o.alertOnly?'Aviso':'Confirmar')} onClose={dismiss} width={o.width||420}>
       <div style={{fontSize:'.85rem',lineHeight:1.6,whiteSpace:'pre-wrap',color:'var(--text)'}}>{o.message||''}</div>
       <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}>
         {!o.alertOnly&&(
@@ -3487,6 +3523,20 @@ const bhSearchPreview=value=>String(value||'')
   .trim();
 
 // - COMMAND PALETTE (Cmd+K) -
+// A palette hit on a mentor or client used to open only the list. The request
+// is parked in the UI session store and announced by an event, so the view
+// picks it up whether it mounts now or is already on screen.
+const bhOpenItem=(view,id,navigate)=>{
+  bhUiReplace('openItem',{view,id});
+  navigate(view);
+  window.dispatchEvent(new Event('bh-open-item'));
+};
+const bhTakeOpenItem=view=>{
+  const o=bhUiLoad('openItem');
+  if(o.view!==view||o.id==null)return null;
+  bhUiReplace('openItem',{});
+  return o.id;
+};
 const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,onSelectProject,onSelectNote,onSelectGalleryPost,onClose})=>{
   const [query,setQuery]=useState('');
   const [activeIdx,setActiveIdx]=useState(0);
@@ -3500,8 +3550,8 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       const entries=n.type==='project'?(n.entries||[]).filter(e=>e&&!e.deleted).map(e=>({title:e.title,icon:'file-text',meta:(n.title||'Pasta')+' · '+bhSearchPreview(e.content).slice(0,50),action:()=>onSelectNote?.({kind:'entry',id:e.id,folderId:n.id}),type:'Nota',haystack:bhSearchText(n.title,e.title,e.content)})):[];
       return own.concat(entries);
     }),
-    ...(mentors||[]).filter(m=>!m.deleted).map(m=>({title:m.name,icon:'graduation-cap',meta:m.area,action:()=>onNavigate('mentors'),type:'Mentor',haystack:bhSearchText(m.name,m.area)})),
-    ...(clients||[]).filter(c=>!c.deleted).map(c=>({title:c.name,icon:'users',meta:c.company,action:()=>onNavigate('clients'),type:'Cliente',haystack:bhSearchText(c.name,c.company)})),
+    ...(mentors||[]).filter(m=>!m.deleted).map(m=>({title:m.name,icon:'graduation-cap',meta:m.area,action:()=>bhOpenItem('mentors',m.id,onNavigate),type:'Mentor',haystack:bhSearchText(m.name,m.area)})),
+    ...(clients||[]).filter(c=>!c.deleted).map(c=>({title:c.name,icon:'users',meta:c.company,action:()=>bhOpenItem('clients',c.id,onNavigate),type:'Cliente',haystack:bhSearchText(c.name,c.company)})),
     ...(galleryPosts||[]).filter(g=>!g.deleted).map(g=>({title:g.title,icon:'image',meta:bhSearchPreview(g.content).slice(0,50),action:()=>onSelectGalleryPost?.(g),type:isProjectScopedPost(g)?'Projeto':'Galeria',haystack:bhSearchText(g.title,g.content)})),
   ],[projects,notes,mentors,clients,galleryPosts,onNavigate,onSelectProject,onSelectNote,onSelectGalleryPost]);
   const results=useMemo(()=>{
@@ -3528,11 +3578,13 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
     // contains the whole query come first.
     const fq=bhFold(q),tokens=fq.split(/\s+/).filter(Boolean);
     navs.forEach(n=>{if(bhFold(n.title).includes(fq))items.push(n);});
+    // Rank ALL matches before cutting. Stopping at the first 60 matches let a
+    // pile of body-text hits (notes are indexed before gallery posts) push an
+    // exact title match out of the list before it could be sorted up.
     const hits=[];
     for(const item of searchIndex){
       if(!tokens.every(t=>item.haystack.includes(t)))continue;
       hits.push({item,score:bhFold(item.title).includes(fq)?0:1});
-      if(hits.length>=60)break;
     }
     hits.sort((a,b)=>a.score-b.score);
     items.push(...hits.map(h=>h.item));
@@ -4123,6 +4175,19 @@ const pomoNormalize = (d,now=new Date()) => {
 const bhMergeRecords=(current,incoming,{incomingWins=false}={})=>{
   const out=[],seen=new Set();
   const add=item=>{if(!item||typeof item!=='object'||Array.isArray(item))return;const id=String(item.id??'');if(id&&seen.has(id))return;if(id)seen.add(id);out.push(item);};
+  const first=incomingWins?incoming:current,second=incomingWins?current:incoming;
+  (Array.isArray(first)?first:[]).forEach(add);(Array.isArray(second)?second:[]).forEach(add);
+  return out;
+};
+// Social templates carry no id, so the label is their identity. Same rule as
+// bhMergeRecords: union, and a repeated label takes the chosen side. Restore
+// used to REPLACE the list with "usar versões do backup" (dropping templates
+// made since) and IGNORE it with "manter versões atuais", although that choice
+// promises to add what is missing.
+const bhMergeTemplates=(current,incoming,{incomingWins=false}={})=>{
+  const out=[],seen=new Set();
+  const key=t=>String(t.label||'').trim().toLowerCase()||'\u0000'+String(t.text||'');
+  const add=t=>{if(!t||typeof t!=='object'||Array.isArray(t))return;const k=key(t);if(seen.has(k))return;seen.add(k);out.push(t);};
   const first=incomingWins?incoming:current,second=incomingWins?current:incoming;
   (Array.isArray(first)?first:[]).forEach(add);(Array.isArray(second)?second:[]).forEach(add);
   return out;
@@ -5466,10 +5531,10 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                 <Icon name={isActive?'pause':'play'} size={12}/>
                 {isActive?'Pausar':(isFocus?'Iniciar':'Retomar')}
               </button>
-              <button className="btn btn-ghost" onClick={reset} title="Reiniciar" style={{padding:5}}>
+              <button className="btn btn-ghost bh-touch-target" onClick={reset} title="Reiniciar" style={{padding:5}}>
                 <Icon name="rotate-ccw" size={13}/>
               </button>
-              <button className="btn btn-ghost"
+              <button className="btn btn-ghost bh-touch-target"
                 onClick={()=>{const v=!soundOn;setSoundOn(v);setPomoSoundOn(v);}}
                 aria-pressed={soundOn}
                 title={soundOn?'Sons da sessão ligados — início, pausa e fim':'Sons da sessão desligados'}
@@ -8411,7 +8476,8 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=
                 ?<Vid src={img} controls playsInline style={{width:'100%',height:'100%',objectFit:'contain',display:'block',borderRadius:10,background:'#000'}}/>
                 :<Img src={img} priority={i<(isMobile?6:9)} className="img-zoom-sm" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
               }
-              <ImgMoveTools index={i} count={list.length} onMove={moveImg}/>
+              {/* No ← n/N → pill here: the owner does not want it over gallery
+                  images (2026-09-23). Reordering stays available by dragging. */}
               <button onClick={e=>{e.stopPropagation();removeImg(i);}} title="Remover imagem" aria-label={'Remover imagem '+(i+1)} style={{position:'absolute',top:6,right:6,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',zIndex:2}}><Icon name="x" size={11}/></button>
               {!isVideoSrc(img)&&<button onClick={e=>{e.stopPropagation();upd('bannerImage',img);}} title="Usar como banner"
                 style={{position:'absolute',top:6,left:6,background:selected.bannerImage===img?'rgba(251,191,36,.9)':'rgba(28,25,23,.55)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',transition:'background .2s',zIndex:2}}>
@@ -9598,6 +9664,24 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     updateItem(id,n=>({...n,parentId:categoryId}));
     setExpanded(p=>new Set(p).add(categoryId));
   };
+  // Dropping onto an item under ANOTHER parent went to reorderSiblings, which
+  // only knows the target's siblings, so the drop was silently ignored. The
+  // item now joins the target's parent, placed just before the target.
+  const moveItemBeside=(id,targetId)=>{
+    const dragged=itemById(id),target=itemById(targetId);
+    if(!dragged||!target||String(dragged.id)===String(target.id))return;
+    const pid=parentOf(target);
+    if(isCategory(dragged)&&pid!=null&&(String(pid)===String(dragged.id)||hasCategoryAncestor(pid,dragged.id)))return;
+    setNotes(prev=>{
+      const moving=prev.find(n=>String(n.id)===String(id));
+      if(!moving)return prev;
+      const rest=prev.filter(n=>n!==moving);
+      const at=rest.findIndex(n=>String(n.id)===String(targetId));
+      rest.splice(at<0?rest.length:at,0,{...moving,parentId:pid});
+      return rest;
+    });
+    if(pid!=null)setExpanded(p=>new Set(p).add(pid));
+  };
 
   const rootItemFromEntry=(entry,folderId,parentId)=>{
     const n={...entry,type:'note',deleted:false,parentId:parentId==null?null:parentId};
@@ -9710,6 +9794,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
       }else if(target.kind==='folder'&&isFolder(dragged)){
         // Folders can be reordered beside sibling folders, but can never be dropped INTO a folder.
         return;
+      }else if(String(parentOf(dragged))!==String(parentOf(targetItem))){
+        moveItemBeside(dragged.id,targetItem.id);
       }else{
         reorderSiblings(parentOf(targetItem),dragged.id,targetItem.id);
       }
@@ -10020,9 +10106,14 @@ const SOCIAL_PLATFORMS=['Instagram','LinkedIn','Twitter/X','TikTok','YouTube','B
 const SOCIAL_SORT_KEY='boardhub_social_sort';
 const SOCIAL_SORT_ORDERS=[['newest','Mais recentes'],['oldest','Mais antigos'],['platform','Por plataforma'],['length','Mais longos']];
 const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
-  const [text,setText]=useState('');
-  const [platform,setPlatform]=useState('Instagram');
-  const [editId,setEditId]=useState(null);
+  // The composer is a draft until "Salvar Post", and leaving the view (a
+  // stray sidebar click) threw it away. It now lives in the per-tab UI store;
+  // an edit whose post was deleted meanwhile falls back to a new draft.
+  const _draft=useMemo(()=>bhUiLoad('socialDraft'),[]);
+  const [text,setText]=useState(()=>typeof _draft.text==='string'?_draft.text:'');
+  const [platform,setPlatform]=useState(()=>typeof _draft.platform==='string'?_draft.platform:'Instagram');
+  const [editId,setEditId]=useState(()=>_draft.editId!=null&&posts.some(p=>String(p.id)===String(_draft.editId)&&!p.deleted)?_draft.editId:null);
+  useEffect(()=>{bhUiReplace('socialDraft',text||editId!=null?{text,platform,editId}:{});},[text,platform,editId]);
   const [trash,setTrash]=useState(false);
   const [editingTpl,setEditingTpl]=useState(null); // {index,label,text} or {index:-1,...} for new
   const saveTemplates=t=>{setTemplates(t);try{localStorage.setItem('boardhub_social_templates',JSON.stringify(t));}catch(e){bhLog('socialTemplates.save',e,'the edited templates stay only in memory for this session');}};
@@ -10239,7 +10330,15 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
   // threw away edits unless "Salvar" was pressed first. Leaving now keeps them.
   const initialRef=useRef(JSON.stringify(form));
   const dirty=JSON.stringify(form)!==initialRef.current;
-  const leave=()=>{if(dirty)onSave(form);else onBack();};
+  // Leaving by the sidebar, a 1–8 shortcut or the command palette unmounts this
+  // view without passing through "Voltar", and the edits went with it. Keep
+  // them then too. An explicit Voltar/Salvar/Lixeira already decided (and a
+  // late save would undo the trash), so those mark the editor settled.
+  const settledRef=useRef(false);
+  const formRef=useRef(form);formRef.current=form;
+  const onSaveRef=useRef(onSave);onSaveRef.current=onSave;
+  useEffect(()=>()=>{if(!settledRef.current&&JSON.stringify(formRef.current)!==initialRef.current)onSaveRef.current(formRef.current,{stay:true});},[]);
+  const leave=()=>{settledRef.current=true;if(dirty)onSave(form);else onBack();};
   // Projects are linked to clients by the free-text "cliente" field, which
   // people fill with either the person's name or the company.
   const linked=useMemo(()=>{
@@ -10292,8 +10391,8 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
         </div>
       )}
       <div style={{display:'flex',justifyContent:'space-between'}}>
-        <button className="btn btn-danger" onClick={onDelete}><Icon name="trash-2" size={14}/> Mover para Lixeira</button>
-        <button className="btn btn-dark" onClick={()=>onSave(form)}><Icon name="check" size={14}/> Salvar</button>
+        <button className="btn btn-danger" onClick={()=>{settledRef.current=true;onDelete();}}><Icon name="trash-2" size={14}/> Mover para Lixeira</button>
+        <button className="btn btn-dark" onClick={()=>{settledRef.current=true;onSave(form);}}><Icon name="check" size={14}/> Salvar</button>
       </div>
     </div>
   );
@@ -10303,6 +10402,11 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
 const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject})=>{
   const [selected,setSelected]=useState(null);
   const [trash,setTrash]=useState(false);
+  // Opened from the command palette (bhOpenItem).
+  useEffect(()=>{
+    const take=()=>{const id=bhTakeOpenItem('clients');if(id==null)return;const c=clients.find(x=>String(x.id)===String(id)&&!x.deleted);if(c){setTrash(false);setSelected(c);}};
+    take();window.addEventListener('bh-open-item',take);return()=>window.removeEventListener('bh-open-item',take);
+  },[clients]);
   const tagColor=s=>({'Ativo':'tag-green','Lead':'tag-yellow','Inativo':'tag-gray','Arquivado':'tag-gray'}[s]||'tag-gray');
   const save=(form,{stay=false}={})=>{setClients(p=>p.map(c=>String(c.id)===String(form.id)?form:c));if(!stay)setSelected(null);};
   const softDelete=()=>{setClients(p=>p.map(c=>c.id===selected.id?{...c,deleted:true,deletedAt:new Date().toISOString()}:c));setSelected(null);};
@@ -10341,7 +10445,7 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject}
     onDragLeave:e=>{e.currentTarget.classList.remove('drag-over');},
     onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(dragIdxRef.current!=null&&dragIdxRef.current!==idx){reorderClients(dragIdxRef.current,idx);dragIdxRef.current=null;}},
   });
-  if(selected&&!trash)return <ClientDetail client={selected} onBack={()=>setSelected(null)} onSave={save} onDelete={softDelete} isMobile={isMobile} projects={projects} onSelectProject={onSelectProject}/>;
+  if(selected&&!trash)return <ClientDetail key={selected.id} client={selected} onBack={()=>setSelected(null)} onSave={save} onDelete={softDelete} isMobile={isMobile} projects={projects} onSelectProject={onSelectProject}/>;
   return(
     <div className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',overflowY:isMobile?'visible':'auto'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap'}}>
@@ -10447,8 +10551,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
     if(!full||!full.state){showStatus('err','Não foi possível ler esse backup. Nada foi alterado.');return;}
     setLoading(true);
     try{
-      const incomingWins=await bhConfirm({title:'Conteúdo em conflito',confirmLabel:'Usar versões do backup',cancelLabel:'Manter versões atuais',
+      const incomingWins=await bhConfirm({title:'Conteúdo em conflito',confirmLabel:'Usar versões do backup',cancelLabel:'Manter versões atuais',dismissValue:null,
         message:'Usar o backup nos registros repetidos? Isso pode reverter edições recentes. Manter versões atuais acrescenta só itens ausentes. O progresso de foco atual será preservado.'});
+      if(incomingWins===null)return; // dialog closed: restore nothing
       if(!await onImport(full.state,{incomingWins}))throw new Error('Backup sem seções reconhecidas.');
       showStatus('ok','✓ Backup mesclado. Progresso de foco atual preservado.');refreshHistory();
     }catch(e){showStatus('err',e.message||'Falha ao restaurar.');}
@@ -10536,8 +10641,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
     try{
       const data=JSON.parse(await file.text());
       if(!await bhConfirm({title:'Importar arquivo',message:'Importar este backup? Uma cópia do estado atual será gravada antes de qualquer alteração.',confirmLabel:'Continuar'}))return;
-      const incomingWins=await bhConfirm({title:'Importar backup',confirmLabel:'Usar versões do backup',cancelLabel:'Manter versões atuais',
+      const incomingWins=await bhConfirm({title:'Importar backup',confirmLabel:'Usar versões do backup',cancelLabel:'Manter versões atuais',dismissValue:null,
         message:'Usar o backup em registros repetidos? Pode reverter edições. Manter versões atuais acrescenta itens ausentes. O progresso de foco atual será preservado.'});
+      if(incomingWins===null)return; // dialog closed: import nothing
       if(!await onImport(data,{incomingWins}))throw new Error('Arquivo sem seções reconhecidas.');
       showStatus('ok','✓ Backup mesclado; original arquivado no histórico.');refreshHistory();
     }catch(e){showStatus('err',e.message||'Arquivo inválido.');}
@@ -10982,6 +11088,11 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
 
 const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   const [selected,setSelected]=useState(null);
+  // Opened from the command palette (bhOpenItem).
+  useEffect(()=>{
+    const take=()=>{const id=bhTakeOpenItem('mentors');if(id==null)return;const m=mentors.find(x=>String(x.id)===String(id)&&!x.deleted);if(m)setSelected(m);};
+    take();window.addEventListener('bh-open-item',take);return()=>window.removeEventListener('bh-open-item',take);
+  },[mentors]);
   const [search,setSearch]=useState('');
   const currentYear=new Date().getFullYear();
   const [activeYear,setActiveYear]=useState('all');
@@ -11053,7 +11164,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
 
   return(
     <div className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',overflowY:isMobile?'visible':'auto'}}>
-      {selectedFresh&&<MentorModal mentor={selectedFresh} onClose={()=>setSelected(null)} onSave={save} onDelete={del}/>}
+      {selectedFresh&&<MentorModal key={selectedFresh.id} mentor={selectedFresh} onClose={()=>setSelected(null)} onSave={save} onDelete={del}/>}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{flex:1,minWidth:0}}>
           <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="q12"/>Mentores</h1>
@@ -11194,15 +11305,18 @@ const ShortcutsModal=({onClose})=>{
     ['N','Captura rápida: nova nota'],
     ['T','Captura rápida: nova atividade'],
     ['1 – 8','Ir para a seção (Visão Geral … Sincronizar)'],
+    ['Ctrl / ⌘ + V','Colar imagem no post, frames da tarefa ou pesquisa abertos'],
+    ['Ctrl / ⌘ + Enter','Salvar o post em Social'],
+    ['F2','Renomear a pasta da Galeria em foco'],
     ['?','Mostrar este painel de atalhos'],
     ['Esc','Fechar modais e popups'],
   ];
   return(
-    <Modal title="Atalhos de teclado" onClose={onClose} width={400}>
+    <Modal title="Atalhos de teclado" onClose={onClose} width={440}>
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {rows.map(([k,d])=>(
           <div key={k} style={{display:'flex',alignItems:'center',gap:12}}>
-            <kbd style={{fontFamily:'Alegreya Sans,sans-serif',fontSize:'.72rem',fontWeight:600,background:'var(--bg)',border:'1px solid var(--border-2)',borderBottomWidth:2,borderRadius:6,padding:'3px 8px',minWidth:78,textAlign:'center',flexShrink:0}}>{k}</kbd>
+            <kbd style={{fontFamily:'Alegreya Sans,sans-serif',fontSize:'.72rem',fontWeight:600,background:'var(--bg)',border:'1px solid var(--border-2)',borderBottomWidth:2,borderRadius:6,padding:'3px 8px',minWidth:112,boxSizing:'border-box',textAlign:'center',flexShrink:0}}>{k}</kbd>
             <span style={{fontSize:'.82rem',color:'var(--text)'}}>{d}</span>
           </div>
         ))}
@@ -11273,7 +11387,9 @@ const App=()=>{
   const navigateRef=useRef(null);
   useEffect(()=>{
     const onKD=e=>{
-      if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();setShowCmdPalette(v=>!v);return;}
+      // Not over an open dialog: a palette jump unmounted e.g. the mentor
+      // editor and dropped its edits without the "Descartar?" it asks on close.
+      if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();if(_modalStack.length)return;setShowCmdPalette(v=>!v);return;}
       const tag=e.target.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target.isContentEditable)return;
       // Single-key shortcuts never fire with a modifier (Ctrl+T, Alt+N belong
@@ -11651,9 +11767,19 @@ const App=()=>{
       if(expectedCommit&&!Object.values(_remoteCache).some(d=>d?._clientCommit===expectedCommit))return;
       const thisRun=++mergeRun;
       const editAtStart=_editGen.current;
+      // An edit during the run makes it stale. Only the initial reconcile, which
+      // raised the flag at its top, must lower it again to be redone. Lowering
+      // it on a routine run (a click landing while the pre-sync or concurrent
+      // copy was being written) sent the auto-save's retry through the BOOT
+      // reconcile: a device with no real data at boot applied the cloud over the
+      // edit just made (it survived only in the backup history), and one with
+      // data archived the cloud as 'cloud-superseded' for nothing. Aborting is
+      // enough there: the edit stays pending and the pump's transactional
+      // three-way merge folds in the remote version that arrived.
+      let initialRun=false;
       const stillCurrent=()=>{
         if(!listenerAlive||thisRun!==mergeRun||bhPersistenceBusy())return false;
-        if(editAtStart!==_editGen.current){_didInitialReconcile.current=false;return false;}
+        if(editAtStart!==_editGen.current){if(initialRun)_didInitialReconcile.current=false;return false;}
         return true;
       };
       const main=_remoteCache['state'];
@@ -11701,7 +11827,7 @@ const App=()=>{
       // it — the user would read the wrong explanation for where their data went.
       let justFirstContact=false;
       if(!_didInitialReconcile.current){
-        _didInitialReconcile.current=true;
+        _didInitialReconcile.current=true;initialRun=true;
         const firstContact=_deviceSyncedUid.current!==fbUser.uid;
         if(firstContact){
           justFirstContact=true;
@@ -11808,7 +11934,8 @@ const App=()=>{
               const{_updated,...cloudSnap}=data;
               reason=bhLocalSupersededDecision({
                 localSig:bhSig(cur),remoteSig:bhSig(cloudSnap),localAt,now:Date.now(),
-                localHasData:bhStateHasData(cur)});
+                localHasData:bhStateHasData(cur),
+                localSynced:(()=>{const b=_bhSyncBases.get(fbUser.uid);return !!b&&bhEqual(bhSyncState(cur),b);})()});
             }catch(e){bhLog('reconcile.localSuperseded',e,'the local snapshot was archived as a plain pre-sync');}
           }
           const stored=await bhCapture(cur,reason);
@@ -12310,7 +12437,7 @@ const App=()=>{
     if(A(ingested.notes)){setNotes(current=>bhMergeRecords(current,bhRecordArray(ingested.notes),{incomingWins}));applied++;}
     if(A(ingested.tasks)){setTasks(current=>bhMergeRecords(current,bhRecordArray(ingested.tasks),{incomingWins}));applied++;}
     if(A(ingested.socialPosts)){setSocialPosts(current=>bhMergeRecords(current,bhRecordArray(ingested.socialPosts),{incomingWins}));applied++;}
-    if(A(ingested.socialTemplates)){setSocialTemplatesState(current=>incomingWins||!current.length?bhRecordArray(ingested.socialTemplates):current);applied++;}
+    if(A(ingested.socialTemplates)){setSocialTemplatesState(current=>bhMergeTemplates(current,bhRecordArray(ingested.socialTemplates),{incomingWins}));applied++;}
     if(A(ingested.galleryPosts)){setGalleryPosts(current=>repairProjectFocusPostScopes(bhMergeRecords(current,bhRecordArray(ingested.galleryPosts).map(normalizeFocusPostCopy),{incomingWins}),pomoData?.rank?.sessions));applied++;}
     if(A(ingested.galleryFolders)){setGalleryFolders(current=>bhMergeRecords(current,bhRecordArray(ingested.galleryFolders),{incomingWins}));applied++;}
     if(A(ingested.noteGroups)){setNoteGroups(current=>bhMergeRecords(current,bhRecordArray(ingested.noteGroups),{incomingWins}));applied++;}
