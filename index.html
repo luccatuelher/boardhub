@@ -63,7 +63,7 @@
 try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours();var _bhNight=_bhT==='automatico'?(_bhH<8||_bhH>=18):_bhT==='notturno';if(_bhNight)document.documentElement.setAttribute('data-theme','notturno');}catch(e){/*silent-ok: no localStorage (private mode) means no stored preference, and the default IS the paper theme*/}
 </script>
 <style>
-:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#78716C;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
+:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
 /* M1 — tempo ramp. Replaces the 4 medal colours that were hardcoded in the JSX
    (#CD7F32/#94A3B8/#FBBF24/#60A5FA). It is not a gamification rainbow: it is ink
    warming and thickening until it reaches the app's own --accent, which stays
@@ -91,7 +91,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
    These are EARTH and MINERAL colours: desaturated, warm, and they live with the
    sepia --accent instead of competing with it. */
 --ok-bg:#E6EDE6;--ok-fg:#3F6152;--ok-line:#B4C7BB;
---warn-bg:#F6EEDC;--warn-fg:#8A6A26;--warn-line:#DCC48A;
+--warn-bg:#F6EEDC;--warn-fg:#866724;--warn-line:#DCC48A;
 --danger-bg:#F3E4E0;--danger-fg:#8C3A2E;--danger-line:#D9B3A9;
 --info-bg:#E6E9F0;--info-fg:#3A4E73;--info-line:#B3BECF;
 --neutral-bg:#F0EDE9;
@@ -237,6 +237,10 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .gallery-grid{display:grid}
 .gallery-folder-edit{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:5px;line-height:0;opacity:.55;transition:opacity .12s,background .12s}
 .gallery-folder-edit:hover,.gallery-folder-edit:focus-visible{opacity:1;background:rgba(var(--ink),.06);color:var(--text)}
+/* Touch: icon-only buttons in dense rows measured 17-19px at 390px wide, under
+   the 24px minimum (WCAG 2.5.8) and easy to miss with a thumb. Only coarse
+   pointers grow them; the mouse layout keeps its density. */
+@media (hover:none),(pointer:coarse){.bh-touch-target,.gallery-folder-edit{min-width:32px;min-height:32px;display:inline-flex;align-items:center;justify-content:center}}
 .post-img-tools{position:absolute;left:6px;bottom:6px;z-index:2;display:flex;align-items:center;gap:2px;padding:2px;border-radius:14px;background:rgba(20,17,14,.7);color:#fff;font-size:.66rem;font-weight:600;opacity:0;transition:opacity .12s}
 .post-img-tile:hover .post-img-tools,.post-img-tools:focus-within{opacity:1}
 @media (hover:none){.post-img-tools{opacity:1}}
@@ -475,7 +479,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .progress-ring{transform:rotate(-90deg);}
 .progress-ring-bg{stroke:var(--border);fill:none;}
 .progress-ring-fill{fill:none;stroke-linecap:round;transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1);}
-.sidebar-section-label{font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);opacity:.85;padding:0 12px;margin-top:20px;margin-bottom:6px;}
+.sidebar-section-label{font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:0 12px;margin-top:20px;margin-bottom:6px;}
 .sidebar-fav{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:6px;font-size:.8rem;color:var(--muted);cursor:pointer;transition:all .12s;border:none;background:none;width:100%;font-family:'Alegreya Sans',sans-serif;text-align:left;}
 .sidebar-fav:hover{background:rgba(var(--ink),.05);color:var(--text);}
 .sidebar-fav .fav-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
@@ -2384,8 +2388,10 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
   // decoding: priority (lightbox / above-the-fold) images decode SYNC so the frame
   // that shows the blob URL already has pixels — no one-frame blank flash. Everything
   // else stays async to keep the main thread free while off-screen cells resolve.
+  // Lowercase on purpose: React 18 does not know `fetchPriority` and warns in
+  // dev (the attribute still landed); the plain attribute passes straight through.
   return <img {...props} ref={setRef} src={url} loading={priority||local?'eager':'lazy'}
-    fetchPriority={priority?'high':'auto'} decoding={priority?'sync':'async'} onError={onErr}
+    fetchpriority={priority?'high':'auto'} decoding={priority?'sync':'async'} onError={onErr}
     style={local?props.style:{...props.style,animation:'imgFadeIn .12s ease'}}/>;
 };
 
@@ -3402,7 +3408,6 @@ const bhFocusable=root=>{
 // keyboard behaviour instead of ignoring Escape.
 const useModalLayer=onClose=>{
   const boxRef=useRef(null);
-  const tokenRef=useRef(null);
   // v23.3 P2-1: the 4 call sites pass an inline arrow, so onClose changes
   // identity on every render of the parent. With [onClose] in the deps, any
   // parent render unmounted and remounted this effect: the modal left and
@@ -3413,7 +3418,7 @@ const useModalLayer=onClose=>{
   const onCloseRef=useRef(onClose);
   useEffect(()=>{onCloseRef.current=onClose;});
   useEffect(()=>{
-    const token={};tokenRef.current=token;_modalStack.push(token);
+    const token={};_modalStack.push(token);
     const prevFocus=document.activeElement;
     // Keep an autoFocus'd control (e.g. the confirm button) focused, so Enter
     // answers the dialog; focusing the box itself swallowed that.
@@ -6604,7 +6609,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                 const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+d);
                 const lbl=dt.getDay()===0?'Dom':'Sáb';
                 return <div key={'wl'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
-                  fontSize:'.62rem',fontWeight:700,color:'var(--muted)',opacity:.7,pointerEvents:'none',letterSpacing:'.03em'}}>{lbl}</div>;
+                  fontSize:'.62rem',fontWeight:700,color:'var(--muted)',pointerEvents:'none',letterSpacing:'.03em'}}>{lbl}</div>;
               })}
             </div>
 
@@ -6638,11 +6643,11 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                     }}>
                     {/* Left resize */}
                     <div onPointerDown={e=>{if(e.button===0)startDrag(e,t.id,'left');}} style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px 0 0 6px',zIndex:1}}
-                      title="Arrastar início"><span style={{fontSize:9,color:colors.text,opacity:.5,lineHeight:1}}>⠿</span></div>
+                      title="Arrastar início"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
                     <div style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'.68rem',fontWeight:600,color:colors.text,userSelect:'none'}}>{width>60?t.text:''}</div>
                     {/* Right resize */}
                     <div onPointerDown={e=>{if(e.button===0)startDrag(e,t.id,'right');}} style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'0 6px 6px 0',zIndex:1}}
-                      title="Arrastar prazo"><span style={{fontSize:9,color:colors.text,opacity:.5,lineHeight:1}}>⠿</span></div>
+                      title="Arrastar prazo"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
                   </div>
                 </div>
               );
@@ -6651,7 +6656,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             {/* Today line */}
             {todayOffset>=0&&todayOffset<=gridW&&(
               <div style={{position:'absolute',left:todayOffset,top:0,bottom:0,width:2,background:'var(--danger-strong)',pointerEvents:'none',zIndex:10}}>
-                <div style={{position:'absolute',top:HEADER_H-18,left:'50%',transform:'translateX(-50%)',background:'var(--danger-strong)',color:'white',
+                <div style={{position:'absolute',top:HEADER_H-18,left:'50%',transform:'translateX(-50%)',background:'color-mix(in srgb,var(--danger-strong) 88%,black)',color:'white',
                   fontSize:'.62rem',fontWeight:800,padding:'2px 5px',borderRadius:3,whiteSpace:'nowrap',letterSpacing:'.06em'}}>HOJE</div>
               </div>
             )}
@@ -6767,8 +6772,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     setGalleryPopup(prev=>prev&&String(prev.id)===String(postId)?{...prev,[field]:value}:prev);
     setGalleryPosts(prev=>(prev||[]).map(post=>String(post.id)===String(postId)?{...post,[field]:value}:post));
   };
-  const addGalleryPopupImages=async e=>{
-    const files=Array.from(e.target.files||[]);e.target.value='';
+  const addGalleryPopupImages=e=>{const files=Array.from(e.target.files||[]);e.target.value='';return addGalleryPopupFiles(files);};
+  const addGalleryPopupFiles=async rawFiles=>{
+    const files=bhImageFiles(rawFiles,true);
     if(!files.length||galleryPopupUploading)return;
     const postId=galleryPopup?.id;
     setGalleryPopupUploading(true);
@@ -6875,18 +6881,24 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
   const handleResearchImgUpload=async(noteId,e)=>{
     const input=e.target;
     const files=Array.from(input.files||[]);
-    if(!files.length)return;
+    input.value='';
+    await addResearchImages(noteId,files);
+  };
+  // Shared by the file picker, drag-and-drop and Ctrl+V.
+  const addResearchImages=async(noteId,rawFiles)=>{
+    const files=bhImageFiles(rawFiles);
+    if(!files.length||noteId==null)return;
     try{
       const urls=await uploadImages(files);
       setLocal(prev=>{
-        const researchNotes=(prev.researchNotes||[]).map(n=>n.id===noteId?{...n,images:[...(n.images||[]),...urls]}:n);
+        const researchNotes=(prev.researchNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n);
         const updated={...prev,researchNotes,...(urls.length&&!prev.cover?{cover:urls[0]}:{})};
         projectRef.current=updated;_pendingUpdate.current=updated;return updated;
       });
     }catch(err){
       bhLog('research.upload',err,'reference images were not added');
       await bhAlert('Não foi possível enviar as imagens de referência. Tente novamente.');
-    }finally{input.value='';}
+    }
   };
   const moveResearchImg=(from,to)=>{
     const noteId=activeResearchId;
@@ -7014,25 +7026,66 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
   };
   const dragMiniRef=useRef(null);
   const dragOverMiniRef=useRef(null);
+  // A drop that did not start on a task row (a file, an inner note, an image
+  // tile) arrives with fromIdx null, and splice(null,1) is splice(0,1): the
+  // FIRST task used to jump to wherever the thing was dropped.
   const reorderMinis=(fromIdx,toIdx)=>{
-    if(fromIdx===toIdx)return;
+    if(fromIdx==null||toIdx==null||fromIdx===toIdx)return;
     const minis=[...(local.miniProjects||[])];
     const[moved]=minis.splice(fromIdx,1);
     minis.splice(toIdx,0,moved);
     upd('miniProjects',minis);
   };
   const miniImgRef=useRef();
-  const handleMiniImgs=async e=>{
-    const files=Array.from(e.target.files);
-    const miniId=activeMiniId;
-    const urls=await uploadImages(files);
-    setLocal(prev=>{
-      const miniProjects=(prev.miniProjects||[]).map(m=>m.id===miniId?{...m,frames:[...(m.frames||[]),...urls]}:m);
-      const updated={...prev,miniProjects,...(urls.length?{cover:urls[urls.length-1]}:{})};
-      projectRef.current=updated;_pendingUpdate.current=updated;return updated;
-    });
+  const handleMiniImgs=e=>{
+    const files=Array.from(e.target.files||[]);
     e.target.value='';
+    return addMiniFrames(activeMiniId,files);
   };
+  // Frames used to replace the project cover on every upload (the last frame
+  // won), same bug the reference images had; like them they now only fill an
+  // EMPTY cover. A failed upload used to reject silently and leave the input
+  // holding the files, so picking the same file again did nothing.
+  const addMiniFrames=async(miniId,rawFiles)=>{
+    const files=bhImageFiles(rawFiles);
+    if(!files.length||miniId==null)return;
+    try{
+      const urls=await uploadImages(files);
+      setLocal(prev=>{
+        const miniProjects=(prev.miniProjects||[]).map(m=>String(m.id)===String(miniId)?{...m,frames:[...(m.frames||[]),...urls]}:m);
+        const updated={...prev,miniProjects,...(urls.length&&!prev.cover?{cover:urls[0]}:{})};
+        projectRef.current=updated;_pendingUpdate.current=updated;return updated;
+      });
+    }catch(err){
+      bhLog('task.frames.upload',err,'the frames were not added');
+      await bhAlert('Não foi possível adicionar os frames. Tente novamente.');
+    }
+  };
+  // Drop targets and Ctrl/Cmd+V for the three upload spots on this page. The
+  // paste goes to whichever one is on screen: the focus post while it is being
+  // edited, else the open task's frames or the open research note. Plain-text
+  // paste into the title/notes fields is left alone.
+  const miniDrop=useFileDrop(files=>addMiniFrames(activeMiniId,files),tab==='Tarefas'&&!!activeMini&&!activeInnerNoteId);
+  const researchDrop=useFileDrop(files=>addResearchImages(activeResearchId,files),tab==='Pesquisa'&&!!activeResearch);
+  const popupDrop=useFileDrop(addGalleryPopupFiles,!!galleryPopup&&galleryPopupEditing);
+  const pasteTargetRef=useRef(null);
+  pasteTargetRef.current=galleryPopup
+    ?(galleryPopupEditing?addGalleryPopupFiles:null)
+    :tab==='Tarefas'&&activeMini&&!activeInnerNoteId?(files=>addMiniFrames(activeMini.id,files))
+    :tab==='Pesquisa'&&activeResearch?(files=>addResearchImages(activeResearch.id,files))
+    :null;
+  useEffect(()=>{
+    const onPaste=e=>{
+      const target=pasteTargetRef.current;
+      if(!target)return;
+      const files=bhImageFiles(e.clipboardData?.files);
+      if(!files.length||document.querySelector('[role=dialog],.lightbox'))return;
+      e.preventDefault();
+      target(files);
+    };
+    document.addEventListener('paste',onPaste);
+    return()=>document.removeEventListener('paste',onPaste);
+  },[]);
   const MINI_STATUSES=['Pendente','Em Andamento','Concluído','Atrasado'];
 
   return(
@@ -7393,7 +7446,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                 <div key={m.id}
                   draggable
                   onDragStart={e=>{dragMiniRef.current=mIdx;e.dataTransfer.effectAllowed='move';}}
-                  onDragOver={e=>{e.preventDefault();dragOverMiniRef.current=mIdx;}}
+                  onDragOver={e=>{if(dragMiniRef.current==null)return;e.preventDefault();dragOverMiniRef.current=mIdx;}}
                   onDrop={e=>{e.preventDefault();reorderMinis(dragMiniRef.current,dragOverMiniRef.current);dragMiniRef.current=null;dragOverMiniRef.current=null;}}
                   onDragEnd={()=>{dragMiniRef.current=null;dragOverMiniRef.current=null;}}
                 >
@@ -7456,7 +7509,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
 
           {/* Right: editor panel */}
           {(!isMobile||activeMiniId)&&(
-          <div className="card" style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320}}>
+          <div className="card" {...miniDrop.props} style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320,position:'relative'}}>
+            {miniDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar frames</span></div>}
             {isMobile&&(
               <button onClick={()=>setActiveMiniId(null)} className="btn btn-ghost" style={{alignSelf:'flex-start',padding:'4px 8px',fontSize:'.78rem',marginBottom:10}}>
                 <Icon name="arrow-left" size={13}/> Voltar às tarefas
@@ -7577,7 +7631,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
           </div>
           )}
           {(!isMobile||activeResearchId)&&(
-          <div className="card" style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320}}>
+          <div className="card" {...researchDrop.props} style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320,position:'relative'}}>
+            {researchDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar imagens</span></div>}
             {isMobile&&(
               <button onClick={()=>setActiveResearchId(null)} className="btn btn-ghost" style={{alignSelf:'flex-start',marginBottom:12,padding:'4px 8px',fontSize:'.78rem'}}>
                 <Icon name="arrow-left" size={13}/> Voltar às pesquisas
@@ -7590,7 +7645,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                   <input value={activeResearch.title} onChange={e=>updateResearch('title',e.target.value)}
                     style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.6rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:1,minWidth:0}}
                     placeholder="Título da pesquisa"/>
-                  <button onClick={()=>deleteResearch(activeResearch.id)} className="btn btn-ghost text-link-danger" style={{padding:6,flexShrink:0}}>
+                  <button onClick={()=>deleteResearch(activeResearch.id)} className="btn btn-ghost text-link-danger" style={{padding:6,flexShrink:0}} title="Excluir pesquisa" aria-label="Excluir pesquisa">
                     <Icon name="trash-2" size={16}/>
                   </button>
                 </div>
@@ -7631,7 +7686,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
         </div>
       )}
       {galleryPopup&&ReactDOM.createPortal(
-        <div onClick={()=>{setGalleryPopup(null);setGalleryPopupEditing(false);}} style={{position:'fixed',inset:0,zIndex:400,background:'rgba(10,8,6,.6)',backdropFilter:'blur(3px)',WebkitBackdropFilter:'blur(3px)',display:'flex',alignItems:'center',justifyContent:'center',padding:isMobile?12:24}}>
+        <div onClick={()=>{setGalleryPopup(null);setGalleryPopupEditing(false);}} {...popupDrop.props} style={{position:'fixed',inset:0,zIndex:400,background:'rgba(10,8,6,.6)',backdropFilter:'blur(3px)',WebkitBackdropFilter:'blur(3px)',display:'flex',alignItems:'center',justifyContent:'center',padding:isMobile?12:24}}>
+          {/* The whole backdrop is the drop target: the dialog scrolls, so an
+              overlay inside it would sit off-screen once scrolled. */}
+          {popupDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar ao post</span></div>}
           <div onClick={e=>e.stopPropagation()} style={{background:'var(--surface)',borderRadius:16,maxWidth:1120,width:'100%',maxHeight:'92vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
             <input ref={galleryPopupImgRef} type="file" accept="image/*,video/*,.gif" multiple hidden onChange={addGalleryPopupImages}/>
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,padding:isMobile?'18px 18px 0':'24px 28px 0'}}>
@@ -7701,6 +7759,22 @@ const ImgMoveTools=({index,count,onMove})=>count>1?(
     <button type="button" onClick={()=>onMove(index,index+1)} disabled={index===count-1} title="Mover para a direita" aria-label={'Mover imagem '+(index+1)+' para a direita'}><Icon name="arrow-right" size={11}/></button>
   </div>
 ):null;
+// Files dragged in from the computer onto an upload target. Only drags that
+// carry 'Files' react, so the image reorder drags above pass through untouched;
+// dragleave into a child of the target does not drop the overlay.
+const bhIsFileDrag=e=>[...(e.dataTransfer?.types||[])].includes('Files');
+const bhImageFiles=(list,withVideo=false)=>Array.from(list||[]).filter(f=>f&&(
+  (withVideo?/^(image|video)\//:/^image\//).test(f.type)||(withVideo?/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i:/\.(gif|png|jpe?g|webp)$/i).test(f.name||'')));
+const useFileDrop=(onFiles,enabled=true)=>{
+  const [over,setOver]=useState(false);
+  useEffect(()=>{if(!enabled)setOver(false);},[enabled]);
+  const props=enabled?{
+    onDragOver:e=>{if(!bhIsFileDrag(e))return;e.preventDefault();e.dataTransfer.dropEffect='copy';if(!over)setOver(true);},
+    onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))setOver(false);},
+    onDrop:e=>{if(!bhIsFileDrag(e))return;e.preventDefault();setOver(false);onFiles(Array.from(e.dataTransfer.files||[]));},
+  }:{};
+  return {over:enabled&&over,props};
+};
 
 // - GALLERY -
 const DEFAULT_GALLERY_FOLDERS=[
@@ -9726,11 +9800,11 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
                 onClick={e=>e.stopPropagation()} style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
             : <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>}
           {!showTrash&&(isCategory(n)||isFolder(n)||isNote(n))&&<div style={{display:'flex',gap:2,flexShrink:0,opacity:.65}}>
-            <button onClick={e=>beginRename(n,e)} title="Renomear" aria-label={'Renomear '+(n.title||'item')}
+            <button className="bh-touch-target" onClick={e=>beginRename(n,e)} title="Renomear" aria-label={'Renomear '+(n.title||'item')}
               style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}
               onMouseEnter={e=>{e.currentTarget.style.color='var(--text)';e.currentTarget.style.background='var(--bg)';}}
               onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.background='transparent';}}><Icon name="pencil" size={11}/></button>
-            <button onClick={e=>{e.stopPropagation();trashItem(n.id);}} title={isCategory(n)?'Arquivar categoria':isFolder(n)?'Mover pasta para Arquivos':'Mover nota para Arquivos'} aria-label={isCategory(n)?'Arquivar categoria':isFolder(n)?'Mover pasta para Arquivos':'Mover nota para Arquivos'}
+            <button className="bh-touch-target" onClick={e=>{e.stopPropagation();trashItem(n.id);}} title={isCategory(n)?'Arquivar categoria':isFolder(n)?'Mover pasta para Arquivos':'Mover nota para Arquivos'} aria-label={isCategory(n)?'Arquivar categoria':isFolder(n)?'Mover pasta para Arquivos':'Mover nota para Arquivos'}
               style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}
               onMouseEnter={e=>{e.currentTarget.style.color='var(--danger-fg)';e.currentTarget.style.background='var(--danger-bg)';}}
               onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.background='transparent';}}><Icon name="archive" size={11}/></button>
@@ -9759,8 +9833,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
             <span className="drag-handle" style={{color:'var(--muted)',lineHeight:0,flexShrink:0}}><Icon name="grip-vertical" size={9}/></span>
             <span style={{fontSize:'.62rem',color:'var(--muted)',width:15,flexShrink:0,fontVariantNumeric:'tabular-nums'}}>{String(i+1).padStart(2,'0')}</span>
             <span style={{fontSize:'.76rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{entry.title}</span>
-            <button onClick={e=>{e.stopPropagation();setRenaming({id:entry.id,value:entry.title||''});setSelected({kind:'entry',id:entry.id,folderId:n.id});setMobileDetail(true);}} title="Renomear nota" aria-label={'Renomear nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="pencil" size={10}/></button>
-            <button onClick={e=>{e.stopPropagation();archiveEntry(entry.id,n.id);if(selected?.kind==='entry'&&selected.id===entry.id)setSelected(null);}} title="Mover nota para Arquivos" aria-label={'Arquivar nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="archive" size={10}/></button>
+            <button className="bh-touch-target" onClick={e=>{e.stopPropagation();setRenaming({id:entry.id,value:entry.title||''});setSelected({kind:'entry',id:entry.id,folderId:n.id});setMobileDetail(true);}} title="Renomear nota" aria-label={'Renomear nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="pencil" size={10}/></button>
+            <button className="bh-touch-target" onClick={e=>{e.stopPropagation();archiveEntry(entry.id,n.id);if(selected?.kind==='entry'&&selected.id===entry.id)setSelected(null);}} title="Mover nota para Arquivos" aria-label={'Arquivar nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="archive" size={10}/></button>
           </div>)}
           <div onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('drag-over')}} onDragLeave={e=>e.currentTarget.classList.remove('drag-over')} onDrop={e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');const d=dragRef.current;if(!d)return;if(d.kind==='item'&&d.itemType==='note')moveNoteIntoFolder(d.id,n.id,null);else if(d.kind==='entry')moveEntryToFolder(d.id,d.folderId,n.id,null);dragRef.current=null;}} style={{height:5,borderRadius:6}}/>
         </div>
@@ -10010,7 +10084,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
         <DialogLayer onClose={()=>setEditingTpl(null)} label={editingTpl.index===-1?'Novo Template':'Editar Template'} className="modal" style={{maxWidth:480}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
               <h2 className="serif" style={{fontSize:'1.5rem',fontWeight:400,margin:0}}>{editingTpl.index===-1?'Novo Template':'Editar Template'}</h2>
-              <button className="btn btn-ghost" onClick={()=>setEditingTpl(null)} style={{padding:6}}><Icon name="x" size={18}/></button>
+              <button className="btn btn-ghost" onClick={()=>setEditingTpl(null)} style={{padding:6}} title="Fechar" aria-label="Fechar"><Icon name="x" size={18}/></button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:14}}>
               <Field label="Nome do template">
@@ -10080,10 +10154,10 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                 <div key={i} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 14px',transition:'border-color .15s',position:'relative',minWidth:0,overflow:'hidden'}}
                   onMouseEnter={e=>e.currentTarget.style.borderColor='var(--border-2)'} onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                    <button onClick={()=>setText(t.text)} style={{fontWeight:600,fontSize:'.82rem',background:'none',border:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',color:'var(--text)',padding:0,textAlign:'left'}}>{t.label}</button>
+                    <button className="bh-touch-target" onClick={()=>setText(t.text)} style={{fontWeight:600,fontSize:'.82rem',background:'none',border:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',color:'var(--text)',padding:0,textAlign:'left'}}>{t.label}</button>
                     <div style={{display:'flex',gap:2,flexShrink:0}}>
-                      <button className="btn btn-ghost" style={{padding:'2px 5px'}} onClick={()=>openEditTpl(i)} title="Editar"><Icon name="pencil" size={12}/></button>
-                      <button className="btn btn-ghost text-link-danger" style={{padding:'2px 5px'}} onClick={()=>deleteTpl(i)} title="Excluir"><Icon name="x" size={12}/></button>
+                      <button className="btn btn-ghost bh-touch-target" style={{padding:'2px 5px'}} onClick={()=>openEditTpl(i)} title="Editar" aria-label={'Editar template '+(t.label||'')}><Icon name="pencil" size={12}/></button>
+                      <button className="btn btn-ghost text-link-danger bh-touch-target" style={{padding:'2px 5px'}} onClick={()=>deleteTpl(i)} title="Excluir" aria-label={'Excluir template '+(t.label||'')}><Icon name="x" size={12}/></button>
                     </div>
                   </div>
                   <div style={{fontSize:'.73rem',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>setText(t.text)}>{t.text}</div>
@@ -10785,10 +10859,27 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
   // Functional update: two slots filled in quick succession each wrote a copy
   // of the photos array captured BEFORE the other upload finished, so the
   // second one erased the first.
-  const handleRefImg=(idx,e)=>bhPickImage(e,url=>setForm(f=>{
+  const setRefSlot=idx=>url=>setForm(f=>{
     const imgs=[...(f.photos||[null,null,null,null])];
     imgs[idx]=url;return {...f,photos:imgs};
-  }),'a imagem de referência');
+  });
+  const handleRefImg=(idx,e)=>bhPickImage(e,setRefSlot(idx),'a imagem de referência');
+  // A file dragged from the computer onto an EMPTY slot fills that slot.
+  const dropRefFile=async(idx,file)=>{
+    if(!file||!/^image\//.test(file.type))return;
+    try{setRefSlot(idx)(await uploadImage(file));}
+    catch(err){bhLog('mentor.refDrop',err,'a imagem de referência');await bhAlert('Não foi possível enviar a imagem de referência. Tente novamente.');}
+  };
+  // The four slots are fixed positions (empty ones stay null), so moving is a
+  // swap: dropping on an empty slot leaves the source empty instead of shifting
+  // the others. The first filled slot is the mentor's picture on the dashboard,
+  // which is what makes the order worth choosing.
+  const swapRefImg=(from,to)=>setForm(f=>{
+    if(from===to||from<0||to<0||from>3||to>3)return f;
+    const imgs=[...(f.photos||[null,null,null,null])];
+    [imgs[from],imgs[to]]=[imgs[to]??null,imgs[from]??null];
+    return {...f,photos:imgs};
+  });
   const removeRefImg=idx=>{
     const imgs=[...(form.photos||[null,null,null,null])];
     imgs[idx]=null;set('photos',imgs);
@@ -10846,14 +10937,24 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
         <div style={{marginBottom:14}}>
           <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Imagens de Referencia</span>
           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
-            {[0,1,2,3].map(idx=>(
-              <div key={idx} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)',cursor:'pointer'}}
+            {[0,1,2,3].map(idx=>{
+              const dnd=imgReorderDragProps('mentor-ref',idx,swapRefImg);
+              // Empty slots are drop targets only: for a reference image being
+              // moved, or for a file from the computer.
+              const slotDnd=photos[idx]?dnd:{
+                onDragOver:e=>{if(bhIsFileDrag(e)){e.preventDefault();e.dataTransfer.dropEffect='copy';e.currentTarget.classList.add('drag-over-left');return;}dnd.onDragOver(e);},
+                onDragLeave:dnd.onDragLeave,
+                onDrop:e=>{if(bhIsFileDrag(e)){e.preventDefault();e.currentTarget.classList.remove('drag-over-left');dropRefFile(idx,(e.dataTransfer.files||[])[0]);return;}dnd.onDrop(e);},
+              };
+              return(
+              <div key={idx} className="post-img-tile" {...slotDnd} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)',cursor:'pointer'}}
                 onClick={()=>!photos[idx]&&imgRefs[idx].current.click()}>
                 <input ref={imgRefs[idx]} type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleRefImg(idx,e)}/>
                 {photos[idx]
                   ?<>
                     <Img src={photos[idx]} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                    <button onClick={e=>{e.stopPropagation();removeRefImg(idx);}}
+                    <ImgMoveTools index={idx} count={4} onMove={swapRefImg}/>
+                    <button onClick={e=>{e.stopPropagation();removeRefImg(idx);}} title="Remover imagem" aria-label={'Remover imagem de referência '+(idx+1)}
                       style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,.55)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}>
                       <Icon name="x" size={10}/>
                     </button>
@@ -10863,7 +10964,8 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
                   </div>
                 }
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',paddingTop:4,borderTop:'1px solid var(--border)'}}>
@@ -11186,6 +11288,17 @@ const App=()=>{
     };
     window.addEventListener('keydown',onKD);
     return()=>window.removeEventListener('keydown',onKD);
+  },[]);
+  // A file dropped anywhere that is not an upload target made the browser open
+  // it in place of the app, taking any edit still inside a save debounce with
+  // it. Targets that accept files cancel the event first (defaultPrevented), so
+  // this only catches the leftovers and shows the "not allowed" cursor there.
+  useEffect(()=>{
+    const onOver=e=>{if(e.defaultPrevented||!bhIsFileDrag(e))return;e.preventDefault();e.dataTransfer.dropEffect='none';};
+    const onDrop=e=>{if(!e.defaultPrevented&&bhIsFileDrag(e))e.preventDefault();};
+    window.addEventListener('dragover',onOver);
+    window.addEventListener('drop',onDrop);
+    return()=>{window.removeEventListener('dragover',onOver);window.removeEventListener('drop',onDrop);};
   },[]);
 
   // Hash-based routing: parse the current URL hash into {view, projectId}
@@ -11808,8 +11921,11 @@ const App=()=>{
   // Auto-save localStorage. Cloud delivery is handled by the stable pump below;
   // keeping a second render-debounced sender here allowed an older snapshot to
   // finish after a newer one and overwrite it on every other device.
-  const _retryTimer=useRef(null);
-  const _pushAttempt=useRef(0);
+  // The pump's retry backoff lives in a ref, not in the pump effect's closure,
+  // so a successful "Forçar sync" or "Descartar local" can reset it. Before,
+  // those paths zeroed a leftover counter the pump never read, and after a
+  // network outage the next edit still waited out up to 60s of stale backoff.
+  const _pushBackoff=useRef({failures:0,retryAt:0});
   const _editGen=useRef(0); // F-1: bumped on every USER edit; a push only clears the dirty flag if this hasn't advanced since the push began
   const _observedSave=useRef(null);
   const _lastEditMs=useRef(0);
@@ -11881,16 +11997,16 @@ const App=()=>{
   useEffect(()=>{
     if(!fbUser)return;
     let alive=true;
-    let retryAt=0,failures=0;
+    _pushBackoff.current={failures:0,retryAt:0}; // a new account starts without the previous one's backoff
     const pump=async()=>{
-      if(!alive||bhPersistenceBusy()||Date.now()<retryAt||Date.now()-_lastEditMs.current<1500||syncPumpBusyRef.current||_syncBlockedRef.current||!_didInitialReconcile.current||!_hasPendingLocalEdit.current||!_latestState.current)return;
+      if(!alive||bhPersistenceBusy()||Date.now()<_pushBackoff.current.retryAt||Date.now()-_lastEditMs.current<1500||syncPumpBusyRef.current||_syncBlockedRef.current||!_didInitialReconcile.current||!_hasPendingLocalEdit.current||!_latestState.current)return;
       syncPumpBusyRef.current=true;
       const pushedGen=_editGen.current;
       setSyncStatus('syncing');
       try{
         const committed=await pushState(_latestState.current,fbUser.uid);
         if(!alive)return;
-        failures=0;retryAt=0;
+        _pushBackoff.current={failures:0,retryAt:0};
         if(bhPushSettled(pushedGen,_editGen.current)){
           _hasPendingLocalEdit.current=false;
           try{localStorage.setItem(DIRTY_KEY,'0');localStorage.setItem(SYNCED_UID_KEY,fbUser.uid);localStorage.setItem(LOCAL_OWNER_UID_KEY,fbUser.uid);localStorage.removeItem(SEEDED_KEY);}catch(e){bhLog('syncPump.mark',e);}
@@ -11901,7 +12017,8 @@ const App=()=>{
         }
       }catch(e){
         if(!alive)return;
-        failures++;retryAt=Date.now()+Math.min(60000,3000*2**Math.min(failures,5));
+        const failures=_pushBackoff.current.failures+1;
+        _pushBackoff.current={failures,retryAt:Date.now()+Math.min(60000,3000*2**Math.min(failures,5))};
         bhDiag.record('syncFailure',0,'retry-backoff');
         setSyncDetail(e?.message||'Falha ao enviar dados.');setSyncStatus('error');
       }
@@ -12055,13 +12172,12 @@ const App=()=>{
       _baselineNeedsChoice.current=false;
       const committed=await pushState(_latestState.current,fbUser.uid,{migrateMedia:true});
       if(_activeUidRef.current!==fbUser.uid)throw new Error('A conta mudou durante o envio; o resultado antigo foi ignorado.');
-      _pushAttempt.current=0;
+      _pushBackoff.current={failures:0,retryAt:0};
       const settled=bhPushSettled(pushedGen,_editGen.current);
       if(settled)_hasPendingLocalEdit.current=false;
       try{if(settled)localStorage.setItem(DIRTY_KEY,'0');localStorage.setItem(SYNCED_UID_KEY,fbUser.uid);localStorage.setItem(LOCAL_OWNER_UID_KEY,fbUser.uid);localStorage.removeItem(SEEDED_KEY);}catch(e){bhLog('sync.marcarEmDia',e,'the device may repeat the 1st-contact reconcile on the next boot');}
       _deviceSyncedUid.current=fbUser.uid;
       _localOwnerUid.current=fbUser.uid;
-      clearTimeout(_retryTimer.current);
       setSyncDetail('');
       setSyncStatus(settled?'synced':'syncing');
       if(settled)await _applyMergedRef.current?.(committed);
@@ -12100,8 +12216,7 @@ const App=()=>{
       const cur=_latestState.current;
       if(cur&&bhStateHasData(cur)&&!await bhCapture(cur,'descartado'))return false;
     }catch(e){bhLog('discardLocal.arquivar',e,'the local state was not discarded because its copy failed');return false;}
-    _pushAttempt.current=0;
-    clearTimeout(_retryTimer.current);
+    _pushBackoff.current={failures:0,retryAt:0};
     _hasPendingLocalEdit.current=false;
     _syncBlockedRef.current=false;
     _baselineNeedsChoice.current=false;
