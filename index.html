@@ -6661,7 +6661,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
       if(type==='move'){ns=addDays(origStart,delta);ne=addDays(origEnd,delta);}
       else if(type==='left'){ns=addDays(origStart,delta);ne=origEnd;if(ns>=ne)ns=addDays(ne,-1);}
       else{ns=origStart;ne=addDays(origEnd,delta);if(ne<=ns)ne=addDays(ns,1);}
-      onUpdateTasks(tasks.map(x=>x.id===taskId?{...x,startDate:ns,dueDate:ne}:x));
+      onUpdateTasks(ts=>ts.map(x=>String(x.id)===String(taskId)?{...x,startDate:ns,dueDate:ne}:x));
     };
     const onUp=()=>{
       // A drag ends with a click on the bar; remember it so that click does
@@ -6676,10 +6676,21 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   };
 
   // - Edit -
-  const selectTask=t=>{setSelectedId(t.id);setEditDraft({...t,startDate:t.startDate||(projectStart||today),dueDate:t.dueDate||(projectEnd||addDays(today,7)),notes:t.notes||''});};
-  const saveEdit=()=>{if(!editDraft)return;onUpdateTasks(tasks.map(t=>t.id===editDraft.id?{...editDraft}:t));setSelectedId(null);setEditDraft(null);};
-  const deleteTask=()=>{if(!editDraft)return;const removed=tasks.find(t=>t.id===editDraft.id)||editDraft;onUpdateTasks(tasks.filter(t=>t.id!==editDraft.id));if(onSyncDelete)onSyncDelete(removed);setSelectedId(null);setEditDraft(null);};
-  const cycleStatus=id=>{const upd=tasks.map(t=>t.id===id?{...t,status:PTASK_NEXT[t.status]||'Pendente'}:t);onUpdateTasks(upd);if(editDraft&&editDraft.id===id)setEditDraft(d=>({...d,status:PTASK_NEXT[d.status]||'Pendente'}));};
+  // Writes are functions of the current list (onUpdateTasks(ts=>...)), and the
+  // edit panel saves only the fields it changed onto the task as it is now.
+  // Saving the whole draft (a copy taken when the panel opened) undid a drag
+  // of the same bar made while the panel was open, or another device's edit.
+  // An undated task still gets the dates the panel showed for it.
+  const editOpenRef=useRef(null);
+  const selectTask=t=>{const d={...t,startDate:t.startDate||(projectStart||today),dueDate:t.dueDate||(projectEnd||addDays(today,7)),notes:t.notes||''};setSelectedId(t.id);editOpenRef.current=d;setEditDraft(d);};
+  const saveEdit=()=>{
+    if(!editDraft)return;
+    const draft=editDraft,patch=bhFormPatch(editOpenRef.current||{},draft);
+    onUpdateTasks(ts=>ts.map(t=>String(t.id)!==String(draft.id)?t:{...t,startDate:t.startDate||draft.startDate,dueDate:t.dueDate||draft.dueDate,...patch}));
+    setSelectedId(null);setEditDraft(null);
+  };
+  const deleteTask=()=>{if(!editDraft)return;const id=editDraft.id;const removed=tasks.find(t=>String(t.id)===String(id))||editDraft;onUpdateTasks(ts=>ts.filter(t=>String(t.id)!==String(id)));if(onSyncDelete)onSyncDelete(removed);setSelectedId(null);setEditDraft(null);};
+  const cycleStatus=id=>{onUpdateTasks(ts=>ts.map(t=>String(t.id)===String(id)?{...t,status:PTASK_NEXT[t.status]||'Pendente'}:t));if(editDraft&&String(editDraft.id)===String(id))setEditDraft(d=>({...d,status:PTASK_NEXT[d.status]||'Pendente'}));};
   const addTask=()=>{
     if(!newTaskName.trim())return;
     const id=Date.now();
@@ -6687,7 +6698,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const s=thisWeek ? today : (projectStart||today);
     const e=thisWeek ? addDays(today,7) : (projectEnd||addDays(today,7));
     const newTask={id,text:newTaskName.trim(),status:'Pendente',startDate:s,dueDate:e,notes:''};
-    onUpdateTasks([...tasks,newTask]);
+    onUpdateTasks(ts=>[...ts,newTask]);
     if(onSyncAdd)onSyncAdd(newTask);
     setNewTaskName('');
   };
@@ -6745,8 +6756,8 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                   e.preventDefault();
                   const from=dragRowRef.current;const to=dragOverRowRef.current;
                   if(from===null||from===to){dragRowRef.current=null;dragOverRowRef.current=null;return;}
-                  const reordered=[...tasks];const[moved]=reordered.splice(from,1);reordered.splice(to,0,moved);
-                  onUpdateTasks(reordered);dragRowRef.current=null;dragOverRowRef.current=null;
+                  onUpdateTasks(ts=>{const reordered=[...ts];const[moved]=reordered.splice(from,1);reordered.splice(to,0,moved);return reordered;});
+                  dragRowRef.current=null;dragOverRowRef.current=null;
                 }}
                 onDragEnd={()=>{dragRowRef.current=null;dragOverRowRef.current=null;}}
                 onClick={()=>isSelected?(setSelectedId(null),setEditDraft(null)):selectTask(t)}
@@ -6932,56 +6943,64 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     const keys=[post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[])].filter(Boolean).map(String);
     return isProjectScopedPost(post)&&(keys.includes(String(projectFocusKey))||String(post.projectId||'')===String(project.id));
   }).map(post=>({...post,images:Array.isArray(post.images)?post.images:[]})).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))),[galleryPosts,projectFocusKey]);
-  const [galleryPopup,setGalleryPopup]=useState(()=>{
+  // The open post (a focus post or one from the linked gallery folder) is an
+  // id resolved from galleryPosts, like the open project in App. The popup
+  // used to hold a copy: moving or removing an image rebuilt the list from
+  // that copy, dropping images another path had added, and a post deleted
+  // elsewhere stayed open.
+  const [galleryPopupId,setGalleryPopupId]=useState(()=>{
     const open=bhUiLoad('openFocusPost');
-    return String(open.projectId||'')===String(project.id)?projectFocusPosts.find(p=>String(p.id)===String(open.postId))||null:null;
+    return String(open.projectId||'')===String(project.id)&&open.postId!=null?String(open.postId):null;
   });
+  const setGalleryPopup=post=>setGalleryPopupId(post&&post.id!=null?String(post.id):null);
+  const galleryPopup=useMemo(()=>{
+    if(galleryPopupId==null)return null;
+    const post=(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===galleryPopupId);
+    return post?{...post,images:Array.isArray(post.images)?post.images:[]}:null;
+  },[galleryPosts,galleryPopupId]);
+  const mapPopupPost=fn=>{
+    const postId=galleryPopupId;
+    if(postId==null)return;
+    setGalleryPosts(prev=>(prev||[]).map(post=>String(post.id)===postId?fn(post):post));
+  };
   const [galleryPopupEditing,setGalleryPopupEditing]=useState(false);
+  // Post gone (deleted here or on another device): close for good, so a later
+  // restore does not reopen it out of nowhere.
+  useEffect(()=>{if(galleryPopupId!=null&&!galleryPopup){setGalleryPopupId(null);setGalleryPopupEditing(false);}},[galleryPopupId,galleryPopup]);
   const [galleryPopupUploading,setGalleryPopupUploading]=useState(false);
   const galleryPopupImgRef=useRef(null);
   useEffect(()=>{
     const open=bhUiLoad('openFocusPost');
     if(String(open.projectId||'')===String(project.id))bhUiReplace('openFocusPost',{});
   },[project.id]);
-  const updateGalleryPopup=(field,value)=>{
-    const postId=galleryPopup?.id;
-    if(postId==null)return;
-    setGalleryPopup(prev=>prev&&String(prev.id)===String(postId)?{...prev,[field]:value}:prev);
-    setGalleryPosts(prev=>(prev||[]).map(post=>String(post.id)===String(postId)?{...post,[field]:value}:post));
-  };
+  const updateGalleryPopup=(field,value)=>mapPopupPost(post=>({...post,[field]:value}));
   const addGalleryPopupImages=e=>{const files=Array.from(e.target.files||[]);e.target.value='';return addGalleryPopupFiles(files);};
   const addGalleryPopupFiles=async rawFiles=>{
     const files=bhImageFiles(rawFiles,true);
     if(!files.length||galleryPopupUploading)return;
-    const postId=galleryPopup?.id;
+    const postId=galleryPopupId;
     setGalleryPopupUploading(true);
     try{
       const urls=await uploadImages(files);
       setGalleryPosts(prev=>(prev||[]).map(post=>{
-        if(String(post.id)!==String(postId))return post;
+        if(String(post.id)!==postId)return post;
         const images=[...(post.images||[]),...urls];
         return{...post,images,bannerImage:post.bannerImage||images[0]||''};
       }));
-      setGalleryPopup(prev=>{
-        if(!prev||String(prev.id)!==String(postId))return prev;
-        const images=[...(prev.images||[]),...urls];
-        return{...prev,images,bannerImage:prev.bannerImage||images[0]||''};
-      });
     }catch(err){bhLog('project.focusPost.upload',err);await bhAlert('Não foi possível adicionar as imagens. Tente novamente.');}
     finally{setGalleryPopupUploading(false);}
   };
-  const moveGalleryPopupImage=(from,to)=>updateGalleryPopup('images',bhMoveItem(galleryPopup?.images,from,to));
-  const removeGalleryPopupImage=index=>{
-    const images=[...(galleryPopup?.images||[])];const[removed]=images.splice(index,1);
-    updateGalleryPopup('images',images);
-    if(galleryPopup?.bannerImage===removed)updateGalleryPopup('bannerImage',images[0]||'');
-  };
+  const moveGalleryPopupImage=(from,to)=>mapPopupPost(post=>({...post,images:bhMoveItem(post.images,from,to)}));
+  const removeGalleryPopupImage=index=>mapPopupPost(post=>{
+    const images=[...(Array.isArray(post.images)?post.images:[])];const[removed]=images.splice(index,1);
+    return{...post,images,...(post.bannerImage===removed?{bannerImage:images[0]||''}:{})};
+  });
   const deleteGalleryPopup=async()=>{
     if(!galleryPopup)return;
+    const postId=galleryPopupId;
     const confirmed=await bhConfirm({message:'Excluir este post do projeto permanentemente? A sessão continuará no histórico.',danger:true,confirmLabel:'Excluir post'});
     if(!confirmed)return;
-    const postId=galleryPopup.id;
-    setGalleryPosts(prev=>(prev||[]).filter(post=>String(post.id)!==String(postId)));
+    setGalleryPosts(prev=>(prev||[]).filter(post=>String(post.id)!==postId));
     setGalleryPopup(null);
     setGalleryPopupEditing(false);
   };
@@ -7025,16 +7044,24 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     }
   },[project]);
 
-  // Safe update — defers onUpdate to avoid calling parent setter inside child setState
+  // Safe update — defers onUpdate to avoid calling parent setter inside child setState.
+  // Every write on this page goes through edit(): it is computed from the
+  // state React is applying (`prev`), never from `local` as it was when the
+  // handler rendered. A value computed from that snapshot dropped whatever
+  // landed in between — text typed while an upload ran, the other of two
+  // writes made in one click. upd() takes a value, or a function of the
+  // field's current value.
   const _pendingUpdate=useRef(null);
-  const upd=(field,value)=>{
+  const edit=fn=>{
     setLocal(prev=>{
-      const updated={...prev,[field]:value};
+      const updated=fn(prev);
+      if(updated===prev)return prev;
       projectRef.current=updated;
       _pendingUpdate.current=updated;
       return updated;
     });
   };
+  const upd=(field,value)=>edit(prev=>({...prev,[field]:typeof value==='function'?value(prev[field]):value}));
   // Flush pending updates to parent after React commits the state
   useEffect(()=>{
     if(_pendingUpdate.current){
@@ -7045,55 +7072,47 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
 
 
   // Mentors
-  const toggleMentor=id=>{
-    const m=local.mentors||[];
-    const next=m.includes(id)?m.filter(x=>x!==id):[...m,id];
-    upd('mentors',next);
-  };
+  const toggleMentor=id=>upd('mentors',m=>{
+    const list=m||[];
+    return list.some(x=>String(x)===String(id))?list.filter(x=>String(x)!==String(id)):[...list,id];
+  });
 
   const handleCoverUpload=e=>bhPickImage(e,url=>upd('cover',url),'a capa');
-  // Reference images used to overwrite the project cover every time, even a
-  // cover the user had chosen; now they only fill an EMPTY cover. Upload
-  // errors are reported and the input is reset either way.
-  const handleResearchImgUpload=async(noteId,e)=>{
-    const input=e.target;
-    const files=Array.from(input.files||[]);
-    input.value='';
-    await addResearchImages(noteId,files);
-  };
-  // Shared by the file picker, drag-and-drop and Ctrl+V.
-  const addResearchImages=async(noteId,rawFiles)=>{
+  // Every image upload on this page (reference images, task frames, a task
+  // note's images) goes through here. The URLs are applied to the state as it
+  // is when the upload FINISHES, they only fill an EMPTY cover, and a failure
+  // is logged and reported. Each spot used to get these right on its own: the
+  // reference images and frames were fixed one at a time, while a task note's
+  // images still replaced the cover on every upload, reverted text typed
+  // during the upload, and failed silently.
+  const addUploadedImages=async(rawFiles,apply,logKey,failMessage)=>{
     const files=bhImageFiles(rawFiles);
-    if(!files.length||noteId==null)return;
+    if(!files.length)return;
     try{
       const urls=await uploadImages(files);
-      setLocal(prev=>{
-        const researchNotes=(prev.researchNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n);
-        const updated={...prev,researchNotes,...(urls.length&&!prev.cover?{cover:urls[0]}:{})};
-        projectRef.current=updated;_pendingUpdate.current=updated;return updated;
-      });
+      if(!urls.length)return;
+      edit(prev=>{const next=apply(prev,urls);return next.cover?next:{...next,cover:urls[0]};});
     }catch(err){
-      bhLog('research.upload',err,'reference images were not added');
-      await bhAlert('Não foi possível enviar as imagens de referência. Tente novamente.');
+      bhLog(logKey,err,'the uploaded images were not added');
+      await bhAlert(failMessage);
     }
   };
-  const moveResearchImg=(from,to)=>{
-    const noteId=activeResearchId;
-    setLocal(prev=>{
-      const researchNotes=(prev.researchNotes||[]).map(n=>n.id===noteId?{...n,images:bhMoveItem(n.images,from,to)}:n);
-      const updated={...prev,researchNotes};
-      projectRef.current=updated;_pendingUpdate.current=updated;return updated;
-    });
-  };
-  const removeResearchImg=(noteId,idx)=>{
-    const rn=(local.researchNotes||[]).map(n=>{if(n.id!==noteId)return n;const imgs=[...(n.images||[])];imgs.splice(idx,1);return{...n,images:imgs};});
-    upd('researchNotes',rn);
-  };
+  // Takes the files and resets the input first, so picking the same file
+  // again after a failure still fires onChange.
+  const inputFiles=e=>{const files=Array.from(e.target.files||[]);e.target.value='';return files;};
+  const handleResearchImgUpload=(noteId,e)=>addResearchImages(noteId,inputFiles(e));
+  // Shared by the file picker, drag-and-drop and Ctrl+V.
+  const addResearchImages=(noteId,rawFiles)=>noteId==null?undefined:addUploadedImages(rawFiles,
+    (prev,urls)=>({...prev,researchNotes:(prev.researchNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n)}),
+    'research.upload','Não foi possível enviar as imagens de referência. Tente novamente.');
+  const mapResearch=(noteId,fn)=>upd('researchNotes',rn=>(rn||[]).map(n=>String(n.id)===String(noteId)?fn(n):n));
+  const moveResearchImg=(from,to)=>mapResearch(activeResearchId,n=>({...n,images:bhMoveItem(n.images,from,to)}));
+  const removeResearchImg=(noteId,idx)=>mapResearch(noteId,n=>{const imgs=[...(n.images||[])];imgs.splice(idx,1);return{...n,images:imgs};});
   const [activeResearchId,setActiveResearchId]=useState(()=>(project.researchNotes||[])[0]?.id||null);
   const activeResearch=(local.researchNotes||[]).find(n=>n.id===activeResearchId)||null;
-  const addResearchNote=()=>{const n={id:Date.now(),title:'Nova Pesquisa',content:'',url:'',images:[],date:new Date().toLocaleDateString('pt-BR')};upd('researchNotes',[...(local.researchNotes||[]),n]);setActiveResearchId(n.id);};
-  const updateResearch=(field,val)=>{const rn=(local.researchNotes||[]).map(n=>n.id===activeResearchId?{...n,[field]:val}:n);upd('researchNotes',rn);};
-  const deleteResearch=id=>{upd('researchNotes',(local.researchNotes||[]).filter(n=>n.id!==id));setActiveResearchId((local.researchNotes||[]).find(n=>n.id!==id)?.id||null);};
+  const addResearchNote=()=>{const n={id:Date.now(),title:'Nova Pesquisa',content:'',url:'',images:[],date:new Date().toLocaleDateString('pt-BR')};upd('researchNotes',rn=>[...(rn||[]),n]);setActiveResearchId(n.id);};
+  const updateResearch=(field,val)=>mapResearch(activeResearchId,n=>({...n,[field]:val}));
+  const deleteResearch=id=>{upd('researchNotes',rn=>(rn||[]).filter(n=>String(n.id)!==String(id)));setActiveResearchId((local.researchNotes||[]).find(n=>String(n.id)!==String(id))?.id||null);};
   const researchImgRef=useRef();
   const researchTextareaRef=useRef();
   useEffect(()=>{
@@ -7102,7 +7121,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
       researchTextareaRef.current.style.height=researchTextareaRef.current.scrollHeight+'px';
     }
   },[activeResearchId,activeResearch?.content]);
-  const linkedMentors=useMemo(()=>globalMentors.filter(m=>!m.deleted&&(local.mentors||[]).includes(m.id)),[globalMentors,local.mentors]);
+  const linkedMentors=useMemo(()=>{
+    const ids=new Set((local.mentors||[]).map(String));
+    return globalMentors.filter(m=>!m.deleted&&ids.has(String(m.id)));
+  },[globalMentors,local.mentors]);
 
   // Tasks (linked with timeline)
   const [activeMiniId,setActiveMiniId]=useState(()=>(project.miniProjects||[])[0]?.id||null);
@@ -7114,37 +7136,41 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     const id=Date.now();
     const n={id,title:'Nova Tarefa',status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};
     const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:local.startDate||todayISO(),dueDate:local.deadline||addDays(todayISO(),7),notes:''};
-    setLocal(prev=>{const updated={...prev,miniProjects:[...(prev.miniProjects||[]),n],projectTasks:[...(prev.projectTasks||[]),pt]};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});
+    edit(prev=>({...prev,miniProjects:[...(prev.miniProjects||[]),n],projectTasks:[...(prev.projectTasks||[]),pt]}));
     setActiveMiniId(id);
   };
-  const moveMiniFrame=(from,to)=>{const m=(local.miniProjects||[]).find(x=>x.id===activeMiniId);if(m)updateMini('frames',bhMoveItem(m.frames,from,to));};
-  const updateMini=(field,val)=>{
-    const newMinis=(local.miniProjects||[]).map(m=>m.id===activeMiniId?{...m,[field]:val}:m);
-    if(field==='title'||field==='status'){
-      const newPTasks=(local.projectTasks||[]).map(t=>{
-        if(t.id!==activeMiniId)return t;
-        if(field==='title')return{...t,text:val};
-        if(field==='status')return{...t,status:miniStatusToPTask(val)};
-        return t;
-      });
-      setLocal(prev=>{const updated={...prev,miniProjects:newMinis,projectTasks:newPTasks};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});
-    }else{
-      upd('miniProjects',newMinis);
-    }
+  // Task helpers name the task (and note) they act on and apply to `prev`.
+  // They used to read activeMiniId/activeInnerNoteId and `local` from the
+  // render: "Nova nota" under a task that was not the active one made it
+  // active and, in the same click, added the note to the previously active
+  // task, where the editor could not show it.
+  const mapMini=(miniId,fn)=>upd('miniProjects',ms=>(ms||[]).map(m=>String(m.id)===String(miniId)?fn(m):m));
+  const updateMini=(field,val,miniId=activeMiniId)=>{
+    const valueFor=m=>typeof val==='function'?val(m[field]):val;
+    if(field!=='title'&&field!=='status')return mapMini(miniId,m=>({...m,[field]:valueFor(m)}));
+    // title/status are mirrored on the timeline task with the same id
+    edit(prev=>{
+      const mini=(prev.miniProjects||[]).find(m=>String(m.id)===String(miniId));
+      if(!mini)return prev;
+      const v=valueFor(mini);
+      return{...prev,
+        miniProjects:(prev.miniProjects||[]).map(m=>m===mini?{...m,[field]:v}:m),
+        projectTasks:(prev.projectTasks||[]).map(t=>String(t.id)!==String(miniId)?t:field==='title'?{...t,text:v}:{...t,status:miniStatusToPTask(v)})};
+    });
   };
+  const moveMiniFrame=(from,to)=>updateMini('frames',f=>bhMoveItem(f,from,to));
   const [showTaskTrash,setShowTaskTrash]=useState(false);
   const archiveTask=taskOrId=>{
     const taskId=typeof taskOrId==='object'?taskOrId?.id:taskOrId;
     if(taskId==null)return;
-    const task=(typeof taskOrId==='object'?taskOrId:(local.projectTasks||[]).find(t=>String(t.id)===String(taskId)))||null;
-    const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(taskId))||null;
-    if(!task&&!mini)return;
-    setLocal(prev=>{
+    edit(prev=>{
+      const task=(prev.projectTasks||[]).find(t=>String(t.id)===String(taskId))||(typeof taskOrId==='object'?taskOrId:null);
+      const mini=(prev.miniProjects||[]).find(m=>String(m.id)===String(taskId))||null;
+      if(!task&&!mini)return prev;
       if((prev.taskTrash||[]).some(entry=>String(entry.task?.id||entry.id)===String(taskId)))return prev;
       const snapshot=task||{id:mini.id,text:mini.title,status:miniStatusToPTask(mini.status),notes:mini.notes||''};
       const entry={id:'task-trash-'+taskId+'-'+Date.now(),task:{...snapshot},mini:mini?{...mini}:null,deletedAt:new Date().toISOString()};
-      const updated={...prev,projectTasks:(prev.projectTasks||[]).filter(t=>String(t.id)!==String(taskId)),miniProjects:(prev.miniProjects||[]).filter(m=>String(m.id)!==String(taskId)),taskTrash:[entry,...(prev.taskTrash||[])]};
-      projectRef.current=updated;_pendingUpdate.current=updated;return updated;
+      return{...prev,projectTasks:(prev.projectTasks||[]).filter(t=>String(t.id)!==String(taskId)),miniProjects:(prev.miniProjects||[]).filter(m=>String(m.id)!==String(taskId)),taskTrash:[entry,...(prev.taskTrash||[])]};
     });
     setActiveMiniId(current=>String(current)===String(taskId)?null:current);
     setActiveInnerNoteId(null);
@@ -7157,49 +7183,46 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     const task=entry?.task||entry;
     if(!task?.id)return;
     const mini=entry.mini||projectTaskToMini(task);
-    setLocal(prev=>{
-      const updated={...prev,
-        projectTasks:(prev.projectTasks||[]).some(t=>String(t.id)===String(task.id))?(prev.projectTasks||[]):[...(prev.projectTasks||[]),task],
-        miniProjects:(prev.miniProjects||[]).some(m=>String(m.id)===String(task.id))?(prev.miniProjects||[]):[...(prev.miniProjects||[]),mini],
-        taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)
-      };
-      projectRef.current=updated;_pendingUpdate.current=updated;return updated;
-    });
+    edit(prev=>({...prev,
+      projectTasks:(prev.projectTasks||[]).some(t=>String(t.id)===String(task.id))?(prev.projectTasks||[]):[...(prev.projectTasks||[]),task],
+      miniProjects:(prev.miniProjects||[]).some(m=>String(m.id)===String(task.id))?(prev.miniProjects||[]):[...(prev.miniProjects||[]),mini],
+      taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)
+    }));
     setShowTaskTrash(false);setActiveMiniId(task.id);setActiveInnerNoteId(null);
   };
   const purgeTask=async entry=>{
     if(!entry)return;
     if(!await bhConfirm({message:'Excluir esta tarefa permanentemente? Esta ação não pode ser desfeita.',danger:true,confirmLabel:'Excluir'}))return;
-    setLocal(prev=>{const updated={...prev,taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});
+    edit(prev=>({...prev,taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)}));
   };
   const [activeInnerNoteId,setActiveInnerNoteId]=useState(null);
-  const addInnerNote=()=>{
+  const mapInnerNotes=(miniId,fn)=>mapMini(miniId,m=>({...m,innerNotes:fn(m.innerNotes||[])}));
+  const addInnerNote=(miniId=activeMiniId)=>{
+    if(miniId==null)return;
     const n={id:Date.now(),title:'Nova nota',content:'',createdAt:new Date().toLocaleDateString('pt-BR')};
-    const updated=(local.miniProjects||[]).map(m=>m.id===activeMiniId?{...m,innerNotes:[...(m.innerNotes||[]),n]}:m);
-    upd('miniProjects',updated);
-    setActiveInnerNoteId(n.id);
+    mapInnerNotes(miniId,ns=>[...ns,n]);
+    setActiveMiniId(miniId);setActiveInnerNoteId(n.id);
   };
-  const updateInnerNote=(field,val)=>{
-    const updated=(local.miniProjects||[]).map(m=>m.id===activeMiniId?{...m,innerNotes:(m.innerNotes||[]).map(n=>n.id===activeInnerNoteId?{...n,[field]:val}:n)}:m);
-    upd('miniProjects',updated);
-  };
+  const updateInnerNote=(field,val,miniId=activeMiniId,noteId=activeInnerNoteId)=>
+    mapInnerNotes(miniId,ns=>ns.map(n=>String(n.id)===String(noteId)?{...n,[field]:typeof val==='function'?val(n[field]):val}:n));
   const deleteInnerNote=id=>{
-    const updated=(local.miniProjects||[]).map(m=>m.id===activeMiniId?{...m,innerNotes:(m.innerNotes||[]).filter(n=>n.id!==id)}:m);
-    upd('miniProjects',updated);
-    if(activeInnerNoteId===id)setActiveInnerNoteId(null);
+    mapInnerNotes(activeMiniId,ns=>ns.filter(n=>String(n.id)!==String(id)));
+    if(String(activeInnerNoteId)===String(id))setActiveInnerNoteId(null);
   };
+  const addInnerNoteImages=(miniId,noteId,rawFiles)=>addUploadedImages(rawFiles,
+    (prev,urls)=>({...prev,miniProjects:(prev.miniProjects||[]).map(m=>String(m.id)!==String(miniId)?m:
+      {...m,innerNotes:(m.innerNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n)})}),
+    'task.note.upload','Não foi possível adicionar as imagens. Tente novamente.');
   const dragNoteRef=useRef(null);
   const dragOverNoteRef=useRef(null);
   const reorderInnerNotes=(miniId,fromIdx,toIdx)=>{
     if(fromIdx===toIdx)return;
-    const minis=(local.miniProjects||[]).map(m=>{
-      if(m.id!==miniId)return m;
-      const notes=[...(m.innerNotes||[])];
+    mapInnerNotes(miniId,ns=>{
+      const notes=[...ns];
       const[moved]=notes.splice(fromIdx,1);
       notes.splice(toIdx,0,moved);
-      return{...m,innerNotes:notes};
+      return notes;
     });
-    upd('miniProjects',minis);
   };
   const dragMiniRef=useRef(null);
   const dragOverMiniRef=useRef(null);
@@ -7208,36 +7231,28 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
   // FIRST task used to jump to wherever the thing was dropped.
   const reorderMinis=(fromIdx,toIdx)=>{
     if(fromIdx==null||toIdx==null||fromIdx===toIdx)return;
-    const minis=[...(local.miniProjects||[])];
-    const[moved]=minis.splice(fromIdx,1);
-    minis.splice(toIdx,0,moved);
-    upd('miniProjects',minis);
+    upd('miniProjects',ms=>{
+      const minis=[...(ms||[])];
+      const[moved]=minis.splice(fromIdx,1);
+      minis.splice(toIdx,0,moved);
+      return minis;
+    });
   };
+  // The timeline hands over a function of the current task list (as the
+  // timeline shows it, auto-late applied); the tasks' text and status are
+  // mirrored onto the task cards.
+  const updateTimelineTasks=next=>edit(prev=>{
+    const tasks=typeof next==='function'?next(applyAutoLate(prev.projectTasks||[])):next;
+    const miniProjects=(prev.miniProjects||[]).map(m=>{const pt=tasks.find(t=>String(t.id)===String(m.id));return pt?{...m,title:pt.text,status:ptaskStatusToMini(pt.status)}:m;});
+    return{...prev,projectTasks:tasks,miniProjects};
+  });
+  const addTimelineTaskCard=pt=>edit(prev=>(prev.miniProjects||[]).some(m=>String(m.id)===String(pt.id))?prev
+    :{...prev,miniProjects:[...(prev.miniProjects||[]),{id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')}]});
   const miniImgRef=useRef();
-  const handleMiniImgs=e=>{
-    const files=Array.from(e.target.files||[]);
-    e.target.value='';
-    return addMiniFrames(activeMiniId,files);
-  };
-  // Frames used to replace the project cover on every upload (the last frame
-  // won), same bug the reference images had; like them they now only fill an
-  // EMPTY cover. A failed upload used to reject silently and leave the input
-  // holding the files, so picking the same file again did nothing.
-  const addMiniFrames=async(miniId,rawFiles)=>{
-    const files=bhImageFiles(rawFiles);
-    if(!files.length||miniId==null)return;
-    try{
-      const urls=await uploadImages(files);
-      setLocal(prev=>{
-        const miniProjects=(prev.miniProjects||[]).map(m=>String(m.id)===String(miniId)?{...m,frames:[...(m.frames||[]),...urls]}:m);
-        const updated={...prev,miniProjects,...(urls.length&&!prev.cover?{cover:urls[0]}:{})};
-        projectRef.current=updated;_pendingUpdate.current=updated;return updated;
-      });
-    }catch(err){
-      bhLog('task.frames.upload',err,'the frames were not added');
-      await bhAlert('Não foi possível adicionar os frames. Tente novamente.');
-    }
-  };
+  const handleMiniImgs=e=>addMiniFrames(activeMiniId,inputFiles(e));
+  const addMiniFrames=(miniId,rawFiles)=>miniId==null?undefined:addUploadedImages(rawFiles,
+    (prev,urls)=>({...prev,miniProjects:(prev.miniProjects||[]).map(m=>String(m.id)===String(miniId)?{...m,frames:[...(m.frames||[]),...urls]}:m)}),
+    'task.frames.upload','Não foi possível adicionar os frames. Tente novamente.');
   // Drop targets and Ctrl/Cmd+V for the three upload spots on this page. The
   // paste goes to whichever one is on screen: the focus post while it is being
   // edited, else the open task's frames or the open research note. Plain-text
@@ -7317,13 +7332,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
             <div style={{padding:'12px 8px',flex:1}}>
               <GanttTimeline
                 tasks={autoLateTasks}
-                onUpdateTasks={tasks=>{
-                  // Sync text/status back to miniProjects
-                  const newMinis=(local.miniProjects||[]).map(m=>{const pt=tasks.find(t=>t.id===m.id);if(!pt)return m;return{...m,title:pt.text,status:ptaskStatusToMini(pt.status)};});
-                  setLocal(prev=>{const updated={...prev,projectTasks:tasks,miniProjects:newMinis};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});
-                }}
+                onUpdateTasks={updateTimelineTasks}
                 onTaskClick={(id)=>{setShowTimelineModal(false);setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);}}
-                onSyncAdd={(pt)=>{const n={id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};setLocal(prev=>{const updated={...prev,miniProjects:[...(prev.miniProjects||[]),n]};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});}}
+                onSyncAdd={addTimelineTaskCard}
                 onSyncDelete={archiveTask}
                 projectStart={local.startDate}
                 projectEnd={local.deadline}
@@ -7359,14 +7370,11 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
         <>
         <GanttTimeline
           tasks={autoLateTasks}
-          onUpdateTasks={tasks=>{
-            const newMinis=(local.miniProjects||[]).map(m=>{const pt=tasks.find(t=>t.id===m.id);if(!pt)return m;return{...m,title:pt.text,status:ptaskStatusToMini(pt.status)};});
-            setLocal(prev=>{const updated={...prev,projectTasks:tasks,miniProjects:newMinis};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});
-          }}
+          onUpdateTasks={updateTimelineTasks}
           projectStart={local.startDate}
           projectEnd={local.deadline}
           onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}}
-          onSyncAdd={(pt)=>{const n={id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};setLocal(prev=>{const updated={...prev,miniProjects:[...(prev.miniProjects||[]),n]};projectRef.current=updated;_pendingUpdate.current=updated;return updated;});}}
+          onSyncAdd={addTimelineTaskCard}
           onSyncDelete={archiveTask}
         />
         </>
@@ -7474,7 +7482,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                 {Number(local.budget)>0&&(
                   <label style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
                     <span style={{display:'flex',alignItems:'center',gap:6}}><Icon name={local.paid?'check-circle':'circle-dollar-sign'} size={13}/>{local.paid?'Recebido':'A receber'}</span>
-                    <div onClick={e=>{e.preventDefault();upd('paid',!local.paid);}} role="switch" aria-checked={!!local.paid} aria-label="Pago" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();upd('paid',!local.paid);}}} style={{width:36,height:20,borderRadius:10,cursor:'pointer',background:local.paid?'var(--ok-strong)':'var(--border-2)',padding:2,transition:'background .2s',flexShrink:0}}>
+                    <div onClick={e=>{e.preventDefault();upd('paid',v=>!v);}} role="switch" aria-checked={!!local.paid} aria-label="Pago" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();upd('paid',v=>!v);}}} style={{width:36,height:20,borderRadius:10,cursor:'pointer',background:local.paid?'var(--ok-strong)':'var(--border-2)',padding:2,transition:'background .2s',flexShrink:0}}>
                       <div style={{width:16,height:16,borderRadius:'50%',background:'white',transition:'transform .2s',transform:local.paid?'translateX(16px)':'translateX(0)'}}/>
                     </div>
                   </label>
@@ -7551,7 +7559,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
               :(
                 <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
                   {globalMentors.filter(m=>!m.deleted).map(m=>{
-                    const on=(local.mentors||[]).includes(m.id);
+                    const on=(local.mentors||[]).some(x=>String(x)===String(m.id));
                     return(
                       <button key={m.id} onClick={()=>toggleMentor(m.id)}
                         style={{display:'flex',alignItems:'center',gap:7,padding:'6px 12px 6px 8px',borderRadius:20,
@@ -7669,7 +7677,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                           </div>
                         );
                       })}
-                      <button onClick={e=>{e.stopPropagation();setActiveMiniId(m.id);addInnerNote();if(!expandedMiniIds.has(m.id)){const s=new Set(expandedMiniIds);s.add(m.id);setExpandedMiniIds(s);}}}
+                      <button onClick={e=>{e.stopPropagation();addInnerNote(m.id);if(!expandedMiniIds.has(m.id)){const s=new Set(expandedMiniIds);s.add(m.id);setExpandedMiniIds(s);}}}
                         style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:6,border:'1px dashed var(--border)',background:'transparent',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.74rem',color:'var(--muted)',transition:'all .15s',marginTop:2}}
                         onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)';}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)';}}>
@@ -7720,7 +7728,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                       <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('frames',i,moveMiniFrame)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                         <Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
                         <ImgMoveTools index={i} count={list.length} onMove={moveMiniFrame}/>
-                        <button onClick={()=>{const f=[...(activeMini.frames||[])];f.splice(i,1);updateMini('frames',f);}} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
+                        <button onClick={()=>{updateMini('frames',fr=>{const f=[...(fr||[])];f.splice(i,1);return f;});}} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                       </div>
                     ))}
                   </div>
@@ -7759,7 +7767,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                       {(note.images||[]).map((img,i,list)=>(
                         <div key={imgKey(img,i,list)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                           <Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
-                          <button onClick={()=>{const imgs=[...(note.images||[])];imgs.splice(i,1);updateInnerNote('images',imgs);}} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
+                          <button onClick={()=>{updateInnerNote('images',im=>{const imgs=[...(im||[])];imgs.splice(i,1);return imgs;});}} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                         </div>
                       ))}
                     </div>
@@ -7768,13 +7776,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                     <button className="btn btn-outline" style={{padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>document.getElementById('inner-note-img-'+activeInnerNoteId)?.click()}>
                       <Icon name="image-plus" size={13}/> Adicionar imagens
                     </button>
-                    <input id={'inner-note-img-'+activeInnerNoteId} type="file" accept="image/*" multiple style={{display:'none'}} onChange={async e=>{
-                      const files=Array.from(e.target.files);
-                      const urls=await uploadImages(files);
-                      updateInnerNote('images',[...(note.images||[]),...urls]);
-                      if(urls.length)upd('cover',urls[urls.length-1]);
-                      e.target.value='';
-                    }}/>
+                    <input id={'inner-note-img-'+activeInnerNoteId} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>addInnerNoteImages(activeMiniId,activeInnerNoteId,inputFiles(e))}/>
                   </label>
                 </>
               );
@@ -11592,11 +11594,16 @@ const App=()=>{
     scrollMemoryRef.current=next;
     bhUiSave('viewScroll',next);
   },[]);
-  const [selectedProject,setSelectedProject]=useState(()=>{
+  // The open project is held as an ID and resolved from `projects` on every
+  // render (selectedProject, below the list state). Holding the record itself
+  // kept a second copy that restore, import, the media upload, a wipe or a
+  // remote apply replaced underneath it: reopening the project showed the old
+  // copy, and its first edit wrote that copy back over the newer data.
+  const [selectedProjectId,setSelectedProjectId]=useState(()=>{
     const{projectId}=parseHash();
-    if(projectId==null)return null;
-    return bhRecordArray(persisted?.projects).find(p=>String(p.id)===String(projectId))||null;
+    return projectId==null?null:String(projectId);
   });
+  const setSelectedProject=useCallback(p=>setSelectedProjectId(p&&p.id!=null?String(p.id):null),[]);
   const tabMemoryRef=useRef(bhUiLoad('tabMemory'));
   const rememberProjectsMode=useCallback((mode,p)=>{
     const next={...(tabMemoryRef.current||{}),projectsMode:mode,projectId:p?.id||null};
@@ -11646,6 +11653,16 @@ const App=()=>{
 
   // Initialize from localStorage if available, else seed
   const [projects,setProjects]=useState(()=>bhRecordArray(persisted?.projects,SEED.projects));
+  const selectedProject=useMemo(()=>selectedProjectId==null?null
+    :projects.find(p=>p&&!p.deleted&&String(p.id)===selectedProjectId)||null,[projects,selectedProjectId]);
+  // A project that stops existing while its page is the route (trashed, gone
+  // from the cloud or from a restore, a wipe, an unknown #project-detail/<id>)
+  // sends the route back to the list instead of an empty page.
+  useEffect(()=>{
+    if(view!=='project-detail'||selectedProject)return;
+    setSelectedProjectId(null);setView('projects');
+    window.history.replaceState(null,'','#projects');
+  },[view,selectedProject]);
   const [clients,setClients]=useState(()=>bhRecordArray(persisted?.clients,SEED.clients));
   const [mentors,setMentors]=useState(()=>bhRecordArray(persisted?.mentors,SEED.mentors));
   const [notes,setNotes]=useState(()=>bhRecordArray(persisted?.notes,SEED.notes));
@@ -12118,11 +12135,7 @@ const App=()=>{
       _remoteApplyId.current=_remoteApplyId.current+1;
       if(data.projects&&isArr2(data.projects)){
         const cleanProjects=bhRecordArray(data.projects);
-        setProjects(cleanProjects);
-        const openId=selectedProjectRef.current?.id;
-        const fresh=openId==null?null:cleanProjects.find(p=>!p.deleted&&String(p.id)===String(openId));
-        setSelectedProject(fresh||null);
-        if(openId!=null&&!fresh){setView('projects');window.history.replaceState(null,'','#projects');}
+        setProjects(cleanProjects); // the open project re-resolves from this list
       }
       if(data.clients&&isArr2(data.clients))setClients(bhRecordArray(data.clients));
       if(data.mentors&&isArr2(data.mentors))setMentors(bhRecordArray(data.mentors));
@@ -12397,7 +12410,7 @@ const App=()=>{
     return()=>{cancelAnimationFrame(raf1);if(raf2)cancelAnimationFrame(raf2);};
   },[view,isMobile]);
 
-  const handleUpdateProject=useCallback(p=>{setProjects(prev=>prev.map(x=>x.id===p.id?p:x));setSelectedProject(p);},[]);
+  const handleUpdateProject=useCallback(p=>{setProjects(prev=>prev.map(x=>String(x.id)===String(p.id)?p:x));},[]);
   const addProject=useCallback(p=>{
     setProjects(prev=>[p,...prev]);
     setShowNewProject(false);
@@ -12410,10 +12423,10 @@ const App=()=>{
   // Stable handler (reads current project via ref) so ProjectDetail's React.memo isn't
   // defeated by a fresh inline arrow on every App render (e.g. syncStatus toggles).
   const handleSoftDeleteSelected=useCallback(()=>{const sp=selectedProjectRef.current;if(sp)softDeleteProject(sp.id);},[softDeleteProject]);
-  // Open the CURRENT version of the project: a caller may hold an older object
-  // (a memoized list, a menu rendered before a sync), and the editor saves
-  // whatever it was opened with.
-  const handleSelectProject=useCallback(p0=>{const p=(_latestState.current?.projects||[]).find(x=>String(x.id)===String(p0?.id))||p0;rememberCurrentScroll();setSelectedProject(p);rememberProjectsMode('detail',p);setView('project-detail');window.history.pushState(null,'',`#project-detail/${encodeURIComponent(String(p.id))}`);},[rememberCurrentScroll,rememberProjectsMode]);
+  // Only the id is taken from the caller (which may hold an older object: a
+  // memoized list, a menu rendered before a sync); the editor always gets the
+  // current record through selectedProject.
+  const handleSelectProject=useCallback(p=>{if(p?.id==null)return;rememberCurrentScroll();setSelectedProject(p);rememberProjectsMode('detail',p);setView('project-detail');window.history.pushState(null,'',`#project-detail/${encodeURIComponent(String(p.id))}`);},[rememberCurrentScroll,rememberProjectsMode]);
   const handleSelectNote=useCallback(target=>{
     if(!target)return;
     const ui=bhUiLoad('ideas');
