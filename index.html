@@ -63,7 +63,7 @@
 try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours();var _bhNight=_bhT==='automatico'?(_bhH<8||_bhH>=18):_bhT==='notturno';if(_bhNight)document.documentElement.setAttribute('data-theme','notturno');}catch(e){/*silent-ok: no localStorage (private mode) means no stored preference, and the default IS the paper theme*/}
 </script>
 <style>
-:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
+:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
 /* M1 — tempo ramp. Replaces the 4 medal colours that were hardcoded in the JSX
    (#CD7F32/#94A3B8/#FBBF24/#60A5FA). It is not a gamification rainbow: it is ink
    warming and thickening until it reaches the app's own --accent, which stays
@@ -113,7 +113,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
    pale tint over black turns into noise. */
 :root[data-theme="notturno"]{
 --bg:#17140F;--surface:#211C16;--border:#332B22;--border-2:#4A3F32;
---text:#EDE7DE;--muted:#A79B8B;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.22);
+--text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.22);
 --tempo-1:#8A7A5E;--tempo-2:#C08F35;--tempo-3:#C27642;--tempo-4:#C9A87C;
 /* The same four pigments seen by candlelight: the background is the earth, the
    text is the pure pigment lightened just enough to read. No neon. */
@@ -184,7 +184,7 @@ h1,h2,h3,.serif{font-family:'Cormorant Garamond',serif;}
 .nav-item:hover{background:rgba(var(--ink),.05);color:var(--text);}.nav-item.active{background:var(--text);color:var(--bg);box-shadow:0 1px 4px rgba(var(--ink),.15);}
 .nav-item:focus-visible{box-shadow:0 0 0 2.5px var(--focus-ring);}
 .tag{display:inline-block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:3px 8px;border-radius:4px;}
-.tag-green{background:var(--ok-bg);color:var(--ok-fg);}.tag-yellow{background:var(--warn-bg);color:var(--warn-fg);}.tag-gray{background:var(--neutral-bg);color:var(--muted);}.tag-red{background:var(--danger-bg);color:var(--danger-fg);}.tag-blue{background:var(--info-bg);color:var(--info-fg);}
+.tag-green{background:var(--ok-bg);color:var(--ok-fg);}.tag-yellow{background:var(--warn-bg);color:var(--warn-fg);}.tag-gray{background:var(--neutral-bg);color:var(--muted-chip);}.tag-red{background:var(--danger-bg);color:var(--danger-fg);}.tag-blue{background:var(--info-bg);color:var(--info-fg);}
 .input-bare{background:transparent;outline:none;border-bottom:1px solid var(--border);font-family:'Alegreya Sans',sans-serif;color:var(--text);transition:border-color .2s,box-shadow .2s;}.input-bare:focus{border-color:var(--text);box-shadow:0 1px 0 0 var(--text);}
 /* Input — subtle focus glow */
 .input-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;color:var(--text);outline:none;transition:border-color .2s,box-shadow .2s;width:100%;}.input-box:focus{border-color:var(--text);box-shadow:0 0 0 3px rgba(var(--ink),.06);}
@@ -497,7 +497,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .streak-dot-0{background:var(--border);}.streak-dot-1{background:var(--ok-bg);}.streak-dot-2{background:var(--ok-line);}.streak-dot-3{background:var(--ok-strong);}.streak-dot-4{background:var(--ok-fg);}
 .heatmap-row{display:flex;gap:3px;align-items:center;}
 .heat-cell{border-radius:3px;transition:all .15s;}.heat-cell:hover{transform:scale(1.3);}
-.nav-item .nav-badge{margin:-2px 0 -2px auto;padding:0 5px;min-width:18px;height:18px;border-radius:9px;background:rgba(var(--ink),.08);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700;}
+.nav-item .nav-badge{margin:-2px 0 -2px auto;padding:0 5px;min-width:18px;height:18px;border-radius:9px;background:rgba(var(--ink),.08);color:var(--muted-chip);display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700;}
 .nav-item.active .nav-badge{background:rgba(var(--paper),.22);color:var(--bg);}
 @keyframes countUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 @keyframes imgFadeIn{from{opacity:0;}to{opacity:1;}}
@@ -983,6 +983,13 @@ const isProjectScopedPost=post=>{
   if(post.storageScope==='project')return true;
   const keys=[post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[])];
   return keys.some(key=>String(key||'').startsWith('project:'));
+};
+// The project a project-session post belongs to ('' if none can be read).
+const projectIdOfPost=post=>{
+  if(!post)return '';
+  if(post.projectId!=null&&String(post.projectId)!=='')return String(post.projectId);
+  const key=[post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[])].map(k=>String(k||'')).find(k=>k.startsWith('project:'));
+  return key?key.slice(8):'';
 };
 const repairProjectFocusPostScopes=(posts,sessions)=>{
   const projectByPost=new Map(),galleryOnly=new Set();
@@ -4184,6 +4191,16 @@ const bhMergeRecords=(current,incoming,{incomingWins=false}={})=>{
 // used to REPLACE the list with "usar versões do backup" (dropping templates
 // made since) and IGNORE it with "manter versões atuais", although that choice
 // promises to add what is missing.
+// Fields an editor form actually changed since it opened, plus the id. The
+// client and mentor editors saved their WHOLE form, overwriting whatever
+// another device had changed in the record's other fields meanwhile; saving
+// the patch into the current record keeps those.
+const bhFormPatch=(initial,form)=>{
+  const base=typeof initial==='string'?JSON.parse(initial):(initial||{});
+  const out={id:form.id};
+  Object.keys(form).forEach(k=>{if(JSON.stringify(form[k])!==JSON.stringify(base[k]))out[k]=form[k];});
+  return out;
+};
 const bhMergeTemplates=(current,incoming,{incomingWins=false}={})=>{
   const out=[],seen=new Set();
   const key=t=>String(t.label||'').trim().toLowerCase()||'\u0000'+String(t.text||'');
@@ -4768,7 +4785,13 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const savingRef=useRef(false);
   const [destination,setDestination]=useState(isProjectSession?'project':'gallery');
   const [saveMode,setSaveMode]=useState('new');
-  const [folderId,setFolderId]=useState(()=>String((liveFolders[0]||{id:''}).id));
+  // A category session is about one gallery folder (the categories ARE the
+  // live folders), so its post starts there; it used to start on the first
+  // folder whatever the category. An archived one falls back to the first.
+  const [folderId,setFolderId]=useState(()=>{
+    const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
+    return String((liveFolders.find(f=>String(f.id)===cat)||liveFolders[0]||{id:''}).id);
+  });
   const eligiblePosts=useMemo(()=>(galleryPosts||[]).filter(p=>{
     if(!p||p.deleted)return false;
     if(destination==='project'){
@@ -5027,6 +5050,17 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     else
       pomoTimerSave({ isActive: false, mode: m, timeLeft: tLeft, focusMins: fm, targetKey:tk, sessionMeta:sessionMetaRef.current,documentId:POMO_DOCUMENT_ID,savedAt:Date.now(),abandonedSession:null });
   };
+  // The chosen category or project can vanish while idle (gallery folder
+  // archived or deleted, project removed, maybe on another device). The label
+  // fell back to "Sem categoria" while the key still pointed at the hidden
+  // target, so the next session's time was filed where nothing shows it.
+  // Reset it for real; never during a session, whose destination is locked.
+  useEffect(()=>{
+    if(targetLocked||targetKey==='none'||selectedProjectAny||selectedCategoryAny)return;
+    if(!(projects||[]).length&&!categories.length)return; // lists not loaded yet
+    targetKeyRef.current='none';setTargetKey('none');
+    persist(false,timeLeftRef.current,modeRef.current,focusMinsRef.current);
+  },[targetLocked,targetKey,selectedProjectAny,selectedCategoryAny,projects,categories]);
 
   // Resolve a session that belonged to an earlier page document. It is added
   // directly to history as abandoned: no image modal, no automatic post.
@@ -5454,7 +5488,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:7}}>
         <span className="label label-section"><StaveGlyph name="quarter"/>Pomodoro</span>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:20,background:isFocus?'rgba(28,25,23,.06)':'var(--ok-bg)',color:isFocus?'var(--muted)':'var(--ok-fg)',fontSize:'.7rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em'}}>
+          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:20,background:isFocus?'rgba(var(--ink),.06)':'var(--ok-bg)',color:isFocus?'var(--muted-chip)':'var(--ok-fg)',fontSize:'.7rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em'}}>
             <Icon name={isFocus?'brain':'coffee'} size={11}/>
             {isFocus?'Foco':'Pausa'}
           </div>
@@ -5883,7 +5917,10 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
       let parent=n?.parentId,guard=0;
       while(parent!=null&&guard++<40){
         const item=byId.get(String(parent));
-        if(!item||item.deleted)return null;
+        // A missing parent reads as root (as in the Anotações tree); a
+        // trashed one still hides the note.
+        if(!item)break;
+        if(item.deleted)return null;
         expanded.push(item.id);parent=item.parentId;
       }
       return expanded;
@@ -5897,7 +5934,11 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
         if(entry&&!entry.deleted)result.push({...entry,_recentKind:'entry',_recentFolderId:n.id,_recentExpanded:[n.id,...expanded],_recentPreview:noteTextPreview(entry.content)});
       });
     });
-    return result.slice(0,3);
+    // Newest first. The array is tree order (notes made in Anotações are
+    // appended, reordering the tree moves them), so the first three were the
+    // OLDEST ones and a new note never showed up here. Ids are creation
+    // timestamps; there is no edit stamp to sort by.
+    return result.sort((a,b)=>(Number(b.id)||0)-(Number(a.id)||0)).slice(0,3);
   },[notes]);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
@@ -6128,7 +6169,109 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
 const PROJECT_SORT_KEY='boardhub_projects_sort';
 const PROJECT_SORTS=[['manual','Ordem manual'],['deadline','Prazo mais próximo'],['recent','Mais recentes'],['title','Nome A–Z'],['status','Status']];
 const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Cancelado'];
-const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile})=>{
+// Universal timeline on the Projects page (owner request, 2026-09-24): every
+// visible project as a thin bar (start → deadline) with its pending timeline
+// tasks below, on one shared calendar. It replaces the "Tarefas Pendentes"
+// sidebar, which listed the same tasks without dates. Read-only: bars are
+// edited inside each project, so a click opens it. Task dates default exactly
+// as in the project's own Gantt, and overdue tasks read as Atrasado there too.
+const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
+const ProjectsTimeline=({projects,onOpen,isMobile})=>{
+  const DAY_W=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
+  const today=localDateISO();
+  const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
+  const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
+  const rows=useMemo(()=>{
+    const out=[];
+    projects.forEach(p=>{
+      const pStart=p.startDate||'',pEnd=p.deadline||'';
+      const tasks=applyAutoLate(Array.isArray(p.projectTasks)?p.projectTasks:[]).filter(t=>t&&t.status!=='Concluído');
+      if(!tasks.length&&!pStart&&!pEnd)return;
+      const ps=pStart||pEnd,pe=pEnd||pStart;
+      out.push({kind:'project',key:'p'+p.id,p,s:ps&&pe&&ps>pe?pe:ps,e:ps&&pe&&ps>pe?ps:pe});
+      tasks.forEach(t=>{
+        const s=t.startDate||(pStart||today),e=t.dueDate||(pEnd||addDays(today,7));
+        out.push({kind:'task',key:'t'+p.id+'-'+t.id,p,t,s:s<=e?s:e,e:s<=e?e:s});
+      });
+    });
+    return out;
+  },[projects,today]);
+  const pendingCount=rows.filter(r=>r.kind==='task').length;
+  let start=today,end=today;
+  rows.forEach(r=>{if(r.s&&r.s<start)start=r.s;if(r.e&&r.e>end)end=r.e;});
+  start=addDays(start,-3);end=addDays(end,10);
+  const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
+  const x=d=>daysBetween(start,d)*DAY_W;
+  const months=[],weekends=[],dayNums=[];
+  for(let i=0;i<totalDays;i++){
+    const d=new Date(start+'T12:00:00');d.setDate(d.getDate()+i);
+    if(i===0||d.getDate()===1){if(months.length)months[months.length-1].width=i*DAY_W-months[months.length-1].left;months.push({left:i*DAY_W,width:0,label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.','')});}
+    if(d.getDay()===0||d.getDay()===6)weekends.push(i);
+    dayNums.push(d.getDate());
+  }
+  if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
+  const scrollRef=useRef(null);
+  // Open on today rather than on the earliest date in the data.
+  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);},[open,start]);
+  const bodyH=rows.length*ROW_H;
+  return(
+    <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
+        <span className="label label-section" style={{margin:0}}><StaveGlyph name="half"/>Timeline</span>
+        <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
+        <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:'auto',padding:'4px 8px',fontSize:'.76rem'}}>
+          <Icon name={open?'chevron-up':'chevron-down'} size={13}/>{open?'Ocultar':'Mostrar'}
+        </button>
+      </div>
+      {open&&(rows.length===0
+        ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>Nenhum projeto com datas ou tarefas pendentes.</div>
+        :<div ref={scrollRef} style={{overflow:'auto',maxHeight:320,position:'relative'}}>
+          <div style={{width:LEFT_W+gridW,position:'relative'}}>
+            {/* Header: months over day numbers */}
+            <div style={{position:'sticky',top:0,zIndex:3,display:'flex',height:HEADER_H,background:'var(--surface)',borderBottom:'1px solid var(--border)'}}>
+              <div style={{position:'sticky',left:0,zIndex:4,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'flex-end',padding:'0 12px 6px',boxSizing:'border-box'}}>
+                <span className="label" style={{fontSize:'.6rem'}}>Projeto / tarefa</span>
+              </div>
+              <div style={{position:'relative',width:gridW,flexShrink:0}}>
+                {/* Each month is a band; its label sticks to the left edge while the
+                    month is in view, so opening on today still names it. */}
+                {months.map(m=><div key={m.left} style={{position:'absolute',left:m.left,width:m.width,top:4,height:14,borderLeft:'1px solid var(--border)',boxSizing:'border-box'}}><span style={{position:'sticky',left:LEFT_W,display:'inline-block',paddingLeft:4,fontSize:'.64rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)',whiteSpace:'nowrap'}}>{m.label}</span></div>)}
+                {dayNums.map((n,i)=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,bottom:5,textAlign:'center',fontSize:'.6rem',color:weekends.includes(i)?'var(--muted)':'var(--text)'}}>{n}</div>)}
+              </div>
+            </div>
+            {/* Weekend shading and the today line, under the bars */}
+            <div aria-hidden="true" style={{position:'absolute',left:LEFT_W,top:HEADER_H,width:gridW,height:bodyH,pointerEvents:'none'}}>
+              {weekends.map(i=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>)}
+              <div style={{position:'absolute',left:x(today)+DAY_W/2,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.8}}/>
+            </div>
+            {rows.map(r=>{
+              const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
+              const left=r.s?x(r.s):null,width=r.s?(daysBetween(r.s,r.e)+1)*DAY_W:0;
+              const label=isP?r.p.title:(r.t.text||r.t.title||'Tarefa');
+              const openIt=()=>onOpen(r.p);
+              return(
+                <div key={r.key} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
+                  <div {...keyActivate(openIt,'Abrir projeto '+(r.p.title||''))} onClick={openIt} title={isP?r.p.title:label+' · '+r.t.status}
+                    style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',gap:7,padding:isP?'0 12px':'0 12px 0 26px',boxSizing:'border-box',cursor:'pointer',minWidth:0}}>
+                    {isP
+                      ?<BgImg src={r.p.cover} style={{width:16,height:16,borderRadius:4,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
+                      :<span aria-hidden="true" style={{width:7,height:7,borderRadius:'50%',background:c.dot,flexShrink:0}}/>}
+                    <span style={{fontSize:isP?'.78rem':'.74rem',fontWeight:isP?600:400,color:isP?'var(--text)':'var(--muted-chip)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span>
+                  </div>
+                  <div style={{position:'relative',width:gridW,flexShrink:0}}>
+                    {left!=null&&(isP
+                      ?<div onClick={openIt} title={(r.p.title||'')+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
+                      :<div onClick={openIt} title={label+' · '+r.t.status} style={{position:'absolute',left,width,top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',padding:'0 6px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:'pointer'}}>{width>70?label:''}</div>)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>)}
+    </div>
+  );
+};
+const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts})=>{
   const [filterType,setFilterType]=useState('all');
   const [onlyActive,setOnlyActive]=useState(false);
   const [trash,setTrash]=useState(false);
@@ -6148,11 +6291,24 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile})=>
       status:(a,b)=>{const i=x=>{const k=PROJECT_STATUS_ORDER.indexOf(x.status);return k<0?99:k;};return i(a)-i(b)||byTitle(a,b);},
     }[projSort];
     return [...filtered].sort(cmp);
-  },[filtered.map(p=>p.id+':'+p.title+':'+p.deadline+':'+p.status).join('|'),projSort,trash]);
+    // Keyed on the whole list, not on id/title/deadline/status: with that key a
+    // change to any other field (tasks added by another device, a new cover)
+    // kept the OLD project objects here, a click opened the stale copy, and its
+    // first edit overwrote the newer project locally and then in the cloud.
+  },[filtered,projSort,trash]);
   const canDrag=!trash&&projSort==='manual';
   const softDelete=id=>setProjects(p=>p.map(x=>x.id===id?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
   const restore=id=>setProjects(p=>p.map(x=>x.id===id?{...x,deleted:false,deletedAt:null}:x));
-  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente? Esta ação não pode ser desfeita.',danger:true,confirmLabel:'Excluir'})){setProjects(p=>p.filter(x=>x.id!==id));}}
+  // Same rule as a gallery folder: a project still holding session posts is
+  // not removed for good, or those posts would be left with no home.
+  const hardDelete=async id=>{
+    const linked=(galleryPosts||[]).filter(p=>p&&!p.deleted&&isProjectScopedPost(p)&&projectIdOfPost(p)===String(id));
+    if(linked.length){
+      await bhAlert(`Este projeto ainda tem ${linked.length} ${linked.length===1?'post':'posts'} de sessão de foco. Restaure o projeto e exclua ${linked.length===1?'o post':'os posts'} na aba “Sessões de foco” antes de apagá-lo permanentemente.`);
+      return;
+    }
+    if(await bhConfirm({message:'Excluir permanentemente? Esta ação não pode ser desfeita.',danger:true,confirmLabel:'Excluir'})){setProjects(p=>p.filter(x=>x.id!==id));}
+  };
   // Drag-to-reorder (desktop grid). Moves the dragged project just before the drop target in
   // the full array; since the visible list preserves array order, the visible order follows.
   const projDrag=useRef(null);
@@ -6186,11 +6342,6 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile})=>
     setProjects(prev=>[np,...prev]);
   };
 
-  // All pending tasks grouped by project
-  const activeProjsWithTasks=projects.filter(p=>!p.deleted&&(p.projectTasks||[]).some(t=>t.status!=='Concluído'));
-  const PTASK_STATUS_ORDER=['Fazendo','Atrasado','Pendente'];
-  const statusColor={'Fazendo':'var(--warn-fg)','Atrasado':'var(--danger-fg)','Pendente':'var(--muted)'};
-  const statusBg={'Fazendo':'var(--warn-bg)','Atrasado':'var(--danger-bg)','Pendente':'var(--neutral-bg)'};
 
   return(
     <div className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',overflowY:isMobile?'visible':'auto'}}>
@@ -6236,6 +6387,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile})=>
               </div>
             </div>
           )}
+          {!trash&&<ProjectsTimeline projects={visible} onOpen={onSelect} isMobile={isMobile}/>}
           {isMobile&&!trash?(
             /* Mobile: compact list rows */
             <div className="card" style={{overflow:'hidden',borderRadius:12}}>
@@ -6327,49 +6479,6 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile})=>
           )}
         </div>
 
-        {/* RIGHT: tasks sidebar hub - hidden on mobile */}
-        {!trash&&!isMobile&&(
-          <div style={{width:280,flexShrink:0,position:'sticky',top:48}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16}}>
-              <span className="label label-section"><StaveGlyph name="half"/>Tarefas Pendentes</span>
-              <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}}>
-                {activeProjsWithTasks.reduce((s,p)=>(s+(p.projectTasks||[]).filter(t=>t.status!=='Concluído').length),0)}
-              </span>
-            </div>
-            {activeProjsWithTasks.length===0?(
-              <div className="card" style={{padding:'24px 20px',textAlign:'center'}}>
-                <Icon name="check-circle" size={24} style={{display:'block',margin:'0 auto 10px',opacity:.25}}/>
-                <p style={{fontSize:'.82rem',color:'var(--muted)',margin:0}}>Nenhuma tarefa pendente.</p>
-              </div>
-            ):(
-              <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                {activeProjsWithTasks.map(p=>{
-                  const pending=(p.projectTasks||[]).filter(t=>t.status!=='Concluído')
-                    .sort((a,b)=>PTASK_STATUS_ORDER.indexOf(a.status)-PTASK_STATUS_ORDER.indexOf(b.status));
-                  return(
-                    <div key={p.id} className="card" style={{padding:'14px 16px',overflow:'hidden'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,paddingBottom:10,borderBottom:'1px solid var(--border)'}}>
-                        <BgImg src={p.cover} style={{width:20,height:20,borderRadius:5,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
-                        <span style={{fontWeight:600,fontSize:'.78rem',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</span>
-                        <span style={{fontSize:'.68rem',color:'var(--muted)',flexShrink:0}}>{pending.length}</span>
-                      </div>
-                      <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                        {pending.map(t=>(
-                          <div key={t.id} style={{display:'flex',alignItems:'flex-start',gap:7}}>
-                            <span style={{display:'inline-block',flexShrink:0,fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.05em',padding:'2px 6px',borderRadius:3,marginTop:1,background:statusBg[t.status]||'var(--neutral-bg)',color:statusColor[t.status]||'var(--muted)'}}>
-                              {t.status}
-                            </span>
-                            <span style={{fontSize:'.78rem',color:'var(--text)',lineHeight:1.4}}>{t.text}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -6413,7 +6522,7 @@ const PTASK_NEXT={'Pendente':'Fazendo','Fazendo':'Concluído','Concluído':'Atra
 // for the same vocabulary diverge quietly and double the work of the dark theme.
 // Now both read the same triads.
 const GANTT_COLORS={
-  'Pendente': {bar:'var(--neutral-bg)',text:'var(--muted)',  border:'var(--border-2)',dot:'var(--border-2)'},
+  'Pendente': {bar:'var(--neutral-bg)',text:'var(--muted-chip)',  border:'var(--border-2)',dot:'var(--border-2)'},
   'Fazendo':  {bar:'var(--warn-bg)',   text:'var(--warn-fg)',border:'var(--warn-line)',dot:'var(--warn-strong)'},
   'Concluído':{bar:'var(--ok-bg)',     text:'var(--ok-fg)',  border:'var(--ok-line)',  dot:'var(--ok-strong)'},
   'Atrasado': {bar:'var(--danger-bg)', text:'var(--danger-fg)',border:'var(--danger-line)',dot:'var(--danger-strong)'},
@@ -6520,10 +6629,13 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const barGeom=t=>{
     const s=t.startDate||(projectStart||today);
     const e=t.dueDate||(projectEnd||addDays(today,7));
-    const visStart=s<chartStart?chartStart:s;
+    // Clip to the visible window on BOTH ends. Only the start was clipped, so
+    // in "Esta semana" a task running past Sunday was drawn beyond the grid.
+    // A clipped end hides its resize grip: that edge is not the real date.
+    const visStart=s<chartStart?chartStart:s,visEnd=e>chartEnd?chartEnd:e;
     const left=Math.max(0,daysBetween(chartStart,s))*DAY_W;
-    const width=Math.max(DAY_W,(daysBetween(visStart,e)+1)*DAY_W);
-    return{left,width};
+    const width=Math.max(DAY_W,(daysBetween(visStart,visEnd)+1)*DAY_W);
+    return{left,width,clipStart:s<chartStart,clipEnd:e>chartEnd};
   };
 
   // - Drag -
@@ -6685,7 +6797,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
 
             {/* Task rows */}
             {visibleTasks.map((t,i)=>{
-              const{left,width}=barGeom(t);
+              const{left,width,clipStart,clipEnd}=barGeom(t);
               const colors=GANTT_COLORS[t.status]||GANTT_COLORS['Pendente'];
               const isSelected=selectedId===t.id;
               return(
@@ -6707,11 +6819,11 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                       userSelect:'none',touchAction:'pan-y',transition:'box-shadow .15s,border-color .15s',
                     }}>
                     {/* Left resize */}
-                    <div onPointerDown={e=>{if(e.button===0)startDrag(e,t.id,'left');}} style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px 0 0 6px',zIndex:1}}
+                    <div onPointerDown={e=>{if(e.button===0&&!clipStart)startDrag(e,t.id,'left');}} style={{visibility:clipStart?'hidden':'visible',width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px 0 0 6px',zIndex:1}}
                       title="Arrastar início"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
                     <div style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'.68rem',fontWeight:600,color:colors.text,userSelect:'none'}}>{width>60?t.text:''}</div>
                     {/* Right resize */}
-                    <div onPointerDown={e=>{if(e.button===0)startDrag(e,t.id,'right');}} style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'0 6px 6px 0',zIndex:1}}
+                    <div onPointerDown={e=>{if(e.button===0&&!clipEnd)startDrag(e,t.id,'right');}} style={{visibility:clipEnd?'hidden':'visible',width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'0 6px 6px 0',zIndex:1}}
                       title="Arrastar prazo"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
                   </div>
                 </div>
@@ -7889,11 +8001,18 @@ const galleryGroupPosts=(list,mode,order)=>{
   if(mode==='flat')return list.length?[['',gallerySortPosts(list,order)]]:[];
   const byDate=gallerySortPosts(list,order==='oldest'?'oldest':'newest');
   const groups=new Map();
+  // One Intl format per month, not per post: toLocaleString dominated this.
+  const labels=new Map();
   byDate.forEach(p=>{
-    const d=new Date(_galleryDay(p)+'T12:00:00');
-    const key=isNaN(d)?'Sem data'
-      :mode==='year'?d.toLocaleString('pt-BR',{year:'numeric'})
-      :d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+    const day=_galleryDay(p),bucket=mode==='year'?day.slice(0,4):day.slice(0,7);
+    let key=labels.get(bucket);
+    if(key===undefined){
+      const d=new Date(day+'T12:00:00');
+      key=isNaN(d)?'Sem data'
+        :mode==='year'?d.toLocaleString('pt-BR',{year:'numeric'})
+        :d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+      labels.set(bucket,key);
+    }
     if(!groups.has(key))groups.set(key,[]);
     groups.get(key).push(p);
   });
@@ -7989,7 +8108,7 @@ const galleryMoveSection=(order,sectionId,beforeSectionId)=>{
   rest.splice(at,0,...block);
   return rest;
 };
-const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=>{
+const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -7997,9 +8116,14 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=
   const trashedFolders=useMemo(()=>galleryFolderList.filter(f=>f&&f.deleted),[folders]);
   // Project-session posts belong exclusively to their project. Keep them out
   // of every Gallery view, including its trash, and normalize legacy images.
+  // Exception: a project gone from every list (hard-deleted, perhaps on
+  // another device) left its posts visible nowhere. Those show here instead,
+  // without rewriting them: repairProjectFocusPostScopes would relink them
+  // from the session history anyway.
+  const projectIds=useMemo(()=>Array.isArray(projects)?new Set(projects.filter(Boolean).map(p=>String(p.id))):null,[projects]);
   const galleryOnlyPosts=useMemo(()=>(Array.isArray(posts)?posts:[])
-    .filter(p=>p&&!isProjectScopedPost(p))
-    .map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})),[posts]);
+    .filter(p=>p&&(!isProjectScopedPost(p)||(projectIds&&!projectIds.has(projectIdOfPost(p)))))
+    .map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})),[posts,projectIds]);
   const FOLDERS=liveFolders;
   const [activeFolder,setActiveFolder]=useState(()=>liveFolders.some(f=>String(f.id)===String(_galleryUi.activeFolder))?_galleryUi.activeFolder:(liveFolders[0]||{id:'work'}).id);
   const [folderTrash,setFolderTrash]=useState(()=>!!_galleryUi.folderTrash);
@@ -8089,7 +8213,19 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=
   useEffect(()=>{
     bhUiSave('gallery',{activeFolder,folderTrash,folderArchive,trash,selectedId:selected?.id||null});
   },[activeFolder,folderTrash,folderArchive,trash,selected?.id]);
-  const active=useMemo(()=>galleryOnlyPosts.filter(p=>trash?p.deleted:(!p.deleted&&String(p.folder)===String(activeFolder))),[galleryOnlyPosts,trash,activeFolder]);
+  // A post whose folder exists in no list (live, archived or trash) showed up
+  // nowhere: a folder hard-deleted on one device while another filed a post in
+  // it merges to "folder gone, post kept", and a backup may carry posts
+  // without their folder. They are SHOWN in the first live folder, not moved:
+  // sync sections arrive separately, so a folder can briefly lag its posts,
+  // and rewriting post.folder then would be a permanent, synced mistake.
+  // Picking a folder in the post editor files it for real.
+  const homeOf=useMemo(()=>{
+    const known=new Set(galleryFolderList.filter(Boolean).map(f=>String(f.id)));
+    const fallback=liveFolders[0]?String(liveFolders[0].id):null;
+    return p=>known.has(String(p.folder))||!fallback?String(p.folder):fallback;
+  },[folders,liveFolders]);
+  const active=useMemo(()=>galleryOnlyPosts.filter(p=>trash?p.deleted:(!p.deleted&&homeOf(p)===String(activeFolder))),[galleryOnlyPosts,trash,activeFolder,homeOf]);
   const activeFolderData=useMemo(()=>liveFolders.find(f=>String(f.id)===String(activeFolder))||null,[liveFolders,activeFolder]);
   const sortMode=trash?'month':(activeFolderData?.sortMode||'month');
   const sortOrder=trash?'newest':(activeFolderData?.sortOrder||'newest');
@@ -8128,9 +8264,9 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=
   });
   const folderCounts=useMemo(()=>{
     const m=new Map();
-    galleryOnlyPosts.forEach(p=>{if(!p.deleted)m.set(String(p.folder),(m.get(String(p.folder))||0)+1);});
+    galleryOnlyPosts.forEach(p=>{if(!p.deleted){const h=homeOf(p);m.set(h,(m.get(h)||0)+1);}});
     return m;
-  },[galleryOnlyPosts]);
+  },[galleryOnlyPosts,homeOf]);
   const hasSections=!!fullLayout&&fullLayout.length>1;
   // Persist placement for posts that are not in manualOrder yet, so the next
   // drag works on a complete list (and a sync peer sees the same layout).
@@ -8141,7 +8277,10 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile})=
     if(full.length===stored.length)return;
     setFolders(prev=>(prev||[]).map(f=>String(f.id)===String(activeFolder)?{...f,manualOrder:galleryMaterializeOrder(normalizeGalleryFolder(f),active)}:f));
   },[active,activeFolderData,activeFolder,sortMode,trash]);
-  const grouped=useMemo(()=>sortMode==='manual'?null:galleryGroupPosts(shown,sortMode,sortOrder),[shown,sortMode,sortOrder]);
+  // Only the list view reads this. With a post open every keystroke in it
+  // changes `posts`, and regrouping 600 posts per key cost ~30ms of typing lag.
+  const listHidden=!!selected;
+  const grouped=useMemo(()=>sortMode==='manual'||listHidden?null:galleryGroupPosts(shown,sortMode,sortOrder),[shown,sortMode,sortOrder,listHidden]);
   const updateActiveFolder=fn=>{
     if(trash||!activeFolder)return;
     setFolders(prev=>(prev||[]).map(f=>String(f.id)===String(activeFolder)?fn(normalizeGalleryFolder(f)):f));
@@ -9477,16 +9616,20 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   const isCategory=n=>n?.type==='category';
   const isFolder=n=>n?.type==='project';
   const isNote=n=>n?.type==='note' || (!n?.type);
-  const parentOf=n=>n?.parentId==null?null:n.parentId;
+  // A parent missing from the list entirely (hard-deleted on another device
+  // while this note was filed under it) left the note in no branch: it showed
+  // only in search. Such notes read as root; moving one writes a real parent.
+  // A parent that exists in the trash still hides its children, as before.
+  const parentOf=n=>n?.parentId==null||!notesById.has(String(n.parentId))?null:n.parentId;
   const childrenByParent=useMemo(()=>{
     const grouped=new Map();
     activeItems.forEach(n=>{
-      const key=n.parentId==null?'__root__':String(n.parentId);
+      const pid=parentOf(n),key=pid==null?'__root__':String(pid);
       const row=grouped.get(key);
       if(row)row.push(n);else grouped.set(key,[n]);
     });
     return grouped;
-  },[activeItems]);
+  },[activeItems,notesById]);
   const childrenOf=parentId=>childrenByParent.get(parentId==null?'__root__':String(parentId))||[];
   const isExpanded=id=>expanded.has(id);
   const toggleExpanded=id=>setExpanded(prev=>{const next=new Set(prev);if(next.has(id))next.delete(id);else next.add(id);return next;});
@@ -10337,8 +10480,8 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
   const settledRef=useRef(false);
   const formRef=useRef(form);formRef.current=form;
   const onSaveRef=useRef(onSave);onSaveRef.current=onSave;
-  useEffect(()=>()=>{if(!settledRef.current&&JSON.stringify(formRef.current)!==initialRef.current)onSaveRef.current(formRef.current,{stay:true});},[]);
-  const leave=()=>{settledRef.current=true;if(dirty)onSave(form);else onBack();};
+  useEffect(()=>()=>{if(!settledRef.current&&JSON.stringify(formRef.current)!==initialRef.current)onSaveRef.current(bhFormPatch(initialRef.current,formRef.current),{stay:true});},[]);
+  const leave=()=>{settledRef.current=true;if(dirty)onSave(bhFormPatch(initialRef.current,form));else onBack();};
   // Projects are linked to clients by the free-text "cliente" field, which
   // people fill with either the person's name or the company.
   const linked=useMemo(()=>{
@@ -10381,7 +10524,7 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
           <span className="label label-section" style={{display:'block',marginBottom:10}}><StaveGlyph name="half"/>Projetos ({linked.length})</span>
           <div style={{display:'flex',flexDirection:'column',gap:6}}>
             {linked.map(p=>(
-              <button key={p.id} type="button" className="client-project-row" onClick={()=>{if(dirty)onSave(form,{stay:true});onSelectProject?.(p);}} disabled={!onSelectProject}>
+              <button key={p.id} type="button" className="client-project-row" onClick={()=>{if(dirty)onSave(bhFormPatch(initialRef.current,form),{stay:true});onSelectProject?.(p);}} disabled={!onSelectProject}>
                 <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:600}}>{p.title}</span>
                 <span style={{fontSize:'.72rem',color:'var(--muted)',flexShrink:0}}>{p.status}{p.deadline?' · '+fmtShort(p.deadline):''}</span>
                 <Icon name="arrow-right" size={12} style={{color:'var(--muted)',flexShrink:0}}/>
@@ -10392,7 +10535,7 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
       )}
       <div style={{display:'flex',justifyContent:'space-between'}}>
         <button className="btn btn-danger" onClick={()=>{settledRef.current=true;onDelete();}}><Icon name="trash-2" size={14}/> Mover para Lixeira</button>
-        <button className="btn btn-dark" onClick={()=>{settledRef.current=true;onSave(form);}}><Icon name="check" size={14}/> Salvar</button>
+        <button className="btn btn-dark" onClick={()=>{settledRef.current=true;onSave(bhFormPatch(initialRef.current,form));}}><Icon name="check" size={14}/> Salvar</button>
       </div>
     </div>
   );
@@ -10408,7 +10551,7 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject}
     take();window.addEventListener('bh-open-item',take);return()=>window.removeEventListener('bh-open-item',take);
   },[clients]);
   const tagColor=s=>({'Ativo':'tag-green','Lead':'tag-yellow','Inativo':'tag-gray','Arquivado':'tag-gray'}[s]||'tag-gray');
-  const save=(form,{stay=false}={})=>{setClients(p=>p.map(c=>String(c.id)===String(form.id)?form:c));if(!stay)setSelected(null);};
+  const save=(form,{stay=false}={})=>{setClients(p=>p.map(c=>String(c.id)===String(form.id)?{...c,...form}:c));if(!stay)setSelected(null);};
   const softDelete=()=>{setClients(p=>p.map(c=>c.id===selected.id?{...c,deleted:true,deletedAt:new Date().toISOString()}:c));setSelected(null);};
   const restore=id=>setClients(p=>p.map(c=>c.id===id?{...c,deleted:false,deletedAt:null}:c));
   const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setClients(p=>p.filter(c=>c.id!==id));}}
@@ -10537,7 +10680,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const refreshHistory=()=>{bhHistoryInit().then(()=>setBackupHistory(bhRecoverableMeta()));};
   useEffect(()=>{refreshHistory();},[]);
 
-  const BH_REASON_LABEL={'import-source':'Arquivo importado','pre-sync':'Antes do sync','daily':'Diário','auto':'Automático','pre-restore':'Antes de restaurar','pre-login-edit':'Edição pré-login','cloud-superseded':'Nuvem substituída','descartado':'Local descartado','local-prelogin':'Local antes do 1º login','account-switch':'Antes de trocar de conta','remoto-concorrente':'Nuvem (edição simultânea)','concurrent-superseded':'Local (edição simultânea)','emergency':'Cópia de emergência'};
+  const BH_REASON_LABEL={'import-source':'Arquivo importado','pre-sync':'Antes do sync','daily':'Diário','auto':'Automático','pre-restore':'Antes de restaurar','pre-login-edit':'Edição pré-login','cloud-superseded':'Nuvem substituída','descartado':'Local descartado','local-prelogin':'Local antes do 1º login','account-switch':'Antes de trocar de conta','remoto-concorrente':'Nuvem (edição simultânea)','concurrent-superseded':'Local (edição simultânea)','local-save-failed':'Local sem espaço','emergency':'Cópia de emergência'};
   const handleRestoreFromHistory=async(entry)=>{
     const dt=new Date(entry.at).toLocaleString('pt-BR');
     const c=entry.counts||{};
@@ -10602,9 +10745,14 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const handleDiscardLocal=async()=>{
     if(!await bhConfirm({title:'Descartar alterações locais',danger:true,confirmLabel:'Descartar e puxar',
       message:'Descartar as alterações locais não enviadas e puxar a versão da nuvem?\n\nSuas alterações atuais serão guardadas no Histórico de Backups antes — dá pra desfazer.'}))return;
-    const ok=await onDiscardLocal();
-    if(ok){showStatus('ok','✓ Dados da nuvem aplicados. As alterações locais estão no histórico.');refreshHistory();}
-    else showStatus('err','Ainda não recebi nada da nuvem nesta sessão — nada para puxar.');
+    setLoading(true);
+    try{
+      const result=await onDiscardLocal();
+      if(result===true){showStatus('ok','✓ Dados da nuvem aplicados. As alterações locais estão no histórico.');refreshHistory();}
+      else if(result==='backup-failed')showStatus('err','Não foi possível guardar uma cópia das alterações locais no histórico. Nada foi descartado.');
+      else showStatus('err','Ainda não recebi nada da nuvem nesta sessão — nada para puxar.');
+    }catch(e){showStatus('err','Falha ao puxar da nuvem: '+(e?.message||e));}
+    finally{setLoading(false);}
   };
 
   const handleReupload=async()=>{
@@ -11078,7 +11226,7 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
           <button className="btn btn-danger" onClick={onDelete}><Icon name="trash-2" size={14}/> Excluir</button>
           <div style={{display:'flex',gap:8}}>
             <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-dark" onClick={()=>onSave(form)}><Icon name="check" size={14}/> Salvar</button>
+            <button className="btn btn-dark" onClick={()=>onSave(bhFormPatch(initialRef.current,form))}><Icon name="check" size={14}/> Salvar</button>
           </div>
         </div>
       </div>
@@ -11103,6 +11251,10 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     ys.sort((a,b)=>b-a);
     return ys;
   },[mentors]);
+  // The chosen year can vanish (its last mentor deleted or moved to another
+  // year), leaving an empty list and no chip marked; fall back to "Todos",
+  // as the Social platform filter does.
+  useEffect(()=>{if(activeYear!=='all'&&!years.includes(Number(activeYear)))setActiveYear('all');},[years,activeYear]);
 
   const [mentorSort,setMentorSort]=useState(()=>{try{return localStorage.getItem('boardhub_mentors_sort')||'manual';}catch{return 'manual';}});
   const changeMentorSort=v=>{setMentorSort(v);try{localStorage.setItem('boardhub_mentors_sort',v);}catch(e){bhLog('mentors.sort',e);}};
@@ -11150,7 +11302,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
       const mainCount=mentors.filter(m=>!m.deleted&&m.main&&m.id!==form.id).length;
       if(mainCount>=3){bhAlert('Você já tem 3 mentores principais.');return;}
     }
-    setMentors(p=>p.map(m=>m.id===form.id?form:m));
+    setMentors(p=>p.map(m=>String(m.id)===String(form.id)?{...m,...form}:m));
     setSelected(null);
   };
 
@@ -11464,10 +11616,19 @@ const App=()=>{
   useEffect(()=>{const report=e=>setBackupError(e.detail);window.addEventListener('bh-backup-error',report);return()=>window.removeEventListener('bh-backup-error',report);},[]);
   const [storageRecovery,setStorageRecovery]=useState(()=>_lsBoot.status==='corrupt'||_lsBoot.status==='unavailable'?_lsBoot.status:null);
   const [localSaveStatus,setLocalSaveStatus]=useState(()=>_lsWriteBlocked?'blocked':'saved');
+  // A failed local save (storage full) was shown only as the small "Falha
+  // local" badge, while the latest edits lived in memory alone: signed out,
+  // one confirmed close of the tab lost them. Now a banner explains it, and
+  // the state is copied into the backup history (IndexedDB has its own quota)
+  // at most once a minute, so it can be restored from Sincronizar.
+  const [localSaveAlertOff,setLocalSaveAlertOff]=useState(false);
+  const _lastFailCapture=useRef(0);
   const saveLocal=useCallback(state=>{
     if(bhPersistenceBusy())return {ok:false,blocked:true};
     const result=lsSave(state);
     setLocalSaveStatus(result.ok?'saved':result.blocked?'blocked':'error');
+    if(result.ok)setLocalSaveAlertOff(false);
+    else if(!result.blocked&&Date.now()-_lastFailCapture.current>60000){_lastFailCapture.current=Date.now();void bhCapture(state,'local-save-failed');}
     return result;
   },[]);
   const exportUnreadableState=useCallback(()=>{
@@ -12249,7 +12410,10 @@ const App=()=>{
   // Stable handler (reads current project via ref) so ProjectDetail's React.memo isn't
   // defeated by a fresh inline arrow on every App render (e.g. syncStatus toggles).
   const handleSoftDeleteSelected=useCallback(()=>{const sp=selectedProjectRef.current;if(sp)softDeleteProject(sp.id);},[softDeleteProject]);
-  const handleSelectProject=useCallback(p=>{rememberCurrentScroll();setSelectedProject(p);rememberProjectsMode('detail',p);setView('project-detail');window.history.pushState(null,'',`#project-detail/${encodeURIComponent(String(p.id))}`);},[rememberCurrentScroll,rememberProjectsMode]);
+  // Open the CURRENT version of the project: a caller may hold an older object
+  // (a memoized list, a menu rendered before a sync), and the editor saves
+  // whatever it was opened with.
+  const handleSelectProject=useCallback(p0=>{const p=(_latestState.current?.projects||[]).find(x=>String(x.id)===String(p0?.id))||p0;rememberCurrentScroll();setSelectedProject(p);rememberProjectsMode('detail',p);setView('project-detail');window.history.pushState(null,'',`#project-detail/${encodeURIComponent(String(p.id))}`);},[rememberCurrentScroll,rememberProjectsMode]);
   const handleSelectNote=useCallback(target=>{
     if(!target)return;
     const ui=bhUiLoad('ideas');
@@ -12337,12 +12501,15 @@ const App=()=>{
 
   // Escape hatch when pushes keep failing: archive the local edits to the
   // backup history, drop the pending flag and re-apply the cached cloud state.
+  // Returns true, 'no-remote' or 'backup-failed'. Both refusals used to be a
+  // bare false, so a failed safety copy was reported to the user as "nothing
+  // received from the cloud yet".
   const discardLocalAndPull=useCallback(async()=>{
-    if(!_hasRemoteData.current||!_applyMergedRef.current)return false;
+    if(!_hasRemoteData.current||!_applyMergedRef.current)return 'no-remote';
     try{
       const cur=_latestState.current;
-      if(cur&&bhStateHasData(cur)&&!await bhCapture(cur,'descartado'))return false;
-    }catch(e){bhLog('discardLocal.arquivar',e,'the local state was not discarded because its copy failed');return false;}
+      if(cur&&bhStateHasData(cur)&&!await bhCapture(cur,'descartado'))return 'backup-failed';
+    }catch(e){bhLog('discardLocal.arquivar',e,'the local state was not discarded because its copy failed');return 'backup-failed';}
     _pushBackoff.current={failures:0,retryAt:0};
     _hasPendingLocalEdit.current=false;
     _syncBlockedRef.current=false;
@@ -12505,6 +12672,11 @@ const App=()=>{
       {restoreBusy&&<div role="dialog" aria-modal="true" aria-label="Restaurando backup" tabIndex={-1} ref={node=>node?.focus()} onKeyDown={e=>e.preventDefault()} style={{position:'fixed',inset:0,zIndex:200000,background:'rgba(0,0,0,.55)',display:'grid',placeItems:'center'}}><div role="status" style={{padding:24,background:'var(--surface)',borderRadius:12}}>Validando e restaurando o backup. Aguarde…</div></div>}
       {storageRecovery&&<div role="alert" style={{position:'fixed',top:12,left:isMobile?12:232,right:12,zIndex:120001,padding:12,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{flex:1,minWidth:220}}>O estado local não pôde ser lido. Novos salvamentos foram pausados para não sobrescrever a única cópia.</span>{_lsBoot.raw&&<button className="btn btn-outline" onClick={exportUnreadableState}>Exportar bytes</button>}<button className="btn btn-danger" onClick={discardUnreadableState}>Descartar e continuar</button></div>}
       {backupError&&<div role="alert" style={{position:'fixed',bottom:16,left:'25%',right:16,zIndex:120000,padding:14,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10}}>{backupError} <button className="btn btn-outline" onClick={()=>{setBackupError('');navigate('sync');}}>Ver backups</button></div>}
+      {localSaveStatus==='error'&&!localSaveAlertOff&&!backupError&&<div role="alert" style={{position:'fixed',bottom:isMobile?72:16,left:isMobile?12:'25%',right:16,zIndex:120000,padding:14,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <span style={{flex:1,minWidth:220}}>O armazenamento deste navegador está cheio: as últimas alterações ainda não foram salvas neste dispositivo. O BoardHub guarda uma cópia no Histórico de Backups; exporte um backup antes de fechar a aba.</span>
+        <button className="btn btn-outline" onClick={()=>{setLocalSaveAlertOff(true);navigate('sync');}}>Exportar backup</button>
+        <button className="btn btn-ghost" onClick={()=>setLocalSaveAlertOff(true)} title="Fechar aviso" aria-label="Fechar aviso"><Icon name="x" size={14}/></button>
+      </div>}
       {showCmdPalette&&<CommandPalette projects={projects} notes={notes} mentors={mentors} clients={clients} galleryPosts={galleryPosts} onNavigate={navigate} onSelectProject={handleSelectProject} onSelectNote={handleSelectNote} onSelectGalleryPost={post=>handleOpenSessionPost(null,post)} onClose={()=>setShowCmdPalette(false)}/>} 
       {showQuickCapture&&<QuickCapture type={quickCaptureType} onClose={()=>setShowQuickCapture(false)} onAddTask={t=>setTasks(prev=>[...prev,t])} onAddNote={n=>setNotes(prev=>[n,...prev])}/>} 
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>} 
@@ -12518,9 +12690,9 @@ const App=()=>{
       }
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><Dashboard projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPosts} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></div>
-        {view==='projects'       &&<ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile}/>}
+        {view==='projects'       &&<ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts}/>}
         {view==='project-detail' &&selectedProject&&<ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/>} 
-        {view==='gallery'        &&<Gallery posts={galleryPosts} setPosts={setGalleryPosts} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile}/>}
+        {view==='gallery'        &&<Gallery posts={galleryPosts} setPosts={setGalleryPosts} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/>}
         {view==='ideas'          &&<IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/>}
         {view==='mentors'        &&<MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/>}
         {view==='social'         &&<Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/>} 
