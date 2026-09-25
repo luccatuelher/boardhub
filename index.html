@@ -63,7 +63,7 @@
 try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours();var _bhNight=_bhT==='automatico'?(_bhH<8||_bhH>=18):_bhT==='notturno';if(_bhNight)document.documentElement.setAttribute('data-theme','notturno');}catch(e){/*silent-ok: no localStorage (private mode) means no stored preference, and the default IS the paper theme*/}
 </script>
 <style>
-:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
+:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--session-accent:#2a7a8c;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
 /* M1 — tempo ramp. Replaces the 4 medal colours that were hardcoded in the JSX
    (#CD7F32/#94A3B8/#FBBF24/#60A5FA). It is not a gamification rainbow: it is ink
    warming and thickening until it reaches the app's own --accent, which stays
@@ -113,7 +113,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
    pale tint over black turns into noise. */
 :root[data-theme="notturno"]{
 --bg:#17140F;--surface:#211C16;--border:#332B22;--border-2:#4A3F32;
---text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.22);
+--text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--session-accent:#3a9cb1;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.22);
 --tempo-1:#8A7A5E;--tempo-2:#C08F35;--tempo-3:#C27642;--tempo-4:#C9A87C;
 /* The same four pigments seen by candlelight: the background is the earth, the
    text is the pure pigment lightened just enough to read. No neon. */
@@ -262,6 +262,10 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .bh-switch.on{background:var(--text)}
 .bh-switch.on>span{background:var(--bg);transform:translateX(16px)}
 .bh-switch.on.ok{background:var(--ok-strong)}
+/* A tinted surface (ok/warn/danger/neutral background) darkens --muted for
+   everything inside it, so muted text there stays AA without restyling each
+   child: the latest backup row read 4.33:1 with plain --muted. */
+.bh-tinted{--muted:var(--muted-chip)}
 .bh-switch-row:focus-visible{outline:2px solid var(--text);outline-offset:3px;border-radius:12px}
 .post-img-tools{position:absolute;left:6px;bottom:6px;z-index:2;display:flex;align-items:center;gap:2px;padding:2px;border-radius:14px;background:rgba(20,17,14,.7);color:#fff;font-size:.66rem;font-weight:600;opacity:0;transition:opacity .12s}
 .post-img-tile:hover .post-img-tools,.post-img-tools:focus-within{opacity:1}
@@ -355,7 +359,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .compact-row-meta{font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Segmented tabs */
 .seg-tabs{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:16px;}
-.seg-tab{flex:1;min-width:0;padding:10px 8px;border-radius:8px;border:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.84rem;font-weight:600;text-align:center;white-space:nowrap;transition:all .2s cubic-bezier(.4,0,.2,1);background:transparent;color:var(--muted);}
+.seg-tab{flex:1 0 auto;padding:10px 8px;border-radius:8px;border:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.84rem;font-weight:600;text-align:center;white-space:nowrap;transition:all .2s cubic-bezier(.4,0,.2,1);background:transparent;color:var(--muted);}
 .seg-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.1);}
 .seg-tab:active:not(.active){background:rgba(var(--ink),.04);}
 /* Vertical timeline */
@@ -447,8 +451,11 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   /* Upload zone */
   .upload-zone{padding:20px;}
   
-  /* Cover edit - always show on mobile (no hover) */
-  .cover-wrap .cover-edit-overlay{background:rgba(0,0,0,.3)!important;opacity:1!important;}
+  /* Cover edit on mobile (no hover): a camera chip at the top centre. It was a
+     full-hero layer whose centred "Trocar capa" label drew over the project
+     title, and any tap on the hero opened the file picker. */
+  .cover-wrap .cover-edit-overlay{inset:auto;top:16px;left:50%;transform:translateX(-50%);width:36px;height:36px;border-radius:50%;background:rgba(20,17,14,.5)!important;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(6px);opacity:1!important;z-index:2;}
+  .cover-wrap .cover-edit-overlay span{display:none;}
 }
 
 /* === REDESIGN v2 === */
@@ -531,12 +538,14 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rich-editor{outline:none;word-break:break-word;overflow-y:auto;min-height:80px;}
 .rich-editor:empty:before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
 .rich-editor img{max-width:100%;border-radius:8px;margin:8px 0;display:block;cursor:grab;}
+.rich-editor video{max-width:100%;max-height:70vh;border-radius:8px;margin:8px 0;display:block;background:#000;}
 .rich-editor img:active{cursor:grabbing;}
 /* Note-image uploads reserve their final place immediately. The placeholder is
    deliberately a block (not a floating/inline element), so text before and
    after it never reflows sideways while the image is uploading. */
 @keyframes noteImageLoading{0%,100%{opacity:.52}50%{opacity:.9}}
 .note-image-loading{display:block;width:min(100%,520px);aspect-ratio:16/9;margin:10px 0;border:1px solid var(--border);border-radius:8px;background:linear-gradient(110deg,var(--bg) 28%,var(--surface) 44%,var(--bg) 60%);background-size:220% 100%;animation:noteImageLoading 1.15s ease-in-out infinite;position:relative;overflow:hidden;user-select:none;}
+.note-image-loading[data-stage]{position:relative}.note-image-loading[data-stage]::after{content:attr(data-stage);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 .78rem 'Alegreya Sans',sans-serif;color:var(--muted)}
 .note-image-loading::after{content:'Carregando imagem…';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.72rem;font-weight:600;letter-spacing:.02em;}
 .note-image-loading.note-image-loading-failed{animation:none;background:var(--danger-bg);border-color:var(--danger-line);}
 .note-image-loading.note-image-loading-failed::after{content:'Não foi possível carregar a imagem';color:var(--danger-fg);}
@@ -589,22 +598,23 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-panel-metric{display:flex;flex-direction:column;gap:1px;min-width:0}.rank-panel-metric>span{font-size:.58rem;font-weight:700;letter-spacing:.075em;text-transform:uppercase;color:var(--muted)}.rank-panel-metric>strong{font:600 1rem 'Cormorant Garamond',serif;color:var(--text)}
 .rank-panel-metric>i{display:block;width:100%;height:3px;margin-top:3px;border-radius:9px;background:rgba(var(--ink),.1);overflow:hidden}.rank-panel-metric>i b{display:block;height:100%;border-radius:inherit;background:#3694a7}
 .rank-panel-actions{display:flex;gap:6px}.rank-panel-actions .btn{padding:5px 9px;font-size:.68rem;white-space:nowrap}
+.pomo-deferred-pill{display:inline-flex;align-items:center;gap:6px;margin:0 0 8px;padding:5px 11px;border-radius:20px;border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-fg);font:600 .72rem "Alegreya Sans",sans-serif;cursor:pointer}.pomo-deferred-pill:hover{border-color:var(--warn-strong)}
 .rank-history-list{display:flex;flex-direction:column;gap:7px;max-height:55vh;overflow:auto;padding-right:2px}.rank-history-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}.rank-history-row>div:not(.rank-session-date){display:flex;flex-direction:column;min-width:0}.rank-history-row strong{font-size:.82rem;color:var(--text)}.rank-history-row span{font-size:.7rem;color:var(--muted)}.rank-history-row>em{font-size:.7rem;font-style:normal;color:var(--muted);white-space:nowrap}.rank-history-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:32px;color:var(--muted);font-size:.82rem;text-align:center}
 .rank-guide{max-height:68vh;overflow:auto;padding-right:3px}.rank-guide-intro{margin:0 0 13px;color:var(--muted);font-size:.78rem;line-height:1.45}.rank-guide-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.rank-guide-card{display:flex;min-width:0;flex-direction:column;align-items:center;padding:10px 5px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);text-align:center}.rank-guide-card strong{margin-top:2px;font-size:.72rem;line-height:1.1}.rank-guide-card span{margin-top:2px;color:var(--muted);font-size:.58rem}.rank-guide-rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.rank-guide-rule{padding:11px 12px;border:1px solid var(--border);border-radius:10px}.rank-guide-rule h3{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:.72rem}.rank-guide-rule p{margin:0;color:var(--muted);font-size:.68rem;line-height:1.4}.rank-decay-table{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:7px}.rank-decay-table span{display:flex;flex-direction:column;align-items:center;padding:5px 2px;border-radius:6px;background:var(--bg);font-size:.56rem;color:var(--muted)}.rank-decay-table strong{font-size:.62rem;color:var(--text)}
 .rank-session-row{grid-template-columns:48px 46px 1fr auto}.rank-session-row.is-linked{cursor:pointer;transition:border-color .15s,transform .15s,background .15s}.rank-session-row.is-linked:hover{border-color:color-mix(in srgb,var(--text) 32%,var(--border));background:var(--surface);transform:translateY(-1px)}.rank-session-thumb{width:46px;height:34px;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--border)}.rank-session-thumb img,.rank-session-thumb video{width:100%;height:100%;display:block;object-fit:cover}.rank-session-date{display:flex;flex-direction:column;border-right:1px solid var(--border)}.rank-session-date strong{font-variant-numeric:tabular-nums}.rank-session-status{padding:3px 7px;border-radius:20px;font-weight:700;white-space:nowrap}.rank-session-status.saved{color:var(--ok-fg);background:var(--ok-bg)}.rank-session-status.local{color:#28667a;background:#e5f4f7}.rank-session-status.pending{color:#9a5c18;background:#fff3dc}.rank-session-status.abandoned,.rank-session-status.deleted{color:var(--danger-fg);background:var(--danger-bg)}.rank-session-groups{display:flex;flex-direction:column;gap:15px;max-height:55vh;overflow:auto;padding-right:3px}.rank-session-group{display:flex;flex-direction:column;gap:6px}.rank-session-day{display:flex;align-items:center;gap:9px;color:var(--muted);font:700 .68rem Alegreya Sans,sans-serif;letter-spacing:.09em;text-transform:uppercase}.rank-session-day:after{content:'';height:1px;flex:1;background:var(--border)}.rank-session-pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.rank-session-pagination span{min-width:88px;text-align:center;color:var(--muted);font:600 .72rem Alegreya Sans,sans-serif}.rank-session-pagination .btn{padding:5px 9px}
 .session-capture-overlay{position:fixed;z-index:110000;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,12,15,.78);backdrop-filter:blur(9px);animation:rankOverlayIn .25s ease both}
 .session-capture-modal{width:min(640px,100%);max-height:92vh;overflow:auto;padding:24px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:var(--surface);box-shadow:0 30px 90px rgba(0,0,0,.42);outline:none;box-sizing:border-box}
-.session-capture-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.session-capture-heading span{font-size:.62rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#318ca0}.session-capture-heading h2{margin:2px 0 0;font:500 1.8rem 'Cormorant Garamond',serif}.session-capture-heading p{margin:3px 0 0;font-size:.76rem;color:var(--muted)}
-.session-result-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:-4px 0 12px}.session-result-card{padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg)}.session-result-card span{display:block;font-size:.58rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.session-result-card strong{display:block;margin-top:2px;font:600 1rem 'Cormorant Garamond',serif}.session-result-card i{display:block;height:3px;margin-top:5px;border-radius:8px;background:var(--border);overflow:hidden}.session-result-card i b{display:block;height:100%;border-radius:inherit;background:#318ca0}.session-title-field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}.session-title-field span{font-size:.59rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.session-title-field input{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .84rem 'Alegreya Sans',sans-serif;outline:none}.session-title-field input:focus{border-color:var(--text)}.session-offline-note{display:flex;align-items:flex-start;gap:7px;margin-bottom:10px;padding:8px 10px;border-radius:8px;background:#eaf4f6;color:#28667a;font-size:.69rem;line-height:1.35}:root[data-theme="notturno"] .session-offline-note{background:rgba(49,140,160,.14);color:#9bd5de}
-.session-dropzone{width:100%;min-height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1px dashed var(--border-2);border-radius:12px;background:var(--bg);color:var(--muted);cursor:pointer;font-family:'Alegreya Sans',sans-serif}.session-dropzone:hover{border-color:#318ca0;color:var(--text)}.session-dropzone strong{font-size:.82rem}.session-dropzone span{font-size:.7rem}.session-dropzone.has-files{min-height:70px}
-.session-capture-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.session-capture-grid>div{position:relative;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#111}.session-capture-grid img{width:100%;height:100%;object-fit:cover;display:block}.session-capture-grid button{position:absolute;top:5px;right:5px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.7);color:white;cursor:pointer}
+.session-capture-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.session-capture-heading span{font-size:.62rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--session-accent)}.session-capture-heading h2{margin:2px 0 0;font:500 1.8rem 'Cormorant Garamond',serif}.session-capture-heading p{margin:3px 0 0;font-size:.76rem;color:var(--muted)}
+.session-result-strip{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:-4px 0 12px}.session-result-card{padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg)}.session-result-card span{display:block;font-size:.58rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.session-result-card strong{display:block;margin-top:2px;font:600 1rem 'Cormorant Garamond',serif}.session-result-card i{display:block;height:3px;margin-top:5px;border-radius:8px;background:var(--border);overflow:hidden}.session-result-card i b{display:block;height:100%;border-radius:inherit;background:var(--session-accent)}.session-title-field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}.session-title-field span{font-size:.59rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.session-title-field input{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .84rem 'Alegreya Sans',sans-serif;outline:none}.session-title-field input:focus{border-color:var(--text)}.session-offline-note{display:flex;align-items:flex-start;gap:7px;margin-bottom:10px;padding:8px 10px;border-radius:8px;background:#eaf4f6;color:#28667a;font-size:.69rem;line-height:1.35}:root[data-theme="notturno"] .session-offline-note{background:rgba(49,140,160,.14);color:#9bd5de}
+.session-dropzone{width:100%;min-height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1px dashed var(--border-2);border-radius:12px;background:var(--bg);color:var(--muted);cursor:pointer;font-family:'Alegreya Sans',sans-serif}.session-dropzone:hover{border-color:var(--session-accent);color:var(--text)}.session-dropzone strong{font-size:.82rem}.session-dropzone span{font-size:.7rem}.session-dropzone.has-files{min-height:70px}
+.session-capture-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.session-capture-grid>div{position:relative;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#111}.session-capture-grid img,.session-capture-grid video{width:100%;height:100%;object-fit:cover;display:block}.session-capture-video-badge{position:absolute;left:5px;bottom:5px;display:flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.7);color:#fff;pointer-events:none}.session-capture-grid button{position:absolute;top:5px;right:5px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.7);color:white;cursor:pointer}
 .session-capture-modal textarea{width:100%;min-height:66px;margin-top:12px;padding:10px 12px;box-sizing:border-box;resize:vertical;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:400 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-capture-modal textarea:focus{border-color:var(--text)}
 .session-post-destination{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.session-post-field{display:flex;flex-direction:column;gap:5px;min-width:0}.session-post-field>span{font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.session-post-field select,.session-post-field input{width:100%;box-sizing:border-box;min-width:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-post-field select:focus,.session-post-field input:focus{border-color:var(--text)}
 .session-post-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;margin-top:12px;border:1px solid var(--border);border-radius:11px;background:var(--bg)}.session-post-mode button{min-height:36px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:600 .78rem 'Alegreya Sans',sans-serif;cursor:pointer}.session-post-mode button.active{background:var(--surface);color:var(--text);box-shadow:0 1px 5px rgba(0,0,0,.09)}
 .project-focus-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}.project-focus-post{overflow:hidden;cursor:pointer}.project-focus-post-media{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg)}.project-focus-post-media img,.project-focus-post-media video{width:100%;height:100%;object-fit:cover;display:block}.project-focus-post-copy{padding:11px 12px}.project-focus-post-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.84rem}.project-focus-post-copy span{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--muted);font-size:.69rem}.project-focus-post-date{display:flex;align-items:center;gap:5px;margin-top:5px;color:var(--muted);font-size:.68rem}
 .project-focus-post-copy .project-focus-post-task{color:var(--text);overflow:hidden;white-space:nowrap}.task-focus-line{display:flex;align-items:center;gap:6px;margin:-4px 0 12px;font-size:.78rem;color:var(--muted)}.task-focus-line strong{color:var(--text);font-weight:600}
 .task-trash-list{display:flex;flex-direction:column;gap:7px;overflow:auto;min-height:0}.task-trash-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}.task-trash-row>div{display:flex;flex-direction:column;min-width:0;flex:1}.task-trash-row strong{font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-trash-row span{font-size:.66rem;color:var(--muted)}
-.session-capture-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}.session-capture-actions>span{max-width:270px;font-size:.66rem;line-height:1.35;color:var(--muted)}.session-capture-error{margin-top:9px;color:var(--danger-fg);font-size:.74rem}.session-upload-progress{display:grid;grid-template-columns:1fr auto;gap:4px;margin-top:10px;color:var(--muted);font-size:.7rem}.session-upload-progress i{grid-column:1/-1;height:4px;border-radius:9px;background:var(--border);overflow:hidden}.session-upload-progress em{display:block;height:100%;background:#318ca0}
+.session-capture-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}.session-capture-actions>span{max-width:270px;font-size:.66rem;line-height:1.35;color:var(--muted)}.session-capture-error{margin-top:9px;color:var(--danger-fg);font-size:.74rem}.session-upload-progress{display:grid;grid-template-columns:1fr auto;gap:4px;margin-top:10px;color:var(--muted);font-size:.7rem}.session-upload-progress i{grid-column:1/-1;height:4px;border-radius:9px;background:var(--border);overflow:hidden}.session-upload-progress em{display:block;height:100%;background:var(--session-accent)}
 .rank-promotion{position:fixed;z-index:100000;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,12,15,.72);backdrop-filter:blur(8px);animation:rankOverlayIn .28s ease both;cursor:pointer;overflow:hidden}
 .rank-promotion-aura{position:absolute;width:min(72vw,560px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(74,191,211,.26),rgba(30,94,119,.1) 34%,transparent 68%);animation:rankAura 1.8s ease-out both}
 .rank-promotion-major .rank-promotion-aura{background:radial-gradient(circle,rgba(244,218,154,.34),rgba(57,159,184,.14) 35%,transparent 70%);animation-duration:2.6s}
@@ -2477,10 +2487,13 @@ const BgImg=({src,className,style,children,full,thumb=!full,...props})=>{
   </div>;
 };
 
-// Video detection helper — checks extension in any URL format (idb://, https://, data:)
+// Video detection helper — checks extension in any URL format (idb://, https://, data:).
+// Cloud uploads are stored as ".../sha256_<hash>_video_mp4" (the MIME type
+// folded into the object name, no dot), so a video uploaded while signed in
+// did not match and rendered as a broken <img>. The folded MIME counts too.
 const isVideoSrc=src=>{
   if(!src||typeof src!=='string')return false;
-  return /\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\?|$|#)/i.test(src);
+  return /\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\?|$|#)/i.test(src)||/_video_[a-z0-9_]+(\?|$|#)/i.test(src);
 };
 
 // Vid component: auto-resolves idb:// references for video elements
@@ -3111,8 +3124,18 @@ const _uploadImgur=async(file)=>{
 
 // IDB local fallback
 const _isVideoFile=f=>/^video\//i.test(f.type||'');
+// The key's extension is what isVideoSrc reads later, so it comes from the
+// MIME type first: a clip pasted from the clipboard is named just "blob", and
+// its key "media_….blob" made the video render as a broken <img>.
+const _MIME_EXT={'video/webm':'webm','video/mp4':'mp4','video/quicktime':'mov','video/x-matroska':'mkv','video/ogg':'ogv','image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/webp':'webp','image/avif':'avif','image/svg+xml':'svg'};
+const bhMediaExt=file=>{
+  const byMime=_MIME_EXT[String(file?.type||'').toLowerCase().split(';')[0]];
+  if(byMime)return byMime;
+  const byName=/\.([a-z0-9]{1,5})$/i.exec(file?.name||'');
+  return byName?byName[1].toLowerCase():'bin';
+};
 const _storeIdb=async(file)=>{
-  const ext=(file.name||'').split('.').pop()||'bin';
+  const ext=bhMediaExt(file);
   const key='media_'+Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext;
   await idbPut(key,file);
   // Build the 480px thumbnail NOW, while the upload is already running, instead
@@ -3137,6 +3160,164 @@ const _compressImage=async(file)=>{
   return file;
 };
 
+// - MEDIA BUDGET -
+// Videos and GIFs can outweigh everything else in the account, and the cloud
+// keeps originals. Every upload path (session capture, gallery, project posts,
+// frames, notes) passes its files through bhPrepareMedia first:
+//  - GIF: kept byte for byte (re-encoding would drop the animation), up to 15 MB.
+//  - Video up to 8 MB whose short side is at most 720px: kept as is.
+//  - Larger video: re-encoded here, in the browser (MediaRecorder), to a
+//    short side of 720px at ~2 Mbps; a phone clip typically shrinks 5-10x.
+//    The original is kept only when the re-encode fails or is not smaller.
+//  - Refused, with a message, when longer than 3 minutes or still over 60 MB:
+//    better than silently filling the storage quota.
+// Cloud objects are content-addressed (SHA-256), so a repeated file costs once.
+const BH_MEDIA={gifMaxBytes:15*1048576,videoPassBytes:8*1048576,videoMaxSide:720,videoBps:2000000,audioBps:96000,videoMaxSeconds:180,videoMaxBytes:60*1048576};
+class BhMediaError extends Error{}
+const bhFmtMB=b=>(b/1048576).toFixed(1).replace('.',',')+' MB';
+const _isGifFile=f=>/^image\/gif$/i.test(f?.type||'')||/\.gif$/i.test(f?.name||'');
+// The message to show for a failed upload: a budget refusal says why; anything
+// else keeps the caller's generic wording.
+const bhUploadErrorText=(err,fallback)=>err instanceof BhMediaError?err.message:fallback;
+// What an upload indicator says while a video is being re-encoded (it takes
+// about the clip's own length): every upload UI shows it, not just one.
+const bhUploadStage=pct=>pct!=null&&pct<100?'Compactando vídeo… '+pct+'%':null;
+// {w,h,duration}; duration is null when it cannot be known. Browser-recorded
+// WebM (screen recorders, MediaRecorder) carries no duration in its header and
+// reports Infinity until the end is reached, so seek far past the end once to
+// make the element compute it; otherwise every such clip read as "over 3 min".
+const bhVideoMeta=file=>new Promise((resolve,reject)=>{
+  const url=URL.createObjectURL(file),v=document.createElement('video');
+  let finished=false;
+  const done=(fn,val)=>{if(finished)return;finished=true;clearTimeout(t);v.removeAttribute('src');v.load();URL.revokeObjectURL(url);fn(val);};
+  const t=setTimeout(()=>{if(v.videoWidth)done(resolve,{w:v.videoWidth,h:v.videoHeight,duration:null});else done(reject,new Error('video metadata timeout'));},15000);
+  const report=()=>done(resolve,{w:v.videoWidth,h:v.videoHeight,duration:isFinite(v.duration)&&v.duration>0?v.duration:null});
+  v.preload='metadata';v.muted=true;
+  v.onloadedmetadata=()=>{
+    if(isFinite(v.duration)&&v.duration>0)return report();
+    v.ondurationchange=()=>{if(isFinite(v.duration)&&v.duration>0)report();};
+    v.ontimeupdate=()=>{if(isFinite(v.duration)&&v.duration>0)report();};
+    v.currentTime=1e7;
+  };
+  v.onerror=()=>done(reject,new Error('unreadable video'));
+  v.src=url;
+});
+// WebM written by a MediaRecorder (ours, and screen recorders) has no Duration
+// in its header: players show no length and cannot seek until the whole file
+// is read. Insert Info/Duration (EBML 0x4489, float64 in TimecodeScale units).
+// Anything unexpected (known Segment size, Duration already there, odd
+// layout) returns the file untouched: a missing duration is cosmetic, a
+// broken file is not.
+const bhWebmWithDuration=async(file,seconds)=>{
+  if(!file||!(seconds>0)||!/webm/i.test(file.type||''))return file;
+  try{
+    const buf=new Uint8Array(await file.arrayBuffer());
+    const vint=p=>{const b=buf[p];let len=1,mask=0x80;while(len<=8&&!(b&mask)){mask>>=1;len++;}if(len>8)return null;
+      let val=b&(mask-1),ones=val===mask-1;for(let i=1;i<len;i++){val=val*256+buf[p+i];if(buf[p+i]!==255)ones=false;}return {len,val,unknown:ones};};
+    const eid=p=>{const b=buf[p];let len=1,mask=0x80;while(len<=4&&!(b&mask)){mask>>=1;len++;}if(len>4)return null;let id=0;for(let i=0;i<len;i++)id=id*256+buf[p+i];return {len,id};};
+    let id=eid(0);if(!id||id.id!==0x1A45DFA3)return file;
+    let sz=vint(id.len);if(!sz)return file;
+    let pos=id.len+sz.len+sz.val;
+    id=eid(pos);if(!id||id.id!==0x18538067)return file;          // Segment
+    const seg=vint(pos+id.len);if(!seg||!seg.unknown)return file;  // a known size would need rewriting too
+    let p=pos+id.len+seg.len;
+    while(p<buf.length){
+      const cid=eid(p);if(!cid)return file;const csz=vint(p+cid.len);if(!csz)return file;
+      const data=p+cid.len+csz.len;
+      if(cid.id===0x1549A966){                                      // Info
+        if(csz.unknown)return file;
+        let q=data,scale=1e6;
+        while(q<data+csz.val){const e=eid(q),s=e&&vint(q+e.len);if(!e||!s)return file;const d=q+e.len+s.len;
+          if(e.id===0x4489)return file;                              // already has Duration
+          if(e.id===0x2AD7B1){let v=0;for(let i=0;i<s.val;i++)v=v*256+buf[d+i];if(v)scale=v;}
+          q=d+s.val;}
+        const dur=new Uint8Array(11);dur.set([0x44,0x89,0x88]);new DataView(dur.buffer).setFloat64(3,seconds*1e9/scale);
+        const size=new Uint8Array(8);size[0]=0x01;let v=csz.val+11;for(let i=7;i>=1;i--){size[i]=v%256;v=Math.floor(v/256);}
+        return new File([buf.subarray(0,p+cid.len),size,buf.subarray(data,data+csz.val),dur,buf.subarray(data+csz.val)],file.name,{type:file.type});
+      }
+      if(csz.unknown)return file;
+      p=data+csz.val;
+    }
+    return file;
+  }catch(e){bhLog('media.webmDuration',e,'the video keeps its header as it was');return file;}
+};
+// Real-time re-encode: plays the clip once into a canvas + the audio graph and
+// records both. Resolves null when the browser cannot (no MediaRecorder, no
+// codec, playback refused) — the caller then keeps the original.
+const bhTranscodeVideo=(file,meta,onPct)=>new Promise(resolve=>{
+  if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream)return resolve(null);
+  const type=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4'].find(t=>MediaRecorder.isTypeSupported(t));
+  if(!type)return resolve(null);
+  const scale=Math.min(1,BH_MEDIA.videoMaxSide/Math.min(meta.w,meta.h));
+  const W=Math.max(2,Math.round(meta.w*scale/2)*2),H=Math.max(2,Math.round(meta.h*scale/2)*2);
+  const url=URL.createObjectURL(file),v=document.createElement('video');
+  v.src=url;v.playsInline=true;v.preload='auto';
+  const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  const tracks=[...canvas.captureStream(30).getVideoTracks()];
+  let ac=null;
+  try{ // audio goes to the recorder only, never to the speakers
+    ac=new (window.AudioContext||window.webkitAudioContext)();
+    const dest=ac.createMediaStreamDestination();ac.createMediaElementSource(v).connect(dest);
+    tracks.push(...dest.stream.getAudioTracks());
+  }catch{ac=null;/* no audio graph: record the picture only (silent clips are fine) */}
+  let rec;
+  try{rec=new MediaRecorder(new MediaStream(tracks),{mimeType:type,videoBitsPerSecond:BH_MEDIA.videoBps,audioBitsPerSecond:BH_MEDIA.audioBps});}
+  catch{URL.revokeObjectURL(url);tracks.forEach(t=>t.stop());try{ac&&ac.close();}catch{/*silent-ok: closing an unused audio context*/}return resolve(null);}
+  const chunks=[];let settled=false,frameReq=0,guard=0;
+  const cleanup=()=>{clearTimeout(guard);if(frameReq&&v.cancelVideoFrameCallback)v.cancelVideoFrameCallback(frameReq);v.pause();v.removeAttribute('src');v.load();URL.revokeObjectURL(url);tracks.forEach(t=>t.stop());try{ac&&ac.close();}catch{/*silent-ok: already closed*/}};
+  const settle=val=>{if(settled)return;settled=true;cleanup();resolve(val);};
+  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  rec.onstop=()=>{
+    if(settled)return;
+    const ext=type.startsWith('video/mp4')?'mp4':'webm';
+    const out=new File(chunks,String(file.name||'video').replace(/\.[^.]+$/,'')+'.'+ext,{type:type.split(';')[0]});
+    settle(out.size?out:null);
+  };
+  const draw=()=>{
+    ctx.drawImage(v,0,0,W,H);
+    if(onPct&&meta.duration)onPct(Math.min(99,Math.round(v.currentTime/meta.duration*100)));
+    if(!v.ended)frameReq=v.requestVideoFrameCallback?v.requestVideoFrameCallback(draw):requestAnimationFrame(draw);
+  };
+  v.onended=()=>{ctx.drawImage(v,0,0,W,H);setTimeout(()=>{if(rec.state!=='inactive')rec.stop();},120);};
+  v.onerror=()=>{try{rec.state!=='inactive'&&rec.stop();}catch{/*silent-ok: recorder already stopped*/}settle(null);};
+  // A stalled decode must not hang the upload: give up after twice the length.
+  guard=setTimeout(()=>{try{rec.state!=='inactive'&&rec.stop();}catch{/*silent-ok*/}settle(null);},(meta.duration*2+20)*1000);
+  (ac&&ac.state==='suspended'?ac.resume():Promise.resolve()).catch(()=>{}).then(()=>{
+    rec.start(1000);
+    return v.play();
+  }).then(draw).catch(()=>{try{rec.state!=='inactive'&&rec.stop();}catch{/*silent-ok*/}settle(null);});
+});
+// The limits that can be known without re-encoding (GIF size, video length),
+// so a batch is refused before any of its files is stored.
+const bhMediaPrecheck=async file=>{
+  if(!file)return null;
+  if(_isGifFile(file)){
+    if(file.size>BH_MEDIA.gifMaxBytes)throw new BhMediaError('O GIF "'+(file.name||'sem nome')+'" tem '+bhFmtMB(file.size)+' e passa do limite de 15 MB. Converta em vídeo (ocupa bem menos espaço) e envie de novo.');
+    return null;
+  }
+  if(!_isVideoFile(file))return null;
+  const meta=await bhVideoMeta(file).catch(()=>null);
+  if(meta&&meta.duration>BH_MEDIA.videoMaxSeconds){
+    const m=Math.floor(meta.duration/60),s=String(Math.round(meta.duration%60)).padStart(2,'0');
+    throw new BhMediaError('O vídeo "'+(file.name||'sem nome')+'" tem '+m+':'+s+' e passa do limite de 3 minutos. Corte o trecho que importa e envie de novo.');
+  }
+  return meta;
+};
+const bhPrepareMedia=async(file,onPct)=>{
+  if(!file)return file;
+  const meta=await bhMediaPrecheck(file);
+  if(!_isVideoFile(file))return file;
+  const small=file.size<=BH_MEDIA.videoPassBytes&&(!meta||!meta.w||Math.min(meta.w,meta.h)<=BH_MEDIA.videoMaxSide);
+  if(small)return bhWebmWithDuration(file,meta?.duration);
+  let out=null;
+  if(meta&&meta.w&&meta.h&&meta.duration>0)try{out=await bhTranscodeVideo(file,meta,onPct);}catch(e){bhLog('media.transcode',e,'the original video is used');}
+  const best=await bhWebmWithDuration(out&&out.size<file.size?out:file,meta?.duration);
+  if(best.size>BH_MEDIA.videoMaxBytes)throw new BhMediaError('O vídeo "'+(file.name||'sem nome')+'" ficou com '+bhFmtMB(best.size)+' e passa do limite de 60 MB. Envie um trecho mais curto.');
+  if(best.size<file.size-1024)bhDiag.record('mediaCompacted',file.size-best.size,'video');
+  return best;
+};
+
 // Imgur uploads are PUBLIC (anyone with the URL can view). For client work
 // that matters — ask once per session before the first Imgur fallback and
 // remember the answer. Declining stores the image locally (IDB) instead.
@@ -3155,7 +3336,8 @@ const _askImgurConsent=async()=>{
   return _imgurAllowed;
 };
 
-const _uploadSingle=async(file)=>{
+const _uploadSingle=async(file,onPct)=>{
+  file=await bhPrepareMedia(file,onPct);
   if(!_isVideoFile(file))file=await _compressImage(file);
   if(_fbReady&&_fbAuth?.currentUser){
     try{return await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}
@@ -3189,15 +3371,17 @@ const bhPickImage=async(e,apply,what='a imagem')=>{
   const file=input&&input.files&&input.files[0];
   if(!file)return;
   try{apply(await uploadImage(file));}
-  catch(err){bhLog('upload.pick',err,what);await bhAlert('Não foi possível enviar '+what+'. Tente novamente.');}
+  catch(err){bhLog('upload.pick',err,what);await bhAlert(bhUploadErrorText(err,'Não foi possível enviar '+what+'. Tente novamente.'));}
   finally{try{input.value='';}catch{/*silent-ok: some browsers make value read-only after detach*/}}
 };
 
 const BULK_UPLOAD_DELAY_MS=1100;
-const uploadImages=async(files,onProgress)=>{
+// onCompact(index,percent) reports a video being re-encoded (see MEDIA BUDGET).
+const uploadImages=async(files,onProgress,onCompact)=>{
+  for(const f of files)await bhMediaPrecheck(f);
   const results=[];
   for(let i=0;i<files.length;i++){
-    results.push(await _uploadSingle(files[i]));
+    results.push(await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined));
     if(onProgress)onProgress(i+1,files.length);
     // Only delay on Imgur path (Firebase has no rate limit)
     if(i<files.length-1&&(!_fbReady||!_fbAuth?.currentUser)){
@@ -4796,7 +4980,7 @@ const RankSeasonHistory=({rank,onClose})=>{
       </div>)}</div>}
   </Modal>;
 };
-const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[]})=>{
+const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[],showPoints=true})=>{
   const rows=[...(rank.sessions||[])].sort((a,b)=>String(b.endedAt||'').localeCompare(String(a.endedAt||'')));
   const [page,setPage]=useState(0);
   const daysPerPage=5;
@@ -4825,7 +5009,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
           {group.rows.map(row=>{const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post);const images=Array.isArray(post?.images)?post.images:[];const thumb=post?.bannerImage||images[0]||null;return <div className={'rank-history-row rank-session-row '+(post?'is-linked':'')} key={row.id} onClick={()=>{if(post){onClose();onOpenPost?.(row,post);}}} {...keyActivate(()=>{if(post){onClose();onOpenPost?.(row,post);}},post?'Abrir post '+(post.title||row.title||'da sessão'):undefined,!!post)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
             <div className="rank-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={post?'image':'minus'} size={14} style={{opacity:.28}}/>}</div>
-            <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{pomoFmtSecs(row.durationSeconds||0)} de foco · +{Number(row.pointsAwarded||0)} pts</span></div>
+            <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{pomoFmtSecs(row.durationSeconds||0)} de foco{showPoints&&<> · +{Number(row.pointsAwarded||0)} pts</>}</span></div>
             <span className={'rank-session-status '+status.cls}>{status.label}</span>
             {row.status==='deferred'&&<button className="btn btn-outline" style={{padding:'5px 8px',fontSize:'.68rem'}} onClick={e=>{e.stopPropagation();onClose();onResumeSession?.(row);}}>Registrar</button>}
           </div>})}
@@ -4918,32 +5102,55 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   useEffect(()=>{boxRef.current?.focus();return()=>previewUrlsRef.current.forEach(u=>URL.revokeObjectURL(u));},[]);
   useEffect(()=>{const online=()=>setOffline(false),offlineNow=()=>setOffline(true);window.addEventListener('online',online);window.addEventListener('offline',offlineNow);return()=>{window.removeEventListener('online',online);window.removeEventListener('offline',offlineNow);};},[]);
   useEffect(()=>{if(saveMode==='append'&&!eligiblePosts.some(p=>String(p.id)===String(existingPostId)))setExistingPostId(eligiblePosts[0]?.id||'');},[saveMode,eligiblePosts,existingPostId]);
-  const addFiles=list=>{
+  // Images, GIFs and videos, from the picker, a drop or the clipboard. The
+  // budget limits that are knowable up front (GIF size, video length) are
+  // checked here, so a refused file says why at once instead of at "Salvar".
+  const addFiles=async list=>{
     const incoming=Array.from(list||[]);
-    const images=incoming.filter(f=>/^image\//.test(f.type||''));
-    if(!images.length){if(incoming.length)setError('Escolha arquivos de imagem.');return;}
-    const next=images;
-    if(!next.length)return;
-    const entries=next.map(file=>{const preview=URL.createObjectURL(file);previewUrlsRef.current.push(preview);return{file,preview,id:Date.now()+'-'+Math.random()};});
-    setFiles(prev=>[...prev,...entries]);setError('');
+    const media=bhImageFiles(incoming,true);
+    if(!media.length){if(incoming.length)setError('Escolha imagens, GIFs ou vídeos.');return;}
+    const accepted=[],refused=[];
+    for(const file of media){
+      try{await bhMediaPrecheck(file);accepted.push(file);}
+      catch(e){refused.push(bhUploadErrorText(e,'Não foi possível ler "'+(file.name||'arquivo')+'".'));}
+    }
+    if(accepted.length){
+      const entries=accepted.map(file=>{const preview=URL.createObjectURL(file);previewUrlsRef.current.push(preview);return{file,preview,video:_isVideoFile(file),id:Date.now()+'-'+Math.random()};});
+      setFiles(prev=>[...prev,...entries]);
+    }
+    setError(refused.join(' '));
   };
+  // Ctrl/Cmd+V with an image (a screenshot, a copied frame) or a video on the
+  // clipboard adds it; a plain-text paste into the title or note is left alone.
+  const addFilesRef=useRef(addFiles);addFilesRef.current=addFiles;
+  useEffect(()=>{
+    const onPaste=e=>{
+      if(savingRef.current)return;
+      const files=bhImageFiles([...(e.clipboardData?.files||[])],true);
+      if(!files.length)return;
+      e.preventDefault();
+      addFilesRef.current(files);
+    };
+    document.addEventListener('paste',onPaste);
+    return()=>document.removeEventListener('paste',onPaste);
+  },[]);
   const removeFile=id=>setFiles(prev=>{const hit=prev.find(x=>x.id===id);if(hit){URL.revokeObjectURL(hit.preview);previewUrlsRef.current=previewUrlsRef.current.filter(u=>u!==hit.preview);}return prev.filter(x=>x.id!==id);});
   const save=async()=>{
     if(savingRef.current)return;
     // A written session (script, notes) has no images; a note alone is enough.
-    if(!files.length&&!note.trim()){setError('Adicione uma imagem ou escreva uma nota para registrar a sessão.');return;}
+    if(!files.length&&!note.trim()){setError('Adicione uma mídia ou escreva uma nota para registrar a sessão.');return;}
     if(destination==='gallery'&&!folderId){setError('Escolha uma categoria da Galeria.');return;}
     if(saveMode==='new'&&!title.trim()){setError('Dê um título ao registro.');return;}
     if(saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
     if(taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
     savingRef.current=true;setSaving(true);setError('');
     try{
-      const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}));
+      const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}),(i,pct)=>setProgress(p=>({done:p?.done||i,total:files.length,compact:pct})));
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
       await onSave({...session,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId:destination==='gallery'?folderId:null,existingPostId:saveMode==='append'?existingPost.id:null,
         taskId:isProjectSession&&taskChoice&&taskChoice!=='__new__'?taskChoice:null,newTaskName:isProjectSession&&taskChoice==='__new__'?newTaskName.trim():''});
     }catch(e){
-      setError('Não foi possível guardar as imagens'+(e?.message?' — '+e.message:'')+'. Tente novamente.');
+      setError(e instanceof BhMediaError?e.message:'Não foi possível guardar as mídias'+(e?.message?' — '+e.message:'')+'. Tente novamente.');
       savingRef.current=false;
       setSaving(false);setProgress(null);
     }
@@ -4982,12 +5189,12 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       {saveMode==='append'&&existingPost&&<div className="session-offline-note"><Icon name="images" size={14}/><span>As novas imagens serão anexadas a <strong>{existingPost.title}</strong>. O post original e sua categoria serão preservados.</span></div>}
       {offline&&<div className="session-offline-note"><Icon name="hard-drive" size={14}/><span>Você está sem conexão. As imagens serão guardadas neste dispositivo e o post continuará disponível {destination==='project'?'neste projeto':'na Galeria'}.</span></div>}
       <button className={'session-dropzone '+(files.length?'has-files':'')} onClick={()=>inputRef.current?.click()} disabled={saving} type="button">
-        <Icon name="image-plus" size={22}/><strong>{files.length?'Adicionar mais imagens':'Arraste imagens aqui'}</strong><span>{files.length?files.length+' adicionadas · sem limite':'ou clique para escolher · sem limite'}</span>
+        <Icon name="image-plus" size={22}/><strong>{files.length?'Adicionar mais mídias':'Arraste imagens, GIFs ou vídeos'}</strong><span>{files.length?files.length+' adicionadas · cole com Ctrl+V':'clique para escolher ou cole com Ctrl+V'}</span>
       </button>
-      <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
-      {files.length>0&&<div className="session-capture-grid">{files.map(item=><div key={item.id}><img src={item.preview} alt="Prévia da sessão"/><button onClick={()=>removeFile(item.id)} disabled={saving} aria-label="Remover imagem" type="button"><Icon name="x" size={11}/></button></div>)}</div>}
+      <input ref={inputRef} type="file" accept="image/*,video/*,.gif" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
+      {files.length>0&&<div className="session-capture-grid">{files.map(item=><div key={item.id}>{item.video?<video src={item.preview} muted playsInline preload="metadata" aria-label="Prévia do vídeo"/>:<img src={item.preview} alt="Prévia da sessão"/>}{item.video&&<span className="session-capture-video-badge" aria-hidden="true"><Icon name="video" size={10}/></span>}<button onClick={()=>removeFile(item.id)} disabled={saving} aria-label="Remover mídia" type="button"><Icon name="x" size={11}/></button></div>)}</div>}
       <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Uma nota rápida sobre a sessão (opcional)" disabled={saving}/>
-      {progress&&<div className="session-upload-progress"><span>Salvando imagens…</span><b>{progress.done}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
+      {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{progress.done}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
       {error&&<div className="session-capture-error" role="alert">{error}</div>}
       <div className="session-capture-actions"><span>{destination==='project'?'Este registro ficará somente em “Sessões de foco” dentro do projeto.':'O registro ficará somente na categoria escolhida da Galeria.'}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}><button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving}>Registrar depois</button><button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(destination==='gallery'&&!folderId)||(saveMode==='new'?!title.trim():!existingPost)}>{saving?'Salvando…':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):destination==='project'?'Criar post no projeto':'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
     </div>
@@ -5071,7 +5278,7 @@ window.addEventListener('pagehide',()=>{
   pomoTimerSave({isActive:false,mode:'focus',timeLeft:(saved.focusMins||30)*60,focusMins:saved.focusMins||30,targetKey:saved.targetKey||'none',sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:at,abandonedSession});
 });
 
-const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], onSessionComplete }) => {
+const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], onSessionComplete, onResumeSession, onOpenPost, galleryPosts=[] }) => {
   const BREAK_SECS = 5 * 60;
   const MAX_FOCUS_MINS = 60;
 
@@ -5104,6 +5311,12 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const [isActive, setIsActive]   = useState(_init.isActive);
   const [mode, setMode]           = useState(_init.mode);
   const [showStats, setShowStats] = useState(false);
+  // The session list (and "Registrar" for a deferred session) lived only in
+  // the rank panel, which is hidden while ranks are off: a session saved with
+  // "Registrar depois" then had no way back. Focus sessions are not a rank
+  // feature, so the list opens from here too, and deferred ones are announced.
+  const [showSessions, setShowSessions] = useState(false);
+  const deferredSessions = useMemo(()=>(rankNormalize(pomoData?.rank).sessions||[]).filter(s=>s&&s.status==='deferred').length,[pomoData?.rank]);
   const [showCategories, setShowCategories] = useState(false);
   const [showTargetMenu, setShowTargetMenu] = useState(false);
   const [targetKey, setTargetKey] = useState(_init.targetKey||'none');
@@ -5601,6 +5814,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
           </button>
         </div>
       </div>
+      {deferredSessions>0&&<button type="button" className="pomo-deferred-pill" onClick={()=>setShowSessions(true)}>
+        <Icon name="clock" size={12}/>{deferredSessions} {deferredSessions===1?'sessão para registrar':'sessões para registrar'}
+      </button>}
+      {showSessions&&<RankSessionHistory rank={rankNormalize(pomoData?.rank)} onClose={()=>setShowSessions(false)} onOpenPost={onOpenPost}
+        onResumeSession={onResumeSession} galleryPosts={galleryPosts} showPoints={!rankIsPaused(pomoData?.rank)}/>}
 
       {!showStats&&(
         <div className="card" style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:14}}>
@@ -5864,7 +6082,10 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
           style={{background:'var(--surface)',borderRadius:18,border:'1px solid var(--border)',width:'100%',maxWidth:440,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(28,25,23,.15)',overflow:'hidden',outline:'none'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:'1px solid var(--border)',flexShrink:0}}>
               <h2 className="serif" style={{fontSize:'1.5rem',fontWeight:400,margin:0}}>Histórico de Foco</h2>
-              <button className="btn btn-ghost" onClick={()=>setShowStats(false)} style={{padding:6}} aria-label="Fechar"><Icon name="x" size={18}/></button>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <button className="btn btn-outline" onClick={()=>{setShowStats(false);setShowSessions(true);}} style={{padding:'5px 10px',fontSize:'.75rem'}}><Icon name="list" size={13}/> Ver sessões</button>
+                <button className="btn btn-ghost" onClick={()=>setShowStats(false)} style={{padding:6}} aria-label="Fechar"><Icon name="x" size={18}/></button>
+              </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderBottom:'1px solid var(--border)',flexShrink:0}}>
               <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
@@ -6111,8 +6332,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                       <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</div>
                       <div style={{fontSize:'.66rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:6}}>
                         <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.client}</span>
-                        {total>0&&<span style={{fontSize:'.62rem',opacity:.7}}>{done+'/'+total}</span>}
-                        {Number(p.shotsTotal)>0&&<span style={{fontSize:'.62rem',opacity:.8,display:'flex',alignItems:'center',gap:2,flexShrink:0}}><Icon name="clapperboard" size={9}/>{(p.shotsDone||0)+'/'+p.shotsTotal}</span>}
+                        {total>0&&<span style={{fontSize:'.62rem'}}>{done+'/'+total}</span>}
+                        {Number(p.shotsTotal)>0&&<span style={{fontSize:'.62rem',display:'flex',alignItems:'center',gap:2,flexShrink:0}}><Icon name="clapperboard" size={9}/>{(p.shotsDone||0)+'/'+p.shotsTotal}</span>}
                         {(()=>{const di=deadlineInfo(p.deadline);return di?<span title={'Deadline: '+di.date} style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.04em',padding:'1px 6px',borderRadius:4,background:di.bg,color:di.color,flexShrink:0,border:di.urgent?'1px solid '+di.color+'33':'1px solid transparent'}}>{di.label}</span>:null;})()}
                       </div>
                     </div>
@@ -6150,7 +6371,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
 
         {/* RIGHT: pomodoro + activities + recent notes */}
         <div className="dashboard-column dashboard-column-right" style={{display:'flex',flexDirection:'column',gap:isSmall?7:10,minWidth:0,overflow:isMobile?'visible':'auto',paddingRight:isMobile?0:2}}>
-          <div style={{flexShrink:0}}><PomodoroTimer pomoData={pomoData} setPomoData={setPomoData} projects={projects} galleryFolders={galleryFolders} onSessionComplete={onSessionComplete}/></div>
+          <div style={{flexShrink:0}}><PomodoroTimer pomoData={pomoData} setPomoData={setPomoData} projects={projects} galleryFolders={galleryFolders} onSessionComplete={onSessionComplete} onResumeSession={onResumeSession} onOpenPost={onOpenSessionPost} galleryPosts={galleryPosts}/></div>
           {/* Atividades gerais */}
           <div className="dashboard-activity-pane" style={isMobile?{display:'flex',flexDirection:'column'}:{/* Fills what the timer leaves in the column (scrolling inside) instead of a fixed height that overflowed and clipped the card's bottom edge. */flex:'1 1 0',maxHeight:isSmall?'clamp(185px,29vh,230px)':'clamp(230px,34vh,320px)',minHeight:isSmall?140:160,display:'flex',flexDirection:'column'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7,flexShrink:0}}>
@@ -6374,6 +6595,22 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     </div>
   );
 };
+// Duplicate project as a template: copies structure (tasks, references, mentors)
+// but resets status, dates and timeline — useful for recurring jobs on the same
+// pipeline. Shared by the project cards and the project page (the only way on
+// phones, whose compact list has no card buttons).
+const bhDuplicateProject=p0=>{
+  const base=Date.now();
+  const sourceTasks=p0.projectTasks||[];
+  const sourceMinis=p0.miniProjects||[];
+  const allIds=Array.from(new Set([...sourceTasks,...sourceMinis].map(x=>String(x.id))));
+  const idMap=new Map(allIds.map((id,i)=>[id,base+i+1]));
+  let nestedSeq=base+allIds.length+1;
+  return {...p0,id:base,title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
+    startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
+    projectTasks:sourceTasks.map(t=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
+    miniProjects:sourceMinis.map(m=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).map(n=>({...n,id:nestedSeq++}))}))};
+};
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts})=>{
   const [filterType,setFilterType]=useState('all');
   const [onlyActive,setOnlyActive]=useState(false);
@@ -6429,21 +6666,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
       return arr;
     });
   };
-  // Duplicate project as a template: copies structure (tasks, references, mentors)
-  // but resets status, dates and timeline — useful for recurring jobs on the same pipeline
-  const duplicateProject=p0=>{
-    const base=Date.now();
-    const sourceTasks=p0.projectTasks||[];
-    const sourceMinis=p0.miniProjects||[];
-    const allIds=Array.from(new Set([...sourceTasks,...sourceMinis].map(x=>String(x.id))));
-    const idMap=new Map(allIds.map((id,i)=>[id,base+i+1]));
-    let nestedSeq=base+allIds.length+1;
-    const np={...p0,id:base,title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
-      startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
-      projectTasks:sourceTasks.map(t=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
-      miniProjects:sourceMinis.map(m=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).map(n=>({...n,id:nestedSeq++}))}))};
-    setProjects(prev=>[np,...prev]);
-  };
+  const duplicateProject=p0=>setProjects(prev=>[bhDuplicateProject(p0),...prev]);
 
 
   return(
@@ -7016,7 +7239,7 @@ const applyAutoLate=tasks=>{
 const projectTaskMiniStatus=s=>({'Fazendo':'Em Andamento','Concluído':'Concluído','Atrasado':'Atrasado'}[s]||'Pendente');
 const projectTaskToMini=t=>({id:t.id,title:t.text||'Nova Tarefa',status:projectTaskMiniStatus(t.status),notes:t.notes||'',frames:[],innerNotes:[],createdAt:t.createdAt||new Date().toLocaleDateString('pt-BR')});
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,galleryFolders,pomoData,isMobile})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,galleryFolders,pomoData,isMobile})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=applyAutoLate(project.projectTasks);
     const minis=[...(project.miniProjects||[])];
@@ -7085,6 +7308,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
   // restore does not reopen it out of nowhere.
   useEffect(()=>{if(galleryPopupId!=null&&!galleryPopup){setGalleryPopupId(null);setGalleryPopupEditing(false);}},[galleryPopupId,galleryPopup]);
   const [galleryPopupUploading,setGalleryPopupUploading]=useState(false);
+  const [galleryPopupCompact,setGalleryPopupCompact]=useState(null);
   const galleryPopupImgRef=useRef(null);
   useEffect(()=>{
     const open=bhUiLoad('openFocusPost');
@@ -7098,14 +7322,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     const postId=galleryPopupId;
     setGalleryPopupUploading(true);
     try{
-      const urls=await uploadImages(files);
+      const urls=await uploadImages(files,undefined,(i,pct)=>setGalleryPopupCompact(pct));
       setGalleryPosts(prev=>(prev||[]).map(post=>{
         if(String(post.id)!==postId)return post;
         const images=[...(post.images||[]),...urls];
         return{...post,images,bannerImage:post.bannerImage||images[0]||''};
       }));
-    }catch(err){bhLog('project.focusPost.upload',err);await bhAlert('Não foi possível adicionar as imagens. Tente novamente.');}
-    finally{setGalleryPopupUploading(false);}
+    }catch(err){bhLog('project.focusPost.upload',err);await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));}
+    finally{setGalleryPopupUploading(false);setGalleryPopupCompact(null);}
   };
   const moveGalleryPopupImage=(from,to)=>mapPopupPost(post=>({...post,images:bhMoveItem(post.images,from,to)}));
   const removeGalleryPopupImage=index=>mapPopupPost(post=>{
@@ -7220,7 +7444,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
       edit(prev=>{const next=apply(prev,urls);return next.cover?next:{...next,cover:urls[0]};});
     }catch(err){
       bhLog(logKey,err,'the uploaded images were not added');
-      await bhAlert(failMessage);
+      await bhAlert(bhUploadErrorText(err,failMessage));
     }
   };
   // Takes the files and resets the input first, so picking the same file
@@ -7425,9 +7649,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
             <button onClick={e=>{e.stopPropagation();onBack();}} aria-label="Voltar" style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(20,17,14,.5)',backdropFilter:'blur(6px)',border:'1px solid rgba(255,255,255,.22)',color:'rgba(255,255,255,.95)',borderRadius:20,padding:isMobile?'8px 14px':'6px 14px',fontSize:isMobile?'.88rem':'.8rem',cursor:'pointer',pointerEvents:'all'}}>
               <Icon name="arrow-left" size={isMobile?16:13}/> {isMobile?'':'Voltar'}
             </button>
+            <div style={{display:'flex',gap:8,pointerEvents:'all'}}>
+            {onDuplicate&&<button onClick={e=>{e.stopPropagation();onDuplicate(local);}} aria-label="Duplicar como template" title="Duplicar como template (copia tarefas e referências, zera datas e status)" style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(20,17,14,.5)',backdropFilter:'blur(6px)',border:'1px solid rgba(255,255,255,.22)',color:'rgba(255,255,255,.95)',borderRadius:20,padding:isMobile?'8px 14px':'6px 14px',fontSize:isMobile?'.88rem':'.8rem',cursor:'pointer'}}>
+              <Icon name="copy" size={13}/>{isMobile?'':' Duplicar'}
+            </button>}
             <button onClick={async e=>{e.stopPropagation();if(await bhConfirm({message:'Mover projeto para a lixeira?',confirmLabel:'Mover'})){onSoftDelete();onBack();}}} aria-label="Mover projeto para a lixeira" style={{display:'inline-flex',alignItems:'center',gap:6,background:'rgba(90,20,16,.62)',backdropFilter:'blur(6px)',border:'1px solid rgba(255,120,110,.35)',color:'rgba(255,215,210,.98)',borderRadius:20,padding:isMobile?'5px 10px':'6px 14px',fontSize:'.8rem',cursor:'pointer',pointerEvents:'all'}}>
               <Icon name="trash-2" size={13}/>{isMobile?'':' Excluir Projeto'}
             </button>
+            </div>
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-end',gap:8}}>
             <div style={{minWidth:0,flex:1}}>
@@ -8025,10 +8254,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                       {galleryPopupEditing&&<button onClick={()=>removeGalleryPopupImage(i)} title="Remover imagem" style={{position:'absolute',top:6,right:6,width:25,height:25,border:0,borderRadius:'50%',background:'rgba(20,18,16,.72)',color:'white',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}><Icon name="x" size={12}/></button>}
                     </div>
                   ))}
-                  {galleryPopupEditing&&<button onClick={()=>galleryPopupImgRef.current?.click()} disabled={galleryPopupUploading} style={{aspectRatio:'16/9',border:'1px dashed var(--border)',borderRadius:9,background:'var(--bg)',color:'var(--muted)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',font:'600 .76rem Alegreya Sans,sans-serif'}}><Icon name={galleryPopupUploading?'loader':'image-plus'} size={18}/>{galleryPopupUploading?'Enviando…':'Adicionar imagens'}</button>}
+                  {galleryPopupEditing&&<button onClick={()=>galleryPopupImgRef.current?.click()} disabled={galleryPopupUploading} style={{aspectRatio:'16/9',border:'1px dashed var(--border)',borderRadius:9,background:'var(--bg)',color:'var(--muted)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',font:'600 .76rem Alegreya Sans,sans-serif'}}><Icon name={galleryPopupUploading?'loader':'image-plus'} size={18}/>{galleryPopupUploading?(bhUploadStage(galleryPopupCompact)||'Enviando…'):'Adicionar imagens'}</button>}
                 </div>
               )}
-              {(galleryPopup.images||[]).length===0&&galleryPopupEditing&&<button onClick={()=>galleryPopupImgRef.current?.click()} disabled={galleryPopupUploading} className="upload-zone" style={{width:'100%',minHeight:130}}><Icon name={galleryPopupUploading?'loader':'image-plus'} size={20}/><span>{galleryPopupUploading?'Enviando…':'Adicionar imagens'}</span></button>}
+              {(galleryPopup.images||[]).length===0&&galleryPopupEditing&&<button onClick={()=>galleryPopupImgRef.current?.click()} disabled={galleryPopupUploading} className="upload-zone" style={{width:'100%',minHeight:130}}><Icon name={galleryPopupUploading?'loader':'image-plus'} size={20}/><span>{galleryPopupUploading?(bhUploadStage(galleryPopupCompact)||'Enviando…'):'Adicionar imagens'}</span></button>}
               {!galleryPopupEditing&&!galleryPopup.content&&(galleryPopup.images||[]).length===0&&<div style={{color:'var(--muted)',fontSize:'.85rem',fontStyle:'italic'}}>Sem conteúdo neste post.</div>}
             </div>
           </div>
@@ -8495,12 +8724,12 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile,pr
     setUploading(true);
     setUploadProgress({done:0,total:files.length});
     try{
-      const urls=await uploadImages(files,(done,total)=>setUploadProgress({done,total}));
+      const urls=await uploadImages(files,(done,total)=>setUploadProgress({done,total}),(i,pct)=>setUploadProgress(p=>({done:p?.done??i,total:files.length,compact:pct})));
       setPosts(prev=>prev.map(post=>String(post.id)===String(postId)?{...post,images:[...(Array.isArray(post.images)?post.images:[]),...urls]}:post));
       setSelected(prev=>prev&&String(prev.id)===String(postId)?{...prev,images:[...(Array.isArray(prev.images)?prev.images:[]),...urls]}:prev);
     }catch(err){
       bhLog('gallery.upload',err,'the selected images were not added');
-      await bhAlert('Não foi possível adicionar as imagens. Tente novamente.');
+      await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));
     }finally{
       setUploadProgress(null);
       setUploading(false);
@@ -8762,7 +8991,7 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile,pr
             </div>
           )}
           <div className="upload-zone" style={{aspectRatio:'16/9',minHeight:0,opacity:uploading?.6:1,pointerEvents:uploading?'none':'auto'}} onClick={()=>addImgRef.current.click()}>
-            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar'}</span>
+            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}</span>
           </div>
           {uploadProgress&&uploadProgress.total>1&&(
             <div style={{marginTop:8}}>
@@ -9045,7 +9274,7 @@ const sanitizeHTML=html=>{
       [...el.attributes].forEach(a=>{
         const n=a.name.toLowerCase();
         const compact=String(a.value||'').replace(/[\u0000-\u0020\u007f-\u009f]/g,'');
-        if(n.startsWith('on')||n==='srcdoc'||n==='formaction'||n==='data-persist-src')el.removeAttribute(a.name);
+        if(n.startsWith('on')||n==='srcdoc'||n==='formaction'||n==='data-persist-src'||n==='autoplay')el.removeAttribute(a.name);
         else if((n==='href'||n==='src'||n==='xlink:href'||n==='action')&&_BAD_PROTO.test(compact))el.removeAttribute(a.name);
         else if(n==='style'){
           // Only BoardHub's proportional image row needs inline CSS. Pasted
@@ -9063,7 +9292,7 @@ const sanitizeHTML=html=>{
       if(el.tagName==='A'&&el.getAttribute('target')==='_blank')el.setAttribute('rel','noopener noreferrer');
     });
     // An <img> whose src was rejected above is an empty box in the note.
-    t.content.querySelectorAll('img:not([src])').forEach(img=>img.remove());
+    t.content.querySelectorAll('img:not([src]),video:not([src])').forEach(img=>img.remove());
     return t.innerHTML;
   }catch{return String(html).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 };
@@ -9260,7 +9489,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
     const generation=++noteResolveGenRef.current;
     const root=ref.current;
     if(root){
-      [...root.querySelectorAll('img')].forEach(img=>{
+      [...root.querySelectorAll('img,video')].forEach(img=>{
         const persisted=img.getAttribute('data-persist-src')||img.getAttribute('src')||'';
         if(!persisted.startsWith('idb://'))return;
         img.setAttribute('data-persist-src',persisted);
@@ -9302,7 +9531,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
     if(!ref.current)return'';
     const clone=ref.current.cloneNode(true);
     clone.querySelectorAll('.note-image-loading').forEach(el=>el.remove());
-    clone.querySelectorAll('img[data-persist-src]').forEach(img=>{img.setAttribute('src',img.getAttribute('data-persist-src'));img.removeAttribute('data-persist-src');});
+    clone.querySelectorAll('img[data-persist-src],video[data-persist-src]').forEach(img=>{img.setAttribute('src',img.getAttribute('data-persist-src'));img.removeAttribute('data-persist-src');});
     clone.querySelectorAll('.note-image-dragging,.note-image-drop-before,.note-image-drop-after,.note-grid-drop,.note-grid-selected').forEach(el=>el.classList.remove('note-image-dragging','note-image-drop-before','note-image-drop-after','note-grid-drop','note-grid-selected'));
     return sanitizeHTML(clone.innerHTML);
   },[]);
@@ -9325,7 +9554,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
     clearTimeout(saveTimer.current);
     ref.current.innerHTML=remoteConflict.html;
     _normalizeNoteImages(ref.current);
-    [...ref.current.querySelectorAll('img[src^="idb://"]')].forEach(img=>{
+    [...ref.current.querySelectorAll('img[src^="idb://"],video[src^="idb://"]')].forEach(img=>{
       const persisted=img.getAttribute('src');
       img.setAttribute('data-persist-src',persisted);
       resolveLocalNoteImage(img,persisted);
@@ -9346,13 +9575,17 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
   // Local fallback uses the same idb:// contract as the rest of the app. The
   // editor resolves it to a temporary object URL only for display and restores
   // the stable reference when serializing the note.
-  const uploadNoteImage=useCallback(async(file)=>{
-    const compressed=await _compressImage(file);
+  // Images, GIFs and videos: the same media budget as every other upload
+  // (bhPrepareMedia), then cloud, Imgur (images only: its API takes no video)
+  // or this device.
+  const uploadNoteImage=useCallback(async(file,onPct)=>{
+    const prepared=await bhPrepareMedia(file,onPct);
+    const compressed=_isVideoFile(prepared)?prepared:await _compressImage(prepared);
     if(_fbReady&&_fbAuth?.currentUser){
       try{return await uploadToFirebaseStorage(compressed,_fbAuth.currentUser.uid);}
-      catch(e){console.warn('[BoardHub] Storage upload failed for note image, trying fallback:',e.message);}
+      catch(e){console.warn('[BoardHub] Storage upload failed for note media, trying fallback:',e.message);}
     }
-    try{
+    if(!_isVideoFile(compressed))try{
       if(await _askImgurConsent())return await _uploadImgur(compressed);
     }catch(e){console.warn('[BoardHub] Imgur fallback failed for note image, keeping it on this device:',e.message);}
     return await _storeIdb(compressed);
@@ -9367,9 +9600,25 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
     document.execCommand('insertHTML',false,`<span class="note-image-loading" data-note-upload="${uploadId}" contenteditable="false" role="status" aria-label="Carregando imagem"></span>`);
     emit();
     try{
-      const src=await uploadNoteImage(file);
+      const src=await uploadNoteImage(file,pct=>{
+        const ph=ref.current?.querySelector(`[data-note-upload="${uploadId}"]`);
+        const stage=bhUploadStage(pct);
+        if(ph){if(stage)ph.setAttribute('data-stage',stage);else ph.removeAttribute('data-stage');}
+      });
       const placeholder=ref.current?.querySelector(`[data-note-upload="${uploadId}"]`);
       if(!placeholder)return; // the user changed note while this upload ran
+      if(_isVideoFile(file)||isVideoSrc(String(src))){
+        // A video is its own block: it plays in place (controls), and stays out
+        // of the image grids, their drag handles and the image lightbox.
+        const video=document.createElement('video');
+        video.src=String(src);
+        video.controls=true;video.preload='metadata';video.playsInline=true;
+        video.setAttribute('data-note-video','true');
+        placeholder.replaceWith(video);
+        if(String(src).startsWith('idb://')){video.setAttribute('data-persist-src',String(src));resolveLocalNoteImage(video,String(src));}
+        emit();
+        return;
+      }
       const img=document.createElement('img');
       img.src=String(src);
       img.draggable=true;
@@ -9380,12 +9629,13 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
       if(String(src).startsWith('idb://')){img.setAttribute('data-persist-src',String(src));resolveLocalNoteImage(img,String(src));}
       emit();
     }catch(e){
-      console.warn('[BoardHub] Note image upload failed:',e?.message||e);
+      console.warn('[BoardHub] Note media upload failed:',e?.message||e);
       const placeholder=ref.current?.querySelector(`[data-note-upload="${uploadId}"]`);
       if(placeholder){
         placeholder.classList.add('note-image-loading-failed');
         setTimeout(()=>{if(placeholder.isConnected){placeholder.remove();emit();}},2600);
       }
+      if(e instanceof BhMediaError)bhAlert(e.message);
     }
   },[emit,uploadNoteImage,resolveLocalNoteImage]);
 
@@ -9560,7 +9810,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
       if(changed)emit();
       return;
     }
-    const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));
+    const files=bhImageFiles([...e.dataTransfer.files],true);
     if(!files.length)return;
     e.preventDefault();
     const range=_noteCaretRangeFromPoint(e.clientX,e.clientY);
@@ -9592,7 +9842,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
   };
   const handlePaste=e=>{
     const items=e.clipboardData?.items||[];
-    const images=[...items].filter(i=>i.type.startsWith('image/')).map(i=>i.getAsFile()).filter(Boolean);
+    const images=bhImageFiles([...items].filter(i=>i.kind==='file').map(i=>i.getAsFile()).filter(Boolean),true);
     if(images.length){e.preventDefault();images.forEach(insertImageFile);return;}
     // Rich paste goes through the same allowlist the save path uses. Left to
     // the browser, a web page's inline colours and fonts lived in the editor
@@ -9667,9 +9917,9 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
           </button>
         ))}
         <div style={{width:1,height:16,background:'var(--border)',margin:'0 4px'}}/>
-        <label className="rich-toolbar-btn" title="Inserir imagem • Arraste imagens umas sobre as outras para criar grades" style={{cursor:'pointer'}}
-          role="button" tabIndex={0} aria-label="Inserir imagem" onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();imgInputRef.current?.click();}}}>
-          <input ref={imgInputRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={async e=>{
+        <label className="rich-toolbar-btn" title="Inserir imagem, GIF ou vídeo • Arraste imagens umas sobre as outras para criar grades" style={{cursor:'pointer'}}
+          role="button" tabIndex={0} aria-label="Inserir imagem, GIF ou vídeo" onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();imgInputRef.current?.click();}}}>
+          <input ref={imgInputRef} type="file" accept="image/*,video/*,.gif" multiple style={{display:'none'}} onChange={async e=>{
             const files=[...e.target.files];if(!files.length)return;
             files.forEach(insertImageFile);
             e.target.value='';
@@ -11003,7 +11253,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       )}
 
       {status&&(
-        <div style={{padding:'8px 14px',borderRadius:10,marginBottom:10,background:status.type==='ok'?'var(--ok-bg)':'var(--danger-bg)',border:`1px solid ${status.type==='ok'?'#bbf7d0':'var(--danger-line)'}`,color:status.type==='ok'?'var(--ok-fg)':'var(--danger-fg)',fontSize:'.82rem',display:'flex',alignItems:'center',gap:10}}>
+        <div style={{padding:'8px 14px',borderRadius:10,marginBottom:10,background:status.type==='ok'?'var(--ok-bg)':'var(--danger-bg)',border:`1px solid ${status.type==='ok'?'var(--ok-line)':'var(--danger-line)'}`,color:status.type==='ok'?'var(--ok-fg)':'var(--danger-fg)',fontSize:'.82rem',display:'flex',alignItems:'center',gap:10}}>
           <Icon name={status.type==='ok'?'check-circle':'alert-circle'} size={15}/>{status.msg}
           <button className="bh-touch-target" onClick={()=>setStatus(null)} title="Fechar aviso" aria-label="Fechar aviso" style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2}}><Icon name="x" size={13}/></button>
         </div>
@@ -11110,7 +11360,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             {backupHistory.map((entry,i)=>{
               const c=entry.counts||{};
               return (
-                <div key={entry.at+i} style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:i===0?'var(--ok-bg)':'var(--bg)',display:'flex',alignItems:'center',gap:10}}>
+                <div key={entry.at+i} className={i===0?'bh-tinted':undefined} style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:i===0?'var(--ok-bg)':'var(--bg)',display:'flex',alignItems:'center',gap:10}}>
                   <Icon name={entry.reason==='daily'?'calendar-check':entry.reason==='pre-sync'?'cloud':entry.reason==='pre-restore'?'undo-2':'clock'} size={14} style={{color:'var(--muted)',flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:'.76rem',fontWeight:600,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
@@ -11284,7 +11534,7 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
   const dropRefFile=async(idx,file)=>{
     if(!file||!/^image\//.test(file.type))return;
     try{setRefSlot(idx)(await uploadImage(file));}
-    catch(err){bhLog('mentor.refDrop',err,'a imagem de referência');await bhAlert('Não foi possível enviar a imagem de referência. Tente novamente.');}
+    catch(err){bhLog('mentor.refDrop',err,'a imagem de referência');await bhAlert(bhUploadErrorText(err,'Não foi possível enviar a imagem de referência. Tente novamente.'));}
   };
   // The four slots are fixed positions (empty ones stay null), so moving is a
   // swap: dropping on an empty slot leaves the source empty instead of shifting
@@ -11538,7 +11788,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
               </div>
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-                <span style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',padding:'2px 6px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted)'}}>{m.active?'Ativo':'Inativo'}</span>
+                <span style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',padding:'2px 6px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted-chip)'}}>{m.active?'Ativo':'Inativo'}</span>
                 {m.main&&<Icon name="star" size={11} style={{color:'var(--warn-fg)'}}/>}
               </div>
             </div>
@@ -11573,7 +11823,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 </div>
                 {m.notes&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:0,lineHeight:1.55,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{m.notes}</p>}
                 <div style={{marginTop:10,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted)'}}>{m.active?'Ativo':'Inativo'}</span>
+                  <span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted-chip)'}}>{m.active?'Ativo':'Inativo'}</span>
                   {m.main&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--warn-bg)',color:'var(--warn-fg)',display:'flex',alignItems:'center',gap:3}}><Icon name="star" size={9}/> Principal</span>}
                   {m.year&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--bg)',color:'var(--muted)'}}>{m.year}</span>}
                 </div>
@@ -12633,6 +12883,8 @@ const App=()=>{
     setView('project-detail');
     window.history.pushState(null,'',`#project-detail/${encodeURIComponent(String(p.id))}`);
   },[rememberProjectsMode]);
+  // From the project page: the copy opens, like a newly created project.
+  const handleDuplicateProject=useCallback(p=>{if(p)addProject(bhDuplicateProject(p));},[addProject]);
   const softDeleteProject=useCallback(id=>setProjects(prev=>prev.map(p=>p.id===id?{...p,deleted:true,deletedAt:new Date().toISOString()}:p)),[]);
   // Stable handler (reads current project via ref) so ProjectDetail's React.memo isn't
   // defeated by a fresh inline arrow on every App render (e.g. syncStatus toggles).
@@ -12918,7 +13170,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPosts} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></div>
         {view==='projects'       &&<ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts}/>}
-        {view==='project-detail' &&selectedProject&&<ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/>} 
+        {view==='project-detail' &&selectedProject&&<ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/>} 
         {view==='gallery'        &&<Gallery posts={galleryPosts} setPosts={setGalleryPosts} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/>}
         {view==='ideas'          &&<IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/>}
         {view==='mentors'        &&<MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/>}
