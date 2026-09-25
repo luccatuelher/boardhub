@@ -3523,6 +3523,23 @@ const useModalLayer=onClose=>{
   };
   return {boxRef,trapTab};
 };
+// Escape for a layer that is not a dialog box (a lightbox, the project post
+// popup, a popover menu): it joins the same stack, so Escape closes only the
+// topmost layer. Each of these listened on its own, so one Escape closed a
+// confirm dialog AND the popup under it. Returns isTop() for other keys
+// (lightbox arrows) that must not act under a dialog either.
+const useEscapeLayer=(active,onEscape)=>{
+  const onEscapeRef=useRef(onEscape);onEscapeRef.current=onEscape;
+  const tokenRef=useRef(null);
+  useEffect(()=>{
+    if(!active)return;
+    const token={};tokenRef.current=token;_modalStack.push(token);
+    const h=e=>{if(e.key==='Escape'&&_modalStack[_modalStack.length-1]===token)onEscapeRef.current();};
+    document.addEventListener('keydown',h);
+    return()=>{document.removeEventListener('keydown',h);const i=_modalStack.indexOf(token);if(i>-1)_modalStack.splice(i,1);tokenRef.current=null;};
+  },[active]);
+  return useCallback(()=>!!tokenRef.current&&_modalStack[_modalStack.length-1]===tokenRef.current,[]);
+};
 // A bare dialog box for overlays that draw their own header/layout.
 const DialogLayer=({onClose,label,className,style,children})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
@@ -5213,11 +5230,10 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   useEffect(()=>{
     if(!showTargetMenu)return;
     const onPointer=e=>{if(targetMenuRef.current&&!targetMenuRef.current.contains(e.target))setShowTargetMenu(false);};
-    const onKey=e=>{if(e.key==='Escape')setShowTargetMenu(false);};
     document.addEventListener('mousedown',onPointer);
-    document.addEventListener('keydown',onKey);
-    return()=>{document.removeEventListener('mousedown',onPointer);document.removeEventListener('keydown',onKey);};
+    return()=>document.removeEventListener('mousedown',onPointer);
   },[showTargetMenu]);
+  useEscapeLayer(showTargetMenu,()=>setShowTargetMenu(false));
 
   const flushPomoSecsRef = useRef(null);
   flushPomoSecsRef.current = () => {
@@ -5990,7 +6006,7 @@ const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone})=>{
     </Modal>
   );
 };
-const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNotes,pomoData,setPomoData,galleryFolders,galleryPosts,isMobile,onSelectProject,onSessionComplete,onOpenSessionPost,onResumeSession})=>{
+const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNotes,pomoData,setPomoData,galleryFolders,galleryPosts,isMobile,onSelectProject,onSessionComplete,onOpenSessionPost,onResumeSession,onOpenNote})=>{
   const active=useMemo(()=>projects.filter(p=>!p.deleted&&p.status==='Em Andamento'),[projects]);
   const recentNotes=useMemo(()=>{
     const list=Array.isArray(notes)?notes:[];
@@ -6044,6 +6060,10 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const toggleTask=id=>setTasks(p=>p.map(t=>t.id===id?{...t,done:!t.done}:t));
   const removeTask=id=>setTasks(p=>p.filter(t=>t.id!==id));
   const editTask=(id,text)=>setTasks(p=>p.map(t=>t.id===id?{...t,text}:t));
+  // A task's saved note is looked up, not assumed: once that note was trashed
+  // or deleted, the task kept a ✓ that led nowhere and hid "Salvar como nota"
+  // for good. The ✓ now opens the note while it exists.
+  const liveNoteIds=useMemo(()=>new Set((notes||[]).filter(n=>n&&!n.deleted).map(n=>String(n.id))),[notes]);
   const taskToNote=task=>{const n={id:Date.now(),type:'note',parentId:null,title:task.text,content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false};setNotes(p=>[n,...p]);setTasks(p=>p.map(t=>t.id===task.id?{...t,noteId:n.id}:t));};
 
   const isSmall = !isMobile && typeof window !== 'undefined' && window.innerHeight < 800;
@@ -6160,8 +6180,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                     <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>toggleTask(t.id)}/>
                     <span style={{flex:1,fontSize:'.8rem',textDecoration:t.done?'line-through':'none',color:t.done?'var(--muted)':'var(--text)',lineHeight:1.35}}>{t.text}</span>
                     <div style={{display:'flex',gap:3,flexShrink:0}}>
-                      {!t.noteId&&<button onClick={()=>taskToNote(t)} title="Salvar como nota" className="btn btn-ghost" style={{padding:3}}><Icon name="file-plus" size={12}/></button>}
-                      {t.noteId&&<span style={{color:'var(--muted)',padding:'0 3px'}}><Icon name="file-check" size={12}/></span>}
+                      {!liveNoteIds.has(String(t.noteId))&&<button onClick={()=>taskToNote(t)} title="Salvar como nota" aria-label={'Salvar como nota: '+(t.text||'')} className="btn btn-ghost" style={{padding:3}}><Icon name="file-plus" size={12}/></button>}
+                      {liveNoteIds.has(String(t.noteId))&&<button onClick={()=>onOpenNote?.({kind:'note',id:t.noteId})} title="Abrir nota" aria-label={'Abrir nota: '+(t.text||'')} className="btn btn-ghost" style={{padding:3,color:'var(--muted)'}}><Icon name="file-check" size={12}/></button>}
                       <button onClick={()=>removeTask(t.id)} className="btn btn-ghost" style={{padding:3}} title="Remover atividade" aria-label={'Remover atividade: '+(t.text||'')}><Icon name="x" size={12}/></button>
                     </div>
                   </div>
@@ -7113,7 +7133,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
   },[galleryFolders,local.galleryFolder]);
   const folderPosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!isProjectScopedPost(p)&&!p.deleted&&String(p.folder)===String(local.galleryFolder)).map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})).sort((a,b)=>((b.date||'').slice(0,10)).localeCompare((a.date||'').slice(0,10))):[],[galleryPosts,local.galleryFolder]);
   const autoLateTasks=useMemo(()=>applyAutoLate(local.projectTasks||[]),[local.projectTasks]);
-  useEffect(()=>{if(!galleryPopup)return;const h=e=>{if(e.key==='Escape'){setGalleryPopup(null);setGalleryPopupEditing(false);}};document.addEventListener('keydown',h);return()=>document.removeEventListener('keydown',h);},[galleryPopup]);
+  useEscapeLayer(!!galleryPopup,()=>{setGalleryPopup(null);setGalleryPopupEditing(false);});
   const [showTimelineModal,setShowTimelineModal]=useState(false);
   const coverRef=useRef();
   // Eager-warm every local image in this project when it opens, so shot/frame
@@ -8604,17 +8624,22 @@ const Gallery=React.memo(({posts,setPosts,folders,setFolders,navTick,isMobile,pr
     );
   };
 
-  // Keyboard controls for lightbox
+  // Keyboard controls for lightbox: Escape through the layer stack, arrows only
+  // while the lightbox is the top layer.
+  const lightboxIsTop=useEscapeLayer(!!lightbox,()=>setLightbox(null));
+  const lightboxNavRef=useRef(null);
+  lightboxNavRef.current={prev:goLightboxPrev,next:goLightboxNext};
+  const lightboxOpen=!!lightbox;
   useEffect(()=>{
-    if(!lightbox)return;
+    if(!lightboxOpen)return;
     const handleKeyDown=e=>{
-      if(e.key==='Escape'){setLightbox(null);return;}
-      if(e.key==='ArrowLeft'){e.preventDefault();goLightboxPrev();return;}
-      if(e.key==='ArrowRight'){e.preventDefault();goLightboxNext();return;}
+      if(!lightboxIsTop())return;
+      if(e.key==='ArrowLeft'){e.preventDefault();lightboxNavRef.current.prev();return;}
+      if(e.key==='ArrowRight'){e.preventDefault();lightboxNavRef.current.next();return;}
     };
     document.addEventListener('keydown',handleKeyDown);
     return()=>document.removeEventListener('keydown',handleKeyDown);
-  },[lightbox,goLightboxPrev,goLightboxNext]);
+  },[lightboxOpen,lightboxIsTop]);
 
 
   // Keep the post mounted behind the lightbox. Returning only the portal here
@@ -9415,16 +9440,18 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
   };
   const cancelImagePointer=()=>{imagePointerRef.current=null;};
 
+  const noteLightboxOpen=!!noteLightbox;
+  const noteLightboxIsTop=useEscapeLayer(noteLightboxOpen,()=>setNoteLightbox(null));
   useEffect(()=>{
-    if(!noteLightbox)return;
+    if(!noteLightboxOpen)return;
     const onKey=e=>{
-      if(e.key==='Escape'){setNoteLightbox(null);return;}
+      if(!noteLightboxIsTop())return;
       if(e.key==='ArrowLeft'){e.preventDefault();setNoteLightbox(cur=>cur?{...cur,index:Math.max(0,cur.index-1)}:cur);}
       if(e.key==='ArrowRight'){e.preventDefault();setNoteLightbox(cur=>cur?{...cur,index:Math.min(cur.images.length-1,cur.index+1)}:cur);}
     };
     document.addEventListener('keydown',onKey);
     return()=>document.removeEventListener('keydown',onKey);
-  },[noteLightbox]);
+  },[noteLightboxOpen,noteLightboxIsTop]);
 
   const handleKeyDown=e=>{if(e.key==='Tab'){e.preventDefault();document.execCommand('insertText',false,'    ');}};
 
@@ -9705,12 +9732,11 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
 
   useEffect(()=>{
     if(!showCreateMenu)return;
-    const close=e=>{if(e.key==='Escape')setShowCreateMenu(false);};
     const out=()=>setShowCreateMenu(false);
-    document.addEventListener('keydown',close);
     const t=setTimeout(()=>document.addEventListener('click',out),0);
-    return()=>{document.removeEventListener('keydown',close);clearTimeout(t);document.removeEventListener('click',out);};
+    return()=>{clearTimeout(t);document.removeEventListener('click',out);};
   },[showCreateMenu]);
+  useEscapeLayer(showCreateMenu,()=>setShowCreateMenu(false));
 
   const activeItems=useMemo(()=>notes.filter(n=>!n.deleted),[notes]);
   const trashed=useMemo(()=>notes.filter(n=>n.deleted),[notes]);
@@ -10605,7 +10631,10 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
   // Projects are linked to clients by the free-text "cliente" field, which
   // people fill with either the person's name or the company.
   const linked=useMemo(()=>{
-    const keys=[form.name,form.company].map(v=>bhFold(v).trim()).filter(Boolean);
+    // The saved name/company too: while a rename is being typed the projects
+    // still point at the saved text (the rename carries over on save).
+    const saved=JSON.parse(initialRef.current||'{}');
+    const keys=[form.name,form.company,saved.name,saved.company].map(v=>bhFold(v).trim()).filter(Boolean);
     if(!keys.length)return [];
     return (projects||[]).filter(p=>p&&!p.deleted&&keys.includes(bhFold(p.client).trim()));
   },[projects,form.name,form.company]);
@@ -10662,7 +10691,7 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
 };
 
 // - CLIENTS -
-const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject})=>{
+const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,onClientRenamed})=>{
   const [selected,setSelected]=useState(null);
   const [trash,setTrash]=useState(false);
   // Opened from the command palette (bhOpenItem).
@@ -10671,7 +10700,23 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject}
     take();window.addEventListener('bh-open-item',take);return()=>window.removeEventListener('bh-open-item',take);
   },[clients]);
   const tagColor=s=>({'Ativo':'tag-green','Lead':'tag-yellow','Inativo':'tag-gray','Arquivado':'tag-gray'}[s]||'tag-gray');
-  const save=(form,{stay=false}={})=>{setClients(p=>p.map(c=>String(c.id)===String(form.id)?{...c,...form}:c));if(!stay)setSelected(null);};
+  // Projects name their client in free text, matched against the client's
+  // name or company. Renaming either (even fixing a typo) used to orphan the
+  // client's projects: the link is a copy of the old text. A rename now
+  // carries over to the projects that used the old text, unless another
+  // client is still known by it.
+  const clientKey=v=>bhFold(v).trim();
+  const save=(form,{stay=false}={})=>{
+    const before=clients.find(c=>String(c.id)===String(form.id));
+    setClients(p=>p.map(c=>String(c.id)===String(form.id)?{...c,...form}:c));
+    if(before&&onClientRenamed){
+      const others=clients.filter(c=>c&&!c.deleted&&String(c.id)!==String(form.id));
+      const renames=['name','company'].filter(k=>form[k]!==undefined).map(k=>[String(before[k]||'').trim(),String(form[k]||'').trim()])
+        .filter(([from,to])=>from&&to&&clientKey(from)!==clientKey(to)&&!others.some(c=>clientKey(c.name)===clientKey(from)||clientKey(c.company)===clientKey(from)));
+      if(renames.length)onClientRenamed(renames);
+    }
+    if(!stay)setSelected(null);
+  };
   const softDelete=()=>{setClients(p=>p.map(c=>c.id===selected.id?{...c,deleted:true,deletedAt:new Date().toISOString()}:c));setSelected(null);};
   const restore=id=>setClients(p=>p.map(c=>c.id===id?{...c,deleted:false,deletedAt:null}:c));
   const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setClients(p=>p.filter(c=>c.id!==id));}}
@@ -11748,6 +11793,7 @@ const App=()=>{
   const saveLocal=useCallback(state=>{
     if(bhPersistenceBusy())return {ok:false,blocked:true};
     const result=lsSave(state);
+    if(result.ok)_lsTabBase.current=state; // what this tab and localStorage now agree on
     setLocalSaveStatus(result.ok?'saved':result.blocked?'blocked':'error');
     if(result.ok)setLocalSaveAlertOff(false);
     else if(!result.blocked&&Date.now()-_lastFailCapture.current>60000){_lastFailCapture.current=Date.now();void bhCapture(state,'local-save-failed');}
@@ -12225,7 +12271,6 @@ const App=()=>{
         }catch(e){_syncBlockedRef.current=true;setSyncStatus('error');bhLog('reconcile.arquivarRemotoConcorrente',e,'cloud push paused because conflict backup failed');}
         return;
       }
-      const isArr2=v=>Array.isArray(v);
       try{
         const cur=_latestState.current;
         // First contact already archived this exact local state above. Capturing
@@ -12267,24 +12312,7 @@ const App=()=>{
       // archived for a conflict no longer counts as "I already stored this one".
       _lastRemoteArchivedSig.current='';
       _remoteApplyId.current=_remoteApplyId.current+1;
-      if(data.projects&&isArr2(data.projects)){
-        const cleanProjects=bhRecordArray(data.projects);
-        setProjects(cleanProjects); // the open project re-resolves from this list
-      }
-      if(data.clients&&isArr2(data.clients))setClients(bhRecordArray(data.clients));
-      if(data.mentors&&isArr2(data.mentors))setMentors(bhRecordArray(data.mentors));
-      if(data.notes&&isArr2(data.notes))setNotes(bhRecordArray(data.notes));
-      if(data.tasks&&isArr2(data.tasks))setTasks(bhRecordArray(data.tasks));
-      if(data.socialPosts&&isArr2(data.socialPosts))setSocialPosts(bhRecordArray(data.socialPosts));
-      if(data.socialTemplates&&isArr2(data.socialTemplates))setSocialTemplatesState(bhRecordArray(data.socialTemplates));
-      const nextFolders=isArr2(data.galleryFolders)?bhRecordArray(data.galleryFolders):_latestState.current.galleryFolders;
-      const nextPomo=data.pomoData&&typeof data.pomoData==='object'&&!Array.isArray(data.pomoData)
-        ?pomoSyncGalleryCategories(pomoRankMaintain(data.pomoData),nextFolders):_latestState.current.pomoData;
-      if(data.galleryPosts&&isArr2(data.galleryPosts))setGalleryPosts(repairProjectFocusPostScopes(bhRecordArray(data.galleryPosts).map(normalizeFocusPostCopy),nextPomo?.rank?.sessions));
-      if(data.galleryFolders&&isArr2(data.galleryFolders))setGalleryFolders(nextFolders);
-      if(data.noteGroups&&isArr2(data.noteGroups))setNoteGroups(bhRecordArray(data.noteGroups));
-      if(data.pomoData&&typeof data.pomoData==='object'&&!Array.isArray(data.pomoData))setPomoData(nextPomo);
-      if(data.identity===null||data.identity&&typeof data.identity.hubName==='string'){saveIdentity(data.identity);setIdentity(data.identity);}
+      applyStateFields(data);
       // Record account ownership; later boots use the durable merge baseline.
       try{localStorage.setItem(DIRTY_KEY,'0');localStorage.setItem(SYNCED_UID_KEY,fbUser.uid);localStorage.setItem(LOCAL_OWNER_UID_KEY,fbUser.uid);localStorage.removeItem(SEEDED_KEY);}catch(e){bhLog('sync.marcarEmDia',e,'the device may repeat the 1st-contact reconcile on the next boot');}
       _deviceSyncedUid.current=fbUser.uid;
@@ -12414,6 +12442,49 @@ const App=()=>{
   // debounce window (the save hadn't fired yet).
   const _latestState=useRef(null);
   _latestState.current={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
+  // Puts an external state (a cloud apply, another tab's save) into the React
+  // lists. Only the sections present in `data` are replaced.
+  const applyStateFields=data=>{
+    const A=Array.isArray;
+    if(A(data.projects))setProjects(bhRecordArray(data.projects)); // the open project re-resolves from this list
+    if(A(data.clients))setClients(bhRecordArray(data.clients));
+    if(A(data.mentors))setMentors(bhRecordArray(data.mentors));
+    if(A(data.notes))setNotes(bhRecordArray(data.notes));
+    if(A(data.tasks))setTasks(bhRecordArray(data.tasks));
+    if(A(data.socialPosts))setSocialPosts(bhRecordArray(data.socialPosts));
+    if(A(data.socialTemplates))setSocialTemplatesState(bhRecordArray(data.socialTemplates));
+    const nextFolders=A(data.galleryFolders)?bhRecordArray(data.galleryFolders):_latestState.current.galleryFolders;
+    const pomoOk=data.pomoData&&typeof data.pomoData==='object'&&!A(data.pomoData);
+    const nextPomo=pomoOk?pomoSyncGalleryCategories(pomoRankMaintain(data.pomoData),nextFolders):_latestState.current.pomoData;
+    if(A(data.galleryPosts))setGalleryPosts(repairProjectFocusPostScopes(bhRecordArray(data.galleryPosts).map(normalizeFocusPostCopy),nextPomo?.rank?.sessions));
+    if(A(data.galleryFolders))setGalleryFolders(nextFolders);
+    if(A(data.noteGroups))setNoteGroups(bhRecordArray(data.noteGroups));
+    if(pomoOk)setPomoData(nextPomo);
+    if(data.identity===null||data.identity&&typeof data.identity.hubName==='string'){saveIdentity(data.identity);setIdentity(data.identity);}
+  };
+  // Two tabs of this browser share localStorage but not memory. Each saved its
+  // WHOLE state over the other's (every edit and every 5s checkpoint), so the
+  // last tab to write won and the other tab's edits were gone; an idle tab in
+  // the background kept reverting the active one. Another tab's save is now
+  // merged in like a remote device's: three-way, against the state this tab
+  // last wrote or read (_lsTabBase). The merge counts as a local edit here, so
+  // it is saved and pushed like one.
+  const _lsTabBase=useRef(persisted);
+  useEffect(()=>{
+    const onStorage=e=>{
+      if(e.key!==LS_KEY||!e.newValue||bhPersistenceBusy())return;
+      let remote;try{remote=JSON.parse(e.newValue);}catch{return;/* a torn or foreign write: the next save of either tab settles it */}
+      if(!remote||typeof remote!=='object'||Array.isArray(remote))return;
+      const local=_latestState.current;if(!local)return;
+      const merged=bhMergeSync(bhSyncState(_lsTabBase.current||{}),bhSyncState(local),bhSyncState(remote));
+      _lsTabBase.current=remote;
+      if(!merged||bhEqual(merged,bhSyncState(local)))return;
+      bhDiag.record('otherTabMerged',0,'content');
+      applyStateFields(merged);
+    };
+    window.addEventListener('storage',onStorage);
+    return()=>window.removeEventListener('storage',onStorage);
+  },[]);//eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     const flush=()=>{try{if(_latestState.current)saveLocal(_latestState.current);}catch(e){bhLog('flushAoSair',e);}};
     const onVis=()=>{if(document.visibilityState==='hidden')flush();};
@@ -12545,6 +12616,15 @@ const App=()=>{
   },[view,isMobile]);
 
   const handleUpdateProject=useCallback(p=>{setProjects(prev=>prev.map(x=>String(x.id)===String(p.id)?p:x));},[]);
+  // A client renamed: [[oldText,newText],...] carried to the projects' free-text
+  // client field (see Clients.save).
+  const handleClientRenamed=useCallback(renames=>{
+    const key=v=>bhFold(v).trim();
+    setProjects(prev=>prev.map(p=>{
+      const hit=renames.find(([from])=>key(from)===key(p?.client));
+      return hit?{...p,client:hit[1]}:p;
+    }));
+  },[]);
   const addProject=useCallback(p=>{
     setProjects(prev=>[p,...prev]);
     setShowNewProject(false);
@@ -12836,14 +12916,14 @@ const App=()=>{
         :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
       }
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
-        <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><Dashboard projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPosts} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></div>
+        <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPosts} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></div>
         {view==='projects'       &&<ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts}/>}
         {view==='project-detail' &&selectedProject&&<ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/>} 
         {view==='gallery'        &&<Gallery posts={galleryPosts} setPosts={setGalleryPosts} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/>}
         {view==='ideas'          &&<IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/>}
         {view==='mentors'        &&<MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/>}
         {view==='social'         &&<Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/>} 
-        {view==='clients'        &&<Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject}/>}
+        {view==='clients'        &&<Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/>}
         {view==='sync'           &&<SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/>}
       </main>
     </div>
