@@ -245,6 +245,24 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    the 24px minimum (WCAG 2.5.8) and easy to miss with a thumb. Only coarse
    pointers grow them; the mouse layout keeps its density. */
 @media (hover:none),(pointer:coarse){.bh-touch-target,.gallery-folder-edit{min-width:32px;min-height:32px;display:inline-flex;align-items:center;justify-content:center}}
+/* Touch targets by kind, not by opt-in class: the class above had to be added
+   button by button, and 11 small icon buttons were missed. An icon-only .btn
+   (labelled, one <svg> child) is 32px on touch screens; the task check and the
+   switch keep their look and get an invisible hit margin instead. */
+@media (hover:none),(pointer:coarse){
+  .btn[aria-label]:has(> svg:only-child),.btn[title]:has(> svg:only-child){min-width:32px;min-height:32px;justify-content:center}
+  .task-check{position:relative}
+  .task-check::before{content:'';position:absolute;inset:-8px}
+  .bh-switch-row{position:relative}
+  .bh-switch-row::before{content:'';position:absolute;inset:-12px -6px}
+}
+.bh-switch-row{display:inline-flex;align-items:center;gap:10px;background:none;border:none;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
+.bh-switch{display:block;flex-shrink:0;box-sizing:border-box;width:36px;height:20px;border-radius:10px;padding:2px;background:var(--border-2);transition:background .2s}
+.bh-switch>span{display:block;width:16px;height:16px;border-radius:50%;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .2s}
+.bh-switch.on{background:var(--text)}
+.bh-switch.on>span{background:var(--bg);transform:translateX(16px)}
+.bh-switch.on.ok{background:var(--ok-strong)}
+.bh-switch-row:focus-visible{outline:2px solid var(--text);outline-offset:3px;border-radius:12px}
 .post-img-tools{position:absolute;left:6px;bottom:6px;z-index:2;display:flex;align-items:center;gap:2px;padding:2px;border-radius:14px;background:rgba(20,17,14,.7);color:#fff;font-size:.66rem;font-weight:600;opacity:0;transition:opacity .12s}
 .post-img-tile:hover .post-img-tools,.post-img-tools:focus-within{opacity:1}
 @media (hover:none){.post-img-tools{opacity:1}}
@@ -581,9 +599,10 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .session-dropzone{width:100%;min-height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1px dashed var(--border-2);border-radius:12px;background:var(--bg);color:var(--muted);cursor:pointer;font-family:'Alegreya Sans',sans-serif}.session-dropzone:hover{border-color:#318ca0;color:var(--text)}.session-dropzone strong{font-size:.82rem}.session-dropzone span{font-size:.7rem}.session-dropzone.has-files{min-height:70px}
 .session-capture-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.session-capture-grid>div{position:relative;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#111}.session-capture-grid img{width:100%;height:100%;object-fit:cover;display:block}.session-capture-grid button{position:absolute;top:5px;right:5px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.7);color:white;cursor:pointer}
 .session-capture-modal textarea{width:100%;min-height:66px;margin-top:12px;padding:10px 12px;box-sizing:border-box;resize:vertical;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:400 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-capture-modal textarea:focus{border-color:var(--text)}
-.session-post-destination{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.session-post-field{display:flex;flex-direction:column;gap:5px;min-width:0}.session-post-field>span{font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.session-post-field select{width:100%;min-width:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-post-field select:focus{border-color:var(--text)}
+.session-post-destination{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.session-post-field{display:flex;flex-direction:column;gap:5px;min-width:0}.session-post-field>span{font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.session-post-field select,.session-post-field input{width:100%;box-sizing:border-box;min-width:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-post-field select:focus,.session-post-field input:focus{border-color:var(--text)}
 .session-post-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;margin-top:12px;border:1px solid var(--border);border-radius:11px;background:var(--bg)}.session-post-mode button{min-height:36px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:600 .78rem 'Alegreya Sans',sans-serif;cursor:pointer}.session-post-mode button.active{background:var(--surface);color:var(--text);box-shadow:0 1px 5px rgba(0,0,0,.09)}
 .project-focus-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}.project-focus-post{overflow:hidden;cursor:pointer}.project-focus-post-media{aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg)}.project-focus-post-media img,.project-focus-post-media video{width:100%;height:100%;object-fit:cover;display:block}.project-focus-post-copy{padding:11px 12px}.project-focus-post-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.84rem}.project-focus-post-copy span{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--muted);font-size:.69rem}.project-focus-post-date{display:flex;align-items:center;gap:5px;margin-top:5px;color:var(--muted);font-size:.68rem}
+.project-focus-post-copy .project-focus-post-task{color:var(--text);overflow:hidden;white-space:nowrap}.task-focus-line{display:flex;align-items:center;gap:6px;margin:-4px 0 12px;font-size:.78rem;color:var(--muted)}.task-focus-line strong{color:var(--text);font-weight:600}
 .task-trash-list{display:flex;flex-direction:column;gap:7px;overflow:auto;min-height:0}.task-trash-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}.task-trash-row>div{display:flex;flex-direction:column;min-width:0;flex:1}.task-trash-row strong{font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-trash-row span{font-size:.66rem;color:var(--muted)}
 .session-capture-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}.session-capture-actions>span{max-width:270px;font-size:.66rem;line-height:1.35;color:var(--muted)}.session-capture-error{margin-top:9px;color:var(--danger-fg);font-size:.74rem}.session-upload-progress{display:grid;grid-template-columns:1fr auto;gap:4px;margin-top:10px;color:var(--muted);font-size:.7rem}.session-upload-progress i{grid-column:1/-1;height:4px;border-radius:9px;background:var(--border);overflow:hidden}.session-upload-progress em{display:block;height:100%;background:#318ca0}
 .rank-promotion{position:fixed;z-index:100000;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,12,15,.72);backdrop-filter:blur(8px);animation:rankOverlayIn .28s ease both;cursor:pointer;overflow:hidden}
@@ -1832,6 +1851,18 @@ const Icon=({name,size=16,style={},strokeWidth}) =>{
 // headings. Neither marker declares anything today: this is a seam, not a
 // restyle, and the computed style of every label is unchanged by construction.
 const Field=({label,children})=><label style={{display:'flex',flexDirection:'column',gap:6}}><span className="label label-field">{label}</span>{children}</label>;
+// The app's one on/off switch. Three hand-rolled copies differed in size and
+// markup: the "Pago" one was a <div> inside a <label>, so its "A receber"
+// text looked clickable and did nothing; all were 20–22px tall on touch
+// screens. The whole row (text included) is the button; on coarse pointers
+// .bh-switch-row::before widens the hit area without moving anything.
+const BhSwitch=({checked,onChange,label,children,tone,className='',style})=>(
+  <button type="button" role="switch" aria-checked={!!checked} aria-label={label} onClick={()=>onChange(!checked)}
+    className={'bh-switch-row'+(className?' '+className:'')} style={style}>
+    {children}
+    <span className={'bh-switch'+(checked?' on':'')+(tone==='ok'?' ok':'')} aria-hidden="true"><span/></span>
+  </button>
+);
 
 // v23.7 P3: a <div onClick> is neither reachable by Tab nor activatable by Enter.
 // Converting these cards to <button> does not work: they have buttons inside
@@ -2572,6 +2603,13 @@ const bhMergeSync=(base,local,remote)=>{
   if(local===undefined||remote===undefined&&base!==undefined)return undefined;
   const record=v=>v&&typeof v==='object'&&!Array.isArray(v);
   const keyed=v=>Array.isArray(v)&&v.every(x=>record(x)&&x.id!==undefined)&&new Set(v.map(x=>String(x.id))).size===v.length;
+  // Lists whose items carry no id (scalars, image URLs, and records such as
+  // Social templates or rank season history) merge by VALUE: an item is
+  // identified by its content, so additions on both sides survive, a deletion
+  // removes it, and an edit is a removal plus an addition. Only scalar lists
+  // got this before; a list of id-less records fell through to "last
+  // transaction wins", and the next push deleted one device's additions.
+  const plain=v=>Array.isArray(v)&&v.every(x=>x===null||typeof x!=='object'||(record(x)&&x.id===undefined));
   // No common ancestor: a field or record key that did not exist at the last
   // acknowledged sync (a project from an older build without miniProjects, a
   // field first written by a newer build). Both sides are then pure additions,
@@ -2579,8 +2617,7 @@ const bhMergeSync=(base,local,remote)=>{
   // local` dropped the other device's items, and the push that followed
   // deleted them from the cloud.
   if(base===undefined){
-    const flat=v=>Array.isArray(v)&&v.every(x=>x===null||typeof x!=='object');
-    if((keyed(local)&&keyed(remote))||(flat(local)&&flat(remote)))base=[];
+    if((keyed(local)&&keyed(remote))||(plain(local)&&plain(remote)))base=[];
     else if(record(local)&&record(remote))base={};
   }
   if(keyed(base)&&keyed(local)&&keyed(remote)){
@@ -2590,7 +2627,7 @@ const bhMergeSync=(base,local,remote)=>{
     for(const id of [...localOrder,...remoteOrder])if(!order.includes(id))order.push(id);
     return order.map(id=>bhMergeSync(b.get(id),l.get(id),r.get(id))).filter(x=>x!==undefined);
   }
-  if([base,local,remote].every(v=>Array.isArray(v)&&v.every(x=>x===null||typeof x!=='object'))){
+  if([base,local,remote].every(plain)){
     const tag=list=>{const seen=new Map();return list.map(value=>{const s=bhStableStringify(value),n=seen.get(s)||0;seen.set(s,n+1);return{id:s+'#'+n,value};});};
     return bhMergeSync(tag(base),tag(local),tag(remote)).map(x=>x.value);
   }
@@ -3987,7 +4024,10 @@ const rankNormalize=(value,now=new Date())=>{
     sessionAwardsVersion:Number(src.sessionAwardsVersion)||fallback.sessionAwardsVersion,
     decayApplied:src.decayApplied&&typeof src.decayApplied==='object'&&!Array.isArray(src.decayApplied)?src.decayApplied:{},
     startedOn:typeof src.startedOn==='string'?src.startedOn:fallback.startedOn,
-    history:Array.isArray(src.history)?src.history.slice(-24):[],
+    // One row per season (the last one wins): two devices closing the same
+    // season with different totals both reach the synced list, which merges
+    // id-less rows by value.
+    history:Array.isArray(src.history)?[...new Map(src.history.filter(h=>h&&typeof h==='object').map(h=>[String(h.seasonId),h])).values()].slice(-24):[],
     sessions:Array.isArray(src.sessions)?src.sessions.filter(Boolean):[],
     notices:Array.isArray(src.notices)?src.notices.filter(Boolean):[],
     paused:src.paused&&typeof src.paused==='object'&&typeof src.paused.since==='string'?{since:src.paused.since,at:String(src.paused.at||'')}:null
@@ -4292,6 +4332,49 @@ const pomoSave = function(d) {
 
 const pomoTodayKey = function() {
   return localDateISO();
+};
+// Splits `secs` of focus that ended at `endMs` into the local days they
+// elapsed in, oldest first. Every credit used to go to the day it was
+// NOTICED, so a tab frozen across midnight (laptop asleep, background
+// throttling, page closed) filed the time from before midnight under the
+// next day.
+const pomoSplitByDay=(secs,endMs=Date.now())=>{
+  const parts=[];
+  let left=Math.max(0,Math.round(Number(secs)||0)),end=Number(endMs)||Date.now();
+  while(left>0){
+    const last=new Date(end-1); // the instant just before `end` owns it
+    const dayStart=new Date(last.getFullYear(),last.getMonth(),last.getDate()).getTime();
+    const take=Math.min(left,Math.max(1,Math.round((end-dayStart)/1000)));
+    parts.unshift({dayKey:localDateISO(last),secs:take});
+    left-=take;end=dayStart;
+  }
+  return parts;
+};
+// Adds day-split focus seconds to the day totals, the target's totals and
+// the rank; and to a session's chunk list.
+const pomoCreditParts=(base,parts,tk)=>{
+  const days={...base.days};
+  let allocations=base.allocations,dailyAllocations=base.dailyAllocations,rank=base.rank;
+  for(const {dayKey,secs} of parts){
+    days[dayKey]=(days[dayKey]||0)+secs;
+    if(tk!=='none'){
+      allocations={...allocations,[tk]:(allocations[tk]||0)+secs};
+      const dayMap={...(dailyAllocations[dayKey]||{})};
+      dayMap[tk]=(dayMap[tk]||0)+secs;
+      dailyAllocations={...dailyAllocations,[dayKey]:dayMap};
+    }
+    rank=pomoRankCredit(rank,secs,tk,rankDateFromKey(dayKey));
+  }
+  return {...base,days,allocations,dailyAllocations,rank};
+};
+const pomoAddChunks=(chunks,parts,tk)=>{
+  const out=[...(Array.isArray(chunks)?chunks:[])];
+  for(const {dayKey,secs} of parts){
+    const last=out[out.length-1];
+    if(last&&last.targetKey===tk&&(!last.dateKey||last.dateKey===dayKey))out[out.length-1]={...last,dateKey:dayKey,secs:(Number(last.secs)||0)+secs};
+    else out.push({targetKey:tk,dateKey:dayKey,secs});
+  }
+  return out;
 };
 
 const pomoFmtSecs = function(secs) {
@@ -4775,9 +4858,17 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   </>;
 };
 
-const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[]})=>{
+const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],projectTasks=[]})=>{
   const defaultTitle='Sessão — '+(session.targetLabel||'Sem categoria');
   const isProjectSession=session.targetType==='project';
+  // A project session can be filed under one of the project's tasks, or under
+  // a task created right here ('__new__'). Open tasks are listed first.
+  const [taskChoice,setTaskChoice]=useState('');
+  const [newTaskName,setNewTaskName]=useState('');
+  const taskOptions=useMemo(()=>{
+    const list=(projectTasks||[]).filter(t=>t&&t.id!=null);
+    return{open:list.filter(t=>t.status!=='Concluído'),done:list.filter(t=>t.status==='Concluído')};
+  },[projectTasks]);
   const liveFolders=useMemo(()=>{
     return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
   },[galleryFolders]);
@@ -4827,11 +4918,13 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     if(destination==='gallery'&&!folderId){setError('Escolha uma categoria da Galeria.');return;}
     if(saveMode==='new'&&!title.trim()){setError('Dê um título ao registro.');return;}
     if(saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
+    if(taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
     savingRef.current=true;setSaving(true);setError('');
     try{
       const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}));
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
-      await onSave({...session,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId:destination==='gallery'?folderId:null,existingPostId:saveMode==='append'?existingPost.id:null});
+      await onSave({...session,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId:destination==='gallery'?folderId:null,existingPostId:saveMode==='append'?existingPost.id:null,
+        taskId:isProjectSession&&taskChoice&&taskChoice!=='__new__'?taskChoice:null,newTaskName:isProjectSession&&taskChoice==='__new__'?newTaskName.trim():''});
     }catch(e){
       setError('Não foi possível guardar as imagens'+(e?.message?' — '+e.message:'')+'. Tente novamente.');
       savingRef.current=false;
@@ -4845,6 +4938,17 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         {showRank&&<div className="session-result-card"><span>Pontos conquistados</span><strong>+{Number(session.pointsAwarded||0)} pts</strong></div>}
         <div className="session-result-card"><span>{victorySeconds>=7200?'Vitória do dia':'Próxima vitória de 2h'}</span><strong>{victorySeconds>=7200?'Concluída':pomoFmtSecs(victorySeconds)+' / 2h'}</strong><i><b style={{width:victoryPct+'%'}}/></i></div>
       </div>
+      {isProjectSession&&<div className="session-post-destination">
+        <label className="session-post-field"><span>Tarefa</span>
+          <select value={taskChoice} onChange={e=>{setTaskChoice(e.target.value);setError('');}} disabled={saving} aria-label="Tarefa do projeto trabalhada na sessão">
+            <option value="">Sem tarefa</option>
+            {taskOptions.open.map(t=><option key={t.id} value={String(t.id)}>{t.text||'Sem título'}</option>)}
+            {taskOptions.done.length>0&&<optgroup label="Concluídas">{taskOptions.done.map(t=><option key={t.id} value={String(t.id)}>{t.text||'Sem título'}</option>)}</optgroup>}
+            <option value="__new__">+ Nova tarefa…</option>
+          </select>
+        </label>
+        {taskChoice==='__new__'&&<label className="session-post-field"><span>Nome da nova tarefa</span><input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} maxLength={120} autoFocus disabled={saving} placeholder="Ex: Storyboard da cena 3"/></label>}
+      </div>}
       {isProjectSession&&<><div className="session-post-mode" role="group" aria-label="Destino do post">
         <button type="button" className={destination==='project'?'active':''} onClick={()=>{setDestination('project');setExistingPostId('');}} disabled={saving}>No projeto</button>
         <button type="button" className={destination==='gallery'?'active':''} onClick={()=>{setDestination('gallery');setExistingPostId('');setError('');}} disabled={saving}>Na Galeria</button>
@@ -4927,11 +5031,13 @@ const pomoAbandonedFromTimer=(saved,atMs=Date.now())=>{
     :pointer;
   const credited=pomoSessionChunkSeconds(meta);
   const durationSeconds=Math.max(credited,Math.min(planned,planned-Math.min(planned,remaining)));
-  const endedAt=new Date(atMs).toISOString();
+  // A countdown that ran out before the page closed ended at its deadline.
+  const endMs=saved?.isActive&&Number(saved?.endTimestamp)>0?Math.min(atMs,Number(saved.endTimestamp)):atMs;
+  const endedAt=new Date(endMs).toISOString();
   return {
     id:meta.id||('focus-session-abandoned-'+atMs+'-'+Math.random().toString(36).slice(2,6)),
-    startedAt:meta.startedAt||new Date(atMs-durationSeconds*1000).toISOString(),
-    endedAt,date:localDateISO(new Date(atMs)),durationSeconds,
+    startedAt:meta.startedAt||new Date(endMs-durationSeconds*1000).toISOString(),
+    endedAt,date:localDateISO(new Date(endMs)),durationSeconds,
     targetKey:saved?.targetKey||'none',startRank:meta.startRank||null,
     chunks:Array.isArray(meta.chunks)?meta.chunks:[],
     uncreditedSeconds:Math.max(0,durationSeconds-credited)
@@ -5072,24 +5178,13 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     const abandonmentDay=abandoned.date||localDateISO(endedDate);
     const tk=abandoned.targetKey||'none';
     const uncredited=Math.max(0,Number(abandoned.uncreditedSeconds)||0);
-    const chunks=[...(Array.isArray(abandoned.chunks)?abandoned.chunks:[])];
-    if(uncredited>0){
-      const last=chunks[chunks.length-1];
-      if(last&&last.targetKey===tk&&(!last.dateKey||last.dateKey===abandonmentDay))chunks[chunks.length-1]={...last,dateKey:abandonmentDay,secs:(Number(last.secs)||0)+uncredited};
-      else chunks.push({targetKey:tk,dateKey:abandonmentDay,secs:uncredited});
-    }
+    // The unsaved stretch ran up to the close, across midnight if it did.
+    const parts=pomoSplitByDay(uncredited,endedDate.getTime());
+    const chunks=pomoAddChunks(abandoned.chunks,parts,tk);
     setPomoData(prev=>{
       const base=pomoRankMaintain(prev);
       const dayKey=abandonmentDay;
-      const days={...base.days,[dayKey]:(base.days[dayKey]||0)+uncredited};
-      let allocations=base.allocations,dailyAllocations=base.dailyAllocations;
-      if(tk!=='none'&&uncredited>0){
-        allocations={...base.allocations,[tk]:(base.allocations[tk]||0)+uncredited};
-        const dayMap={...(base.dailyAllocations[dayKey]||{})};
-        dayMap[tk]=(dayMap[tk]||0)+uncredited;
-        dailyAllocations={...base.dailyAllocations,[dayKey]:dayMap};
-      }
-      const creditedRank=pomoRankCredit(base.rank,uncredited,tk,endedDate);
+      const credited=pomoCreditParts(base,parts,tk);
       const firstDate=chunks[0]?.dateKey?rankDateFromKey(chunks[0].dateKey):endedDate;
       const startRank=rankNormalize(abandoned.startRank||base.rank,firstDate);
       const scoreAfter=chunks.reduce((score,chunk)=>pomoRankCredit(score,chunk.secs,chunk.targetKey,chunk.dateKey?rankDateFromKey(chunk.dateKey):endedDate),startRank);
@@ -5102,7 +5197,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         pointsAwarded:Math.max(0,scoreAfter.points-startRank.points),
         victoryProgressSeconds:scoreAfter.cycleSeconds,status:'abandoned',images:[],galleryPostId:null
       };
-      return {...base,days,allocations,dailyAllocations,rank:pomoRankAddSession(creditedRank,session)};
+      return {...credited,rank:pomoRankAddSession(credited.rank,session)};
     });
     pomoTimerSave({isActive:false,mode:'focus',timeLeft:focusMinsRef.current*60,focusMins:focusMinsRef.current,targetKey:tk,sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:Date.now(),abandonedSession:null});
   },[]);
@@ -5128,32 +5223,19 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   flushPomoSecsRef.current = () => {
     if (unsavedSecsRef.current <= 0) return;
     const secs = unsavedSecsRef.current;
-    const dayKey=pomoTodayKey();
+    // These seconds ran up to now, or up to the countdown's end if that came
+    // first (a frozen tab notices the end late); split them by day.
+    const endMs=modeRef.current==='focus'&&endTimestampRef.current?Math.min(Date.now(),endTimestampRef.current):Date.now();
+    const parts=pomoSplitByDay(secs,endMs);
+    const tk=targetKeyRef.current||'none';
     unsavedSecsRef.current = 0; setDisplayUnsaved(0);
     pendingSecsRef.current += secs;
     if(modeRef.current==='focus'&&sessionMetaRef.current){
-      const tk=targetKeyRef.current||'none',chunks=[...(sessionMetaRef.current.chunks||[])];
-      const last=chunks[chunks.length-1];
-      if(last&&last.targetKey===tk&&(!last.dateKey||last.dateKey===dayKey))chunks[chunks.length-1]={...last,dateKey:dayKey,secs:(Number(last.secs)||0)+secs};
-      else chunks.push({targetKey:tk,dateKey:dayKey,secs});
-      sessionMetaRef.current={...sessionMetaRef.current,chunks};
+      sessionMetaRef.current={...sessionMetaRef.current,chunks:pomoAddChunks(sessionMetaRef.current.chunks,parts,tk)};
     }
     setPomoData(prev => {
-      const base=pomoRankMaintain(prev);
-      const newDays = { ...base.days };
-      newDays[dayKey] = (newDays[dayKey] || 0) + secs;
-      const tk=targetKeyRef.current||'none';
-      let allocations=base.allocations;
-      let dailyAllocations=base.dailyAllocations;
-      if(tk!=='none'){
-        allocations={...base.allocations,[tk]:(base.allocations[tk]||0)+secs};
-        const dayMap={...(base.dailyAllocations[dayKey]||{})};
-        dayMap[tk]=(dayMap[tk]||0)+secs;
-        dailyAllocations={...base.dailyAllocations,[dayKey]:dayMap};
-      }
       pendingSecsRef.current = Math.max(0, pendingSecsRef.current - secs);
-      const rank=pomoRankCredit(base.rank,secs,tk,rankDateFromKey(dayKey));
-      return { ...base, days:newDays, allocations, dailyAllocations, rank };
+      return pomoCreditParts(pomoRankMaintain(prev),parts,tk);
     });
   };
   const flushPomoSecs = () => flushPomoSecsRef.current?.();
@@ -5231,7 +5313,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
             flushPomoSecs();
           }
           playPomoSound('work_end');
-          const endedAt=new Date();
+          // The countdown's real end, not the tick that noticed it late.
+          const endedAt=new Date(Math.min(Date.now(),endTimestampRef.current||Date.now()));
           const meta=sessionMetaRef.current;
           const chunks=Array.isArray(meta?.chunks)?meta.chunks:[];
           const durationSeconds=pomoSessionChunkSeconds(meta)||pomoSessionPlannedSeconds(meta,focusMinsRef.current);
@@ -6377,13 +6460,9 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                 <select value={projSort} onChange={e=>changeProjSort(e.target.value)} aria-label="Ordenar projetos" className="gallery-sort-select">
                   {PROJECT_SORTS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
                 </select>
-                <button type="button" role="switch" aria-checked={onlyActive} aria-label="Apenas ativos" onClick={()=>setOnlyActive(!onlyActive)}
-                  style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:'.82rem',color:'var(--muted)',background:'none',border:'none',padding:0,fontFamily:'inherit'}}>
-                {!isMobile&&'Apenas ativos'}
-                <span style={{display:'block',width:36,height:20,borderRadius:10,background:onlyActive?'var(--text)':'var(--border-2)',padding:2,transition:'background .2s'}}>
-                  <span style={{display:'block',width:16,height:16,borderRadius:'50%',background:onlyActive?'var(--bg)':'var(--surface)',boxShadow:'0 1px 2px rgba(0,0,0,.2)',transition:'transform .2s',transform:onlyActive?'translateX(16px)':'translateX(0)'}}/>
-                </span>
-              </button>
+                <BhSwitch checked={onlyActive} onChange={setOnlyActive} label="Apenas ativos" style={{fontSize:'.82rem',color:'var(--muted)'}}>
+                  {!isMobile&&'Apenas ativos'}
+                </BhSwitch>
               </div>
             </div>
           )}
@@ -6943,6 +7022,24 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     const keys=[post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[])].filter(Boolean).map(String);
     return isProjectScopedPost(post)&&(keys.includes(String(projectFocusKey))||String(post.projectId||'')===String(project.id));
   }).map(post=>({...post,images:Array.isArray(post.images)?post.images:[]})).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))),[galleryPosts,projectFocusKey]);
+  // Focus sessions filed under a task keep only its id: names come from the
+  // tasks as they are now, and each task's focus time is summed from the
+  // session history (never stored twice, so it cannot drift).
+  const taskTitleById=useMemo(()=>{
+    const m=new Map();
+    (local.miniProjects||[]).forEach(t=>{if(t&&t.id!=null)m.set(String(t.id),t.title||'Sem título');});
+    (local.projectTasks||[]).forEach(t=>{if(t&&t.id!=null)m.set(String(t.id),t.text||'Sem título');});
+    return m;
+  },[local.miniProjects,local.projectTasks]);
+  const taskFocusById=useMemo(()=>{
+    const m=new Map();
+    ((pomoData?.rank?.sessions)||[]).forEach(s=>{
+      if(!s||s.taskId==null||String(s.targetKey)!==String(projectFocusKey))return;
+      const k=String(s.taskId),cur=m.get(k)||{secs:0,count:0};
+      m.set(k,{secs:cur.secs+Math.max(0,Number(s.durationSeconds)||0),count:cur.count+1});
+    });
+    return m;
+  },[pomoData?.rank?.sessions,projectFocusKey]);
   // The open post (a focus post or one from the linked gallery folder) is an
   // id resolved from galleryPosts, like the open project in App. The popup
   // used to hold a copy: moving or removing an image rebuilt the list from
@@ -7004,7 +7101,16 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
     setGalleryPopup(null);
     setGalleryPopupEditing(false);
   };
-  const assignableFolders=useMemo(()=>(galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived),[galleryFolders]);
+  // Live folders, plus the linked one whatever its state: filtering it out
+  // when it was archived or trashed left the select reading "Nenhuma pasta"
+  // while the link (and its posts below) stayed. A link to a folder that no
+  // longer exists gets a placeholder option for the same reason.
+  const assignableFolders=useMemo(()=>{
+    const linked=local.galleryFolder?String(local.galleryFolder):'';
+    const list=(galleryFolders||[]).filter(f=>f&&(String(f.id)===linked||(!f.deleted&&!f.archived)));
+    if(linked&&!list.some(f=>String(f.id)===linked))list.push({id:linked,label:'Pasta removida',missing:true});
+    return list;
+  },[galleryFolders,local.galleryFolder]);
   const folderPosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!isProjectScopedPost(p)&&!p.deleted&&String(p.folder)===String(local.galleryFolder)).map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})).sort((a,b)=>((b.date||'').slice(0,10)).localeCompare((a.date||'').slice(0,10))):[],[galleryPosts,local.galleryFolder]);
   const autoLateTasks=useMemo(()=>applyAutoLate(local.projectTasks||[]),[local.projectTasks]);
   useEffect(()=>{if(!galleryPopup)return;const h=e=>{if(e.key==='Escape'){setGalleryPopup(null);setGalleryPopupEditing(false);}};document.addEventListener('keydown',h);return()=>document.removeEventListener('keydown',h);},[galleryPopup]);
@@ -7409,7 +7515,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                 <span className="label label-section"><StaveGlyph name="whole"/>Galeria</span>
                 <select value={local.galleryFolder||''} onChange={e=>upd('galleryFolder',e.target.value)} className="input-box" style={{width:'auto',maxWidth:'62%',padding:'5px 10px',fontSize:'.78rem',cursor:'pointer'}}>
                   <option value="">Nenhuma pasta</option>
-                  {assignableFolders.map(f=><option key={f.id} value={f.id}>{f.label}{f.archived?' (arquivada)':''}</option>)}
+                  {assignableFolders.map(f=><option key={f.id} value={f.id}>{f.label}{f.deleted?' (na lixeira)':f.archived?' (arquivada)':''}</option>)}
                 </select>
               </div>
               {!local.galleryFolder
@@ -7480,12 +7586,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                   <input type="number" min="0" step="50" className="input-box" value={local.budget||''} onChange={e=>upd('budget',e.target.value)} placeholder="0" style={{width:'100%'}}/>
                 </div>
                 {Number(local.budget)>0&&(
-                  <label style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
+                  <BhSwitch checked={!!local.paid} onChange={()=>upd('paid',v=>!v)} label="Pago" tone="ok"
+                    style={{display:'flex',width:'100%',justifyContent:'space-between',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
                     <span style={{display:'flex',alignItems:'center',gap:6}}><Icon name={local.paid?'check-circle':'circle-dollar-sign'} size={13}/>{local.paid?'Recebido':'A receber'}</span>
-                    <div onClick={e=>{e.preventDefault();upd('paid',v=>!v);}} role="switch" aria-checked={!!local.paid} aria-label="Pago" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();upd('paid',v=>!v);}}} style={{width:36,height:20,borderRadius:10,cursor:'pointer',background:local.paid?'var(--ok-strong)':'var(--border-2)',padding:2,transition:'background .2s',flexShrink:0}}>
-                      <div style={{width:16,height:16,borderRadius:'50%',background:'white',transition:'transform .2s',transform:local.paid?'translateX(16px)':'translateX(0)'}}/>
-                    </div>
-                  </label>
+                  </BhSwitch>
                 )}
               </div>
             </div>
@@ -7543,7 +7647,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
             ?<div style={{padding:'40px 16px',textAlign:'center',color:'var(--muted)'}}><Icon name="images" size={28} style={{display:'block',margin:'0 auto 9px',opacity:.28}}/><strong style={{display:'block',color:'var(--text)',fontSize:'.86rem',marginBottom:4}}>Nenhum registro visual ainda</strong><span style={{fontSize:'.78rem'}}>Conclua uma sessão vinculada a este projeto e salve as imagens na Galeria.</span></div>
             :<div className="project-focus-grid">{projectFocusPosts.map(post=>{const images=Array.isArray(post.images)?post.images:[];const src=post.bannerImage||images[0];const sessions=Array.from(new Set([post.sourceSessionId,...(Array.isArray(post.sourceSessionIds)?post.sourceSessionIds:[])].filter(Boolean).map(String)));const dateLabel=(()=>{const raw=String(post.date||'');const dt=new Date(raw.length===10?raw+'T12:00:00':raw);return Number.isNaN(dt.getTime())?(raw||'Data indisponível'):dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace('.','');})();return <div key={post.id} className="card card-click project-focus-post" onClick={()=>setGalleryPopup(post)} {...keyActivate(()=>setGalleryPopup(post),'Abrir post '+(post.title||''))}>
               <div className="project-focus-post-media">{src?(isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata"/>:<Img src={src}/>):<Icon name="image" size={24} style={{opacity:.22}}/>}</div>
-              <div className="project-focus-post-copy"><strong>{post.title||'Sem título'}</strong><div className="project-focus-post-date"><Icon name="calendar-days" size={11}/>{dateLabel}</div>{sessions.length>1&&<span><Icon name="history" size={11}/>{sessions.length} sessões</span>}</div>
+              <div className="project-focus-post-copy"><strong>{post.title||'Sem título'}</strong><div className="project-focus-post-date"><Icon name="calendar-days" size={11}/>{dateLabel}</div>{sessions.length>1&&<span><Icon name="history" size={11}/>{sessions.length} sessões</span>}{(post.taskIds||[]).map(id=>taskTitleById.get(String(id))).filter(Boolean).map((t,i)=><span key={i} className="project-focus-post-task"><Icon name="list-checks" size={11}/>{t}</span>)}</div>
             </div>;})}</div>}
         </div>
       )}
@@ -7719,6 +7823,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,globalMent
                     </button>
                   </div>
                 </div>
+                {(()=>{const f=taskFocusById.get(String(activeMini.id));return f&&<div className="task-focus-line"><Icon name="timer" size={13}/>Foco nesta tarefa: <strong>{pomoFmtSecs(f.secs)}</strong> · {f.count} {f.count===1?'sessão':'sessões'}</div>;})()}
                 <textarea value={activeMini.notes} onChange={e=>updateMini('notes',e.target.value)}
                   placeholder="Notas, intenções, referências para esta tarefa..."
                   style={{resize:'vertical',background:'transparent',border:'none',outline:'none',fontSize:'.9rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',minHeight:80,marginBottom:16}}/>
@@ -10261,7 +10366,11 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
   useEffect(()=>{bhUiReplace('socialDraft',text||editId!=null?{text,platform,editId}:{});},[text,platform,editId]);
   const [trash,setTrash]=useState(false);
   const [editingTpl,setEditingTpl]=useState(null); // {index,label,text} or {index:-1,...} for new
-  const saveTemplates=t=>{setTemplates(t);try{localStorage.setItem('boardhub_social_templates',JSON.stringify(t));}catch(e){bhLog('socialTemplates.save',e,'the edited templates stay only in memory for this session');}};
+  const saveTemplates=next=>setTemplates(prev=>{
+    const t=typeof next==='function'?next(Array.isArray(prev)?prev:[]):next;
+    try{localStorage.setItem('boardhub_social_templates',JSON.stringify(t));}catch(e){bhLog('socialTemplates.save',e,'the edited templates stay only in memory for this session');}
+    return t;
+  });
 
   const activePosts=posts.filter(p=>!p.deleted);
   const trashedPosts=posts.filter(p=>p.deleted);
@@ -10298,17 +10407,26 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
 
   // Template modal
   const openNewTpl=()=>setEditingTpl({index:-1,label:'',text:''});
-  const openEditTpl=(i)=>setEditingTpl({index:i,...templates[i]});
+  const openEditTpl=(i)=>setEditingTpl({index:i,...templates[i],orig:templates[i]});
+  // Templates have no id, so edits and deletes find the template by what it
+  // was when the action started, in the list as it is now. Writing index i of
+  // the list rendered before (the modal was open, the confirm was pending)
+  // replaced or deleted a different template when a sync had shifted the
+  // list meanwhile.
+  const sameTpl=(a,b)=>a===b||(!!a&&!!b&&a.label===b.label&&a.text===b.text);
   const saveTpl=()=>{
     if(!editingTpl.label.trim())return;
-    const next=[...templates];
-    if(editingTpl.index===-1)next.push({label:editingTpl.label,text:editingTpl.text});
-    else next[editingTpl.index]={label:editingTpl.label,text:editingTpl.text};
-    saveTemplates(next);setEditingTpl(null);
+    const edited={label:editingTpl.label,text:editingTpl.text},orig=editingTpl.orig;
+    saveTemplates(prev=>{
+      const at=orig?prev.findIndex(t=>sameTpl(t,orig)):-1;
+      return at<0?[...prev,edited]:prev.map((t,i)=>i===at?edited:t);
+    });
+    setEditingTpl(null);
   };
   const deleteTpl=async i=>{
-    if(!await bhConfirm({message:`Excluir o template "${templates[i]?.label||''}"?`,danger:true,confirmLabel:'Excluir'}))return;
-    saveTemplates(templates.filter((_,idx)=>idx!==i));
+    const tpl=templates[i];if(!tpl)return;
+    if(!await bhConfirm({message:`Excluir o template "${tpl.label||''}"?`,danger:true,confirmLabel:'Excluir'}))return;
+    saveTemplates(prev=>{const at=prev.findIndex(t=>sameTpl(t,tpl));return at<0?prev:prev.filter((_,idx)=>idx!==at);});
   };
 
   const platformColor=pl=>({Instagram:'#833AB4',LinkedIn:'#0A66C2','Twitter/X':'#000000',TikTok:'#010101',YouTube:'#FF0000',Behance:'#053EFF'}[pl]||'var(--text)');
@@ -10842,13 +10960,13 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       {status&&(
         <div style={{padding:'8px 14px',borderRadius:10,marginBottom:10,background:status.type==='ok'?'var(--ok-bg)':'var(--danger-bg)',border:`1px solid ${status.type==='ok'?'#bbf7d0':'var(--danger-line)'}`,color:status.type==='ok'?'var(--ok-fg)':'var(--danger-fg)',fontSize:'.82rem',display:'flex',alignItems:'center',gap:10}}>
           <Icon name={status.type==='ok'?'check-circle':'alert-circle'} size={15}/>{status.msg}
-          <button onClick={()=>setStatus(null)} title="Fechar aviso" aria-label="Fechar aviso" style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2}}><Icon name="x" size={13}/></button>
+          <button className="bh-touch-target" onClick={()=>setStatus(null)} title="Fechar aviso" aria-label="Fechar aviso" style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2}}><Icon name="x" size={13}/></button>
         </div>
       )}
       {syncNotice&&(
         <div style={{padding:'10px 14px',borderRadius:10,marginBottom:10,background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1E40AF',fontSize:'.82rem',display:'flex',alignItems:'flex-start',gap:10,lineHeight:1.5}}>
           <Icon name="info" size={15} style={{flexShrink:0,marginTop:2}}/><span>{syncNotice}</span>
-          <button onClick={onDismissNotice} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2,flexShrink:0}} title="Fechar aviso" aria-label="Fechar aviso"><Icon name="x" size={13}/></button>
+          <button className="bh-touch-target" onClick={onDismissNotice} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2,flexShrink:0}} title="Fechar aviso" aria-label="Fechar aviso"><Icon name="x" size={13}/></button>
         </div>
       )}
 
@@ -11011,10 +11129,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
                   :<>Desativados{since?' desde '+since:''} · congelado em <strong style={{color:'var(--text)'}}>{pos.rankName} {pos.divisionRoman}</strong> ({Number(rank.points).toLocaleString('pt-BR')} pts). Ao reativar, você continua exatamente daí; os dias desativados não contam decay.</>}
               </div>
             </div>
-            <button type="button" role="switch" aria-checked={ranksEnabled} aria-label="Ranks ativados" onClick={()=>onSetRanksEnabled(!ranksEnabled)}
-              style={{flexShrink:0,display:'block',width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:ranksEnabled?'var(--text)':'var(--border-2)',padding:2,transition:'background .2s'}}>
-              <span style={{display:'block',width:18,height:18,borderRadius:'50%',background:ranksEnabled?'var(--bg)':'var(--surface)',boxShadow:'0 1px 2px rgba(0,0,0,.2)',transition:'transform .2s',transform:ranksEnabled?'translateX(18px)':'translateX(0)'}}/>
-            </button>
+            <BhSwitch checked={ranksEnabled} onChange={onSetRanksEnabled} label="Ranks ativados" style={{flexShrink:0}}/>
           </div>
         </div>);
       })()}
@@ -11698,6 +11813,12 @@ const App=()=>{
     const rank=rankNormalize(pomoData?.rank);
     return (rank.sessions||[]).find(s=>s&&s.status==='pending')||null;
   },[pomoData?.rank?.sessions]);
+  // The pending session's project tasks, for the capture modal's task field.
+  const pendingSessionTasks=useMemo(()=>{
+    if(pendingSession?.targetType!=='project')return [];
+    const projectId=String(pendingSession.targetKey||'').replace(/^project:/,'');
+    return (projects.find(p=>p&&!p.deleted&&String(p.id)===projectId)?.projectTasks)||[];
+  },[pendingSession,projects]);
   const rankReceiptScope=fbUser?.uid||(()=>{try{return localStorage.getItem(LOCAL_OWNER_UID_KEY)||'local';}catch(e){return 'local';}})();
   const [rankReceiptRevision,setRankReceiptRevision]=useState(0);
   useEffect(()=>{
@@ -11757,6 +11878,18 @@ const App=()=>{
       return !isProjectScopedPost(p)&&String(p.folder)===String(session.folderId);
     }):null;
     if(wantsAppend&&!existing)throw new Error('o post escolhido não está mais disponível');
+    // The project task the session worked on. A task named in the modal is
+    // created here, on the timeline and as a task card, already "Fazendo".
+    // Session and post keep only the id; the name is always read from the task.
+    const sessionProjectId=session.targetType==='project'?String(session.targetKey||'').replace(/^project:/,''):null;
+    let taskId=sessionProjectId&&session.taskId!=null&&session.taskId!==''?String(session.taskId):null;
+    if(sessionProjectId&&session.newTaskName){
+      const today=localDateISO();
+      const task={id:Date.now(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''};
+      taskId=String(task.id);
+      setProjects(prev=>prev.map(p=>String(p.id)!==sessionProjectId?p:{...p,
+        projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
+    }
     const postId=existing?.id||('focus-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6));
     const target=session.targetLabel||'Sem categoria';
     const folderId=destination==='gallery'?String(session.folderId||existing?.folder||''):null;
@@ -11765,7 +11898,7 @@ const App=()=>{
       id:postId,folder:folderId,storageScope:destination,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,title:session.title||'Sessão — '+target,date:session.date||localDateISO(),
       content:entry,
       images:Array.isArray(session.images)?session.images:[],bannerImage:(Array.isArray(session.images)?session.images:[])[0]||'',deleted:false,sourceSessionId:session.id,
-      sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id
+      sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:taskId?[taskId]:[]
     };
     setGalleryPosts(prev=>{
       const list=Array.isArray(prev)?prev:[];
@@ -11773,15 +11906,16 @@ const App=()=>{
       return list.map(post=>{
         if(String(post.id)!==String(existing.id))return post;
         const sourceSessionIds=Array.from(new Set([post.sourceSessionId,...(Array.isArray(post.sourceSessionIds)?post.sourceSessionIds:[]),session.id].filter(Boolean).map(String)));
+        const taskIds=Array.from(new Set([...(Array.isArray(post.taskIds)?post.taskIds:[]),taskId].filter(Boolean).map(String)));
         const sourceTargetKeys=Array.from(new Set([post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[]),session.targetKey||'none'].filter(Boolean).map(String)));
         const images=[...(Array.isArray(post.images)?post.images:[]),...(Array.isArray(session.images)?session.images:[])];
-        return{...post,storageScope:destination,folder:destination==='gallery'?folderId:null,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,images,bannerImage:post.bannerImage||images[0]||'',content:[post.content,entry].filter(Boolean).join('\n\n— — —\n\n'),sourceSessionIds,sourceTargetKeys,lastSessionAt:session.endedAt||new Date().toISOString()};
+        return{...post,storageScope:destination,folder:destination==='gallery'?folderId:null,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,images,bannerImage:post.bannerImage||images[0]||'',content:[post.content,entry].filter(Boolean).join('\n\n— — —\n\n'),sourceSessionIds,sourceTargetKeys,taskIds,lastSessionAt:session.endedAt||new Date().toISOString()};
       });
     });
     setPomoData(prev=>{
       const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
       const status=session.storageStatus==='local'?'saved-local':'saved';
-      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:session.title||existing?.title||'Sessão — '+target,status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
+      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:session.title||existing?.title||'Sessão — '+target,status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
       return{...base,rank:{...rank,sessions}};
     });
   },[galleryPosts]);
@@ -12694,7 +12828,7 @@ const App=()=>{
       {showQuickCapture&&<QuickCapture type={quickCaptureType} onClose={()=>setShowQuickCapture(false)} onAddTask={t=>setTasks(prev=>[...prev,t])} onAddNote={n=>setNotes(prev=>[n,...prev])}/>} 
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>} 
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
-      {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPosts} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
+      {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPosts} projectTasks={pendingSessionTasks} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
       {ranksEnabled&&pendingRankNotice&&!pendingSession&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
       {ranksEnabled&&rankPromotion&&!pendingSession&&!pendingRankNotice&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
