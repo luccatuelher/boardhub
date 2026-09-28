@@ -4955,15 +4955,15 @@ const pomoSoundOn = () => _pomoSoundOn;
 //
 // `bright` scales only the octave partial — the bell on top. It is the dial that
 // separates a grave cue from a bright one without changing instrument.
-const _bhVoiceRig = ctx => {
+const _bhVoiceRig = (ctx, out = ctx.destination) => {
   const reverb = _makeReverb(ctx);
   const dryBus = ctx.createGain();
   const wetBus = ctx.createGain();
   dryBus.gain.value = 0.62;
   wetBus.gain.value = 0.42;
   reverb.connect(wetBus);
-  wetBus.connect(ctx.destination);
-  dryBus.connect(ctx.destination);
+  wetBus.connect(out);
+  dryBus.connect(out);
   // Everything feeds this bus → split to dry + reverb. Trimmed for headroom:
   // three oscillators per voice and up to five voices would clip at unity.
   const bus = ctx.createGain();
@@ -4992,36 +4992,79 @@ const _bhVoiceRig = ctx => {
   return { note, voice, roll };
 };
 
-// RANK PROMOTION JINGLE, in the Pomodoro's own voice (the Rhodes rig) and
-// key. The session cues live in D minor; a promotion still ARRIVES in D major,
-// but on the serious side the owner set for every cue (2026-09-28: the first
-// version was "too upbeat, too high"). So: no bells, no quick rising
-// arpeggio, nothing above F#4; a low D under the final chord; a dim octave
-// partial; slow, wide rolls. The approach is modal rather than a bright
-// ii–V–I — Gm7 → Bbmaj7 → A7sus4 → Dmaj9 (iv, bVI, V, I) is the sound of
-// weight lifting, not of a notification. The final chord lands with the new
-// emblem (0.9s for a rank, 0.3s for a division). Follows the ♪ switch.
+// RANK PROMOTION JINGLE, in the Pomodoro's own voice (the Rhodes rig).
+// Chosen by the owner (2026-09-28) from three candidates after "too upbeat /
+// too high" and then "too low": the MIDDLE register (fundamentals D3..A4, well
+// below the 2-4 kHz band that reads as shrill), a short RISING motif — the
+// contour games use for "achieved" — landing on a sustained A over D major.
+// The final chord lands with the new emblem (0.9s rank, 0.3s division).
+// Follows the ♪ switch.
+const _RP = {D3:146.83,G3:196.00,A3:220.00,Cs4:277.18,D4:293.66,E4:329.63,Fs4:369.99,A4:440.00};
 const playRankPromotionSound = (major) => {
   if (!_pomoSoundOn) return;
   try {
     const ctx = _getAudioCtx();
     if (!ctx) return;
-    const { roll } = _bhVoiceRig(ctx);
-    const T = ctx.currentTime + 0.05;
-    const Gm7   = [ 98.00, 146.83, 174.61, 233.08];              // G2 D3 F3 Bb3
-    const Bbma7 = [116.54, 174.61, 220.00, 293.66];              // Bb2 F3 A3 D4
-    const Asus  = [110.00, 146.83, 196.00, 220.00, 329.63];      // A2 D3 G3 A3 E4
-    const Dma9  = [ 73.42, 146.83, 220.00, 277.18, 329.63, 369.99]; // D2 D3 A3 C#4 E4 F#4
+    const { voice, roll } = _bhVoiceRig(ctx);
+    const T = ctx.currentTime + 0.05, n = _RP;
     if (!major) {
-      roll(Bbma7, T,        0.11, 1.8, 0.05, 0.35);
-      roll(Dma9,  T + 0.30, 0.14, 4.0, 0.055, 0.4);
+      voice(n.D4, T, 0.08, 1.2, 0.7);
+      voice(n.Fs4, T + 0.16, 0.085, 1.3, 0.7);
+      roll([n.D3, n.A3, n.D4, n.Fs4], T + 0.32, 0.11, 3.0, 0.035, 0.6);
+      voice(n.A4, T + 0.34, 0.10, 3.2, 0.7);
       return;
     }
-    roll(Gm7,   T,        0.10, 1.6, 0.05, 0.3);
-    roll(Bbma7, T + 0.32, 0.11, 1.6, 0.05, 0.35);
-    roll(Asus,  T + 0.62, 0.12, 1.4, 0.05, 0.35);
-    roll(Dma9,  T + 0.90, 0.16, 5.4, 0.06, 0.4);
+    roll([n.D3, n.G3, n.A3, n.D4], T, 0.085, 1.3, 0.04, 0.5);         // A sus: the lift
+    voice(n.A3, T + 0.30, 0.08, 1.1, 0.7);                              // rising motif
+    voice(n.D4, T + 0.46, 0.085, 1.2, 0.7);
+    voice(n.Fs4, T + 0.62, 0.09, 1.3, 0.7);
+    roll([n.D3, n.A3, n.Cs4, n.E4, n.Fs4], T + 0.90, 0.13, 4.0, 0.045, 0.6); // D add9
+    voice(n.A4, T + 0.92, 0.11, 4.3, 0.7);                               // sustained A
   } catch (e) { bhLog('rank.promotionSound', e); }
+};
+// After the fanfare, a quiet loop keeps playing until the overlay closes:
+// slow arpeggios over D - Bm7 - Gmaj7 - Asus (I-vi-IV-V, the calm-theme
+// cycle), same voice and register, faded in and faded out on close. A small
+// look-ahead scheduler keeps it seamless. Returns the stop function.
+const startRankPromotionLoop = () => {
+  if (!_pomoSoundOn) return () => {};
+  try {
+    const ctx = _getAudioCtx();
+    if (!ctx) return () => {};
+    const out = ctx.createGain();
+    out.gain.value = 0; out.connect(ctx.destination);
+    const { voice, roll } = _bhVoiceRig(ctx, out);
+    const beat = 60 / 72, bar = beat * 4;
+    const PROG = [
+      { pad: [146.83, 220.00, 277.18, 329.63], arp: [369.99, 440.00, 329.63, 369.99] }, // Dmaj9
+      { pad: [123.47, 185.00, 220.00, 293.66], arp: [293.66, 369.99, 440.00, 369.99] }, // Bm7
+      { pad: [ 98.00, 146.83, 185.00, 246.94], arp: [246.94, 293.66, 369.99, 293.66] }, // Gmaj7
+      { pad: [110.00, 146.83, 164.81, 196.00], arp: [329.63, 392.00, 440.00, 392.00] }, // A sus
+    ];
+    let next = ctx.currentTime + 0.1, i = 0, stopped = false;
+    out.gain.setValueAtTime(0, next);
+    out.gain.linearRampToValueAtTime(1, next + 3);
+    const schedule = () => {
+      if (stopped) return;
+      while (next < ctx.currentTime + 1.5) {
+        const c = PROG[i % PROG.length];
+        roll(c.pad, next, 0.032, bar * 1.15, 0.06, 0.3);
+        c.arp.forEach((f, k) => voice(f, next + k * beat, 0.026, beat * 2.4, 0.4));
+        next += bar; i++;
+      }
+    };
+    schedule();
+    const id = setInterval(schedule, 400);
+    return () => {
+      if (stopped) return;
+      stopped = true; clearInterval(id);
+      const t = ctx.currentTime;
+      out.gain.cancelScheduledValues(t);
+      out.gain.setValueAtTime(out.gain.value, t);
+      out.gain.linearRampToValueAtTime(0, t + 0.8);
+      setTimeout(() => { try { out.disconnect(); } catch (e) {/*silent-ok: already disconnected*/} }, 1300);
+    };
+  } catch (e) { bhLog('rank.promotionLoop', e); return () => {}; }
 };
 
 const playPomoSound = (type) => {
@@ -5571,7 +5614,13 @@ const RankPromotionOverlay=({promotion,onDone})=>{
   useEffect(()=>{
     playRankPromotionSound(isRank);
     const t=setTimeout(()=>{setReady(true);btnRef.current?.focus({preventScroll:true});},isRank?1900:1150);
-    return()=>clearTimeout(t);
+    // The loop starts as the fanfare settles and stops when the overlay closes
+    // (or the page is hidden).
+    let stopLoop=null;
+    const tl=setTimeout(()=>{stopLoop=startRankPromotionLoop();},isRank?2600:1500);
+    const onHide=()=>{if(document.visibilityState==='hidden'&&stopLoop){stopLoop();}};
+    document.addEventListener('visibilitychange',onHide);
+    return()=>{clearTimeout(t);clearTimeout(tl);document.removeEventListener('visibilitychange',onHide);if(stopLoop)stopLoop();};
   },[]);//eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{const k=e=>{if(e.key==='Escape')onDone();};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[onDone]);
   const sparks=useMemo(()=>Array.from({length:isRank?34:20},()=>({x:(Math.random()*2-1).toFixed(3),s:(3+Math.random()*5).toFixed(1)+'px',t:(2.6+Math.random()*2.8).toFixed(2)+'s',d:((isRank?.9:.3)+Math.random()*2.4).toFixed(2)+'s'})),[isRank]);
