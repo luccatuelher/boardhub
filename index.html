@@ -6843,8 +6843,8 @@ const useTlWidth=()=>{
 // day (weekday initial + number, hairline between days, today in red).
 const TlHeader=({cal,DAY_W,LEFT_W,HEADER_H,today,corner})=>(
   <div style={{position:'sticky',top:0,zIndex:4,display:'flex',height:HEADER_H,background:'var(--surface)',borderBottom:'1px solid var(--border)'}}>
-    <div style={{position:'sticky',left:0,zIndex:5,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'flex-end',padding:'0 12px 6px',boxSizing:'border-box'}}>
-      <span className="label" style={{fontSize:'.6rem',margin:0}}>{corner}</span>
+    <div style={{position:'sticky',left:0,zIndex:5,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'flex-end',padding:LEFT_W<120?'0 6px 6px':'0 12px 6px',boxSizing:'border-box',overflow:'hidden'}}>
+      <span className="label" style={{fontSize:LEFT_W<120?'.55rem':'.6rem',margin:0,whiteSpace:'nowrap'}}>{corner}</span>
     </div>
     <div style={{position:'relative',width:cal.gridW,flexShrink:0}}>
       {/* Each month is a band; its label sticks to the left edge while the
@@ -6921,7 +6921,9 @@ const TlGrip=({side,clipped,color,onDown,unit='semana'})=>(
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
 const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
-  const DAY_BASE=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
+  // Phones: a narrow names column (96px) so most of the width shows the
+  // calendar; names are cut with an ellipsis and complete on tap/hover.
+  const DAY_BASE=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?96:210;
   const today=localDateISO();
   const [setScrollNode,scrollW]=useTlWidth();
   const scrollRef=useRef(null);
@@ -7020,7 +7022,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
         ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>{thisWeek?'Nenhum projeto ou tarefa pendente nesta semana.':'Nenhum projeto com datas ou tarefas pendentes.'}</div>
         :<div ref={scrollSetter} onScroll={onScroll} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:VIEW_H,position:'relative'}}>
           <div style={{width:LEFT_W+gridW,position:'relative'}}>
-            <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner="Projeto / tarefa"/>
+            <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner={isMobile?"Tarefa":"Projeto / tarefa"}/>
             <TlBackdrop cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} top={HEADER_H} height={bodyH} today={today}/>
             {firstRow>0&&<div style={{height:firstRow*ROW_H}}/>}
             {visibleRows.slice(firstRow,lastRow).map(r=>{
@@ -7038,11 +7040,11 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
               return(
                 <div key={r.key} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
                   <div {...keyActivate(openIt,'Abrir projeto '+(r.p.title||''))} onClick={openIt} title={isP?label:label+' · '+r.t.status}
-                    style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',gap:7,padding:isP?'0 12px':'0 12px 0 26px',boxSizing:'border-box',cursor:'pointer',minWidth:0}}>
+                    style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',gap:isMobile?4:7,padding:isMobile?(isP?'0 6px':'0 6px 0 12px'):(isP?'0 12px':'0 12px 0 26px'),boxSizing:'border-box',cursor:'pointer',minWidth:0}}>
                     {isP
-                      ?<BgImg src={r.p.cover} style={{width:16,height:16,borderRadius:4,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
+                      ?<BgImg src={r.p.cover} style={{width:isMobile?11:16,height:isMobile?11:16,borderRadius:isMobile?3:4,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
                       :<span aria-hidden="true" style={{width:7,height:7,borderRadius:'50%',background:c.dot,flexShrink:0}}/>}
-                    <span style={{fontSize:isP?'.78rem':'.74rem',fontWeight:isP?600:400,color:isP?'var(--text)':'var(--muted-chip)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span>
+                    <span style={{fontSize:isMobile?(isP?'.68rem':'.64rem'):(isP?'.78rem':'.74rem'),fontWeight:isP?600:400,color:isP?'var(--text)':'var(--muted-chip)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span>
                   </div>
                   <div style={{position:'relative',width:gridW,flexShrink:0,overflow:'hidden',zIndex:1}}>
                     {left!=null&&(isP
@@ -7387,7 +7389,8 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const dragOverRowRef=useRef(null);
 
   const ROW_H=38,HEADER_H=44;
-  const LEFT_W=viewW>0&&viewW<560?128:200;
+  const narrow=viewW>0&&viewW<560;
+  const LEFT_W=narrow?100:200;
   const taskDates=t=>{const s=t.startDate||(projectStart||today),e=t.dueDate||(projectEnd||addDays(today,7));return s<=e?{s,e}:{s:e,e:s};};
 
   // - Chart bounds -
@@ -7536,12 +7539,12 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                   }}
                   onDragEnd={()=>{dragRowRef.current=null;dragOverRowRef.current=null;}}
                   onClick={toggleSel}
-                  style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,display:'flex',alignItems:'center',gap:6,padding:'0 8px 0 10px',boxSizing:'border-box',borderRight:'1px solid var(--border)',cursor:'pointer',minWidth:0,
+                  style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,display:'flex',alignItems:'center',gap:narrow?4:6,padding:narrow?'0 5px 0 6px':'0 8px 0 10px',boxSizing:'border-box',borderRight:'1px solid var(--border)',cursor:'pointer',minWidth:0,
                     background:isSelected?'color-mix(in srgb,var(--text) 5%,var(--surface))':'var(--surface)',transition:'background .15s'}}>
-                  <span style={{color:'var(--border)',display:'flex',cursor:'grab',flexShrink:0,opacity:.5}} onMouseDown={e=>e.stopPropagation()}><Icon name="grip-vertical" size={10}/></span>
-                  <button onClick={e=>{e.stopPropagation();cycleStatus(t.id);}} style={{width:12,height:12,borderRadius:'50%',background:colors.dot,border:'none',cursor:'pointer',flexShrink:0,padding:0,transition:'transform .15s'}}
+                  {!narrow&&<span style={{color:'var(--border)',display:'flex',cursor:'grab',flexShrink:0,opacity:.5}} onMouseDown={e=>e.stopPropagation()}><Icon name="grip-vertical" size={10}/></span>}
+                  <button onClick={e=>{e.stopPropagation();cycleStatus(t.id);}} style={{width:narrow?9:12,height:narrow?9:12,borderRadius:'50%',background:colors.dot,border:'none',cursor:'pointer',flexShrink:0,padding:0,transition:'transform .15s'}}
                     title={`Status: ${t.status}`} onMouseEnter={e=>e.currentTarget.style.transform='scale(1.4)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}/>
-                  <span onClick={e=>{if(onTaskClick){e.stopPropagation();onTaskClick(t.id);}}} title={name} style={{fontSize:'.83rem',fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+                  <span onClick={e=>{if(onTaskClick){e.stopPropagation();onTaskClick(t.id);}}} title={name} style={{fontSize:narrow?'.7rem':'.83rem',fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
                     textDecoration:t.status==='Concluído'?'line-through':'none',color:t.status==='Concluído'?'var(--muted)':(t.text||t.title)?'var(--text)':'var(--muted)',fontStyle:(t.text||t.title)?'normal':'italic',
                     cursor:onTaskClick?'pointer':'default'}}>{name}</span>
                 </div>
