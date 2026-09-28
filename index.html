@@ -747,6 +747,23 @@ window.__BH_RANK_BADGES_IMAGE='data:image/webp;base64,UklGRiZMAgBXRUJQVlA4WAoAAA
 </script>
 <script type="text/x-boardhub-jsx" id="bh-jsx-source">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
+// PERFORMANCE (phones). Date#toLocaleDateString builds a new Intl formatter on
+// every call, and the app calls it for every card, bar and row it draws: the
+// Projects timeline alone spent 3.5s of a phone-speed CPU in it. One cached
+// formatter per (locale, options) gives the same text. Options without any
+// date field keep the native path (it adds date fields on its own).
+(()=>{
+  const native=Date.prototype.toLocaleDateString,cache=new Map();
+  const DATE_FIELDS=['weekday','era','year','month','day','dateStyle'];
+  Date.prototype.toLocaleDateString=function(locale,opts){
+    if(opts!=null&&(typeof opts!=='object'||!DATE_FIELDS.some(k=>opts[k]!==undefined)))return native.call(this,locale,opts);
+    if(isNaN(this.getTime()))return native.call(this,locale,opts);
+    let key;try{key=String(locale)+'|'+(opts?JSON.stringify(opts):'');}catch{return native.call(this,locale,opts);}
+    let f=cache.get(key);
+    if(!f){try{f=new Intl.DateTimeFormat(locale,opts||undefined);}catch{return native.call(this,locale,opts);}if(cache.size<200)cache.set(key,f);}
+    return f.format(this);
+  };
+})();
 
 const UI_SESSION_KEY='boardhub_ui_session_v1';
 const bhUiLoad=key=>{
@@ -932,13 +949,23 @@ const lsLoadResult = () => {
 const _lsBoot=lsLoadResult();
 let _lsWriteBlocked=_lsBoot.status==='corrupt'||_lsBoot.status==='unavailable';
 const lsLoad = () => {const result=lsLoadResult();return result.status==='valid'?result.state:null;};
+// PERFORMANCE (phones). The 5s checkpoint serialized the WHOLE state (MBs),
+// read the whole stored copy back to compare and wrote it again, even with
+// nothing changed: a stall every few seconds on a phone. What was last written
+// is remembered: the same section objects skip everything, and a changed
+// state is compared with the in-memory copy instead of re-reading storage.
+let _lsLastRefs=null,_lsLastSerialized=null;
+const lsSaveForget=()=>{_lsLastRefs=null;_lsLastSerialized=null;};
 const lsSave = s => {
   if(_lsWriteBlocked)return {ok:false,blocked:true,error:_lsBoot.error||new Error('local storage recovery required')};
   if(bhPersistenceBusy())return {ok:false,blocked:true};
+  const keys=Object.keys(s||{});
+  if(_lsLastRefs&&keys.length===_lsLastRefs.size&&keys.every(k=>_lsLastRefs.has(k)&&_lsLastRefs.get(k)===s[k]))return {ok:true,stripped:false,unchanged:true};
   try {
     const serialized=JSON.stringify(s);
-    if(localStorage.getItem(LS_KEY)===serialized)return {ok:true,stripped:false,unchanged:true};
-    localStorage.setItem(LS_KEY,serialized);return {ok:true,stripped:false};
+    const remember=()=>{_lsLastRefs=new Map(keys.map(k=>[k,s[k]]));_lsLastSerialized=serialized;};
+    if(_lsLastSerialized!=null?_lsLastSerialized===serialized:localStorage.getItem(LS_KEY)===serialized){remember();return {ok:true,stripped:false,unchanged:true};}
+    localStorage.setItem(LS_KEY,serialized);remember();return {ok:true,stripped:false};
   }
   catch(e) {
     // Never replace a complete save with an image-stripped "success".
@@ -2567,6 +2594,20 @@ const _getSharedIO=()=>{
   return _sharedIO;
 };
 const _ioUnwatch=node=>{if(!node)return;const io=_getSharedIO();if(io)io.unobserve(node);_ioCallbacks.delete(node);};
+// PERFORMANCE (phones): long lists render in steps. The sentinel sits after
+// the rendered items and asks for the next step when it nears the viewport,
+// so opening a view with hundreds of items no longer builds them all at once.
+const BH_LIST_STEP=60;
+const ListMoreSentinel=({onMore})=>{
+  const ref=useRef(null),cb=useRef(onMore);cb.current=onMore;
+  useEffect(()=>{
+    const el=ref.current;if(!el)return;
+    if(typeof IntersectionObserver==='undefined'){cb.current();return;}
+    const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))cb.current();},{rootMargin:'600px 0px'});
+    io.observe(el);return()=>io.disconnect();
+  },[]);
+  return <div ref={ref} aria-hidden="true" style={{height:1}}/>;
+};
 const useInView=(enabled)=>{
   const hasIO=typeof IntersectionObserver!=='undefined';
   const [inView,setInView]=React.useState(!enabled||!hasIO);
@@ -6825,23 +6866,10 @@ const TlBackdrop=({cal,DAY_W,LEFT_W,top,height,today})=>{
     </div>
   );
 };
-// A bar's name: inside when it fits, otherwise beside the bar (right, or left
-// when the bar ends near the grid's edge). Narrow bars used to render blank.
-const tlLabelFits=(width,text)=>width-16>=Math.min(90,String(text).length*5.6);
-const tlLabelEst=text=>Math.min(220,String(text).length*6+8);
-// 'inside' | 'right' | 'left'. A bar with no room on either side keeps its
-// name inside, cut with an ellipsis, rather than showing nothing.
-const tlLabelMode=(left,width,gridW,text,inner=width)=>{
-  if(tlLabelFits(inner,text))return'inside';
-  const est=tlLabelEst(text);
-  if(left+width+4+est<=gridW)return'right';
-  if(left-4-est>=0)return'left';
-  return inner>=28?'inside':'right';
-};
-const TlOutsideLabel=({mode,left,width,gridW,text,color,rowH})=>(
-  <span aria-hidden="true" style={{position:'absolute',top:0,height:rowH,display:'flex',alignItems:'center',pointerEvents:'none',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:220,fontSize:'.64rem',fontWeight:600,color:color||'var(--muted)',
-    ...(mode==='right'?{left:left+width+4}:{right:gridW-left+4,justifyContent:'flex-end'})}}>{text}</span>
-);
+// A bar's name stays INSIDE the bar, cut with an ellipsis; a bar too narrow
+// for even a few letters shows none (the name is in the names column). Names
+// drawn beside short bars spilled over the neighbouring days and rows.
+const tlLabelFits=inner=>inner>=26;
 // Dragging a bar: 'move' shifts both dates, 'left'/'right' resize one end by
 // whole days. g = {s,e} real dates, {vs,ve} what is drawn, clipStart/clipEnd.
 // A clipped edge is dragged from where it is drawn (the window's edge) and
@@ -6938,6 +6966,15 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   // Open on today rather than on the earliest date in the data.
   useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:Math.max(0,x(today)-3*DAY_W);},[open,start,thisWeek,visibleRows.length>0]);
   const bodyH=visibleRows.length*ROW_H;
+  // PERFORMANCE (phones): only the rows inside the 320px window (plus a margin)
+  // are drawn; spacers keep the full scroll height. Forty projects with their
+  // tasks are hundreds of rows, each a bar with grips, and drawing them all
+  // froze a phone for seconds on every visit to Projetos.
+  const VIEW_H=320,OVERSCAN=8;
+  const [scrollTop,setScrollTop]=useState(0);
+  const onScroll=e=>{const t=e.currentTarget.scrollTop;if(Math.abs(t-scrollTop)>=ROW_H)setScrollTop(t);};
+  const firstRow=Math.max(0,Math.floor(scrollTop/ROW_H)-OVERSCAN);
+  const lastRow=Math.min(visibleRows.length,Math.ceil((scrollTop+VIEW_H)/ROW_H)+OVERSCAN);
   // Task bars are edited in place, like in the project's own timeline: drag
   // the bar to move it, its grips to change start/due. A plain click still
   // opens the project.
@@ -6960,17 +6997,18 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
       </div>
       {open&&(visibleRows.length===0
         ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>{thisWeek?'Nenhum projeto ou tarefa pendente nesta semana.':'Nenhum projeto com datas ou tarefas pendentes.'}</div>
-        :<div ref={scrollSetter} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:320,position:'relative'}}>
+        :<div ref={scrollSetter} onScroll={onScroll} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:VIEW_H,position:'relative'}}>
           <div style={{width:LEFT_W+gridW,position:'relative'}}>
             <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner="Projeto / tarefa"/>
             <TlBackdrop cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} top={HEADER_H} height={bodyH} today={today}/>
-            {visibleRows.map(r=>{
+            {firstRow>0&&<div style={{height:firstRow*ROW_H}}/>}
+            {visibleRows.slice(firstRow,lastRow).map(r=>{
               const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
               // Clip to the visible window so bars of tasks running past the week never spill out of the grid.
               const cs=r.s&&r.s<start?start:r.s,ce=r.e&&r.e>end?end:r.e;
               const left=r.s?x(cs):null,width=r.s?Math.max(1,daysBetween(cs,ce)+1)*DAY_W:0;
               const label=isP?(r.p.title||'Projeto sem nome'):(r.t.text||r.t.title||'Tarefa sem nome');
-              const mode=isP?null:tlLabelMode(left,width,gridW,label,width-(onUpdateTask?20:0)),fits=mode==='inside';
+              const fits=!isP&&tlLabelFits(width-(onUpdateTask?20:12));
               const g=isP?null:{s:r.s,e:r.e,vs:cs,ve:ce,clipStart:r.s<start,clipEnd:r.e>end};
               const openIt=()=>onOpen(r.p);
               return(
@@ -6995,12 +7033,12 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
                           <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fits?label:''}</span>
                           {onUpdateTask&&<TlGrip side="right" clipped={g.clipEnd} color={c.text} onDown={e=>startDrag(e,r,'right',g)} unit={thisWeek?'semana':'janela'}/>}
                         </div>
-                        {!fits&&<TlOutsideLabel mode={mode} left={left} width={width} gridW={gridW} text={label} color={c.text} rowH={ROW_H}/>}
                       </>)}
                   </div>
                 </div>
               );
             })}
+            {lastRow<visibleRows.length&&<div style={{height:(visibleRows.length-lastRow)*ROW_H}}/>}
           </div>
         </div>)}
     </div>
@@ -7457,7 +7495,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             const name=taskName(t);
             const g=barGeom(t);
             const toggleSel=()=>isSelected?closeEdit():selectTask(t);
-            const mode=g.outside?null:tlLabelMode(g.left,g.width,gridW,name,g.width-20),fits=mode==='inside';
+            const fits=!g.outside&&tlLabelFits(g.width-20);
             const grip=(side,clipped)=><TlGrip side={side} clipped={clipped} color={colors.text} onDown={e=>startDrag(e,t,side)}/>;
             return(
               <div key={t.id} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
@@ -7511,7 +7549,6 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                         <div style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'.68rem',fontWeight:600,color:colors.text,userSelect:'none'}}>{fits?name:''}</div>
                         {grip('right',g.clipEnd)}
                       </div>
-                      {!fits&&<TlOutsideLabel mode={mode} left={g.left} width={g.width} gridW={gridW} text={name} color={colors.text} rowH={ROW_H}/>}
                     </>}
                 </div>
               </div>
@@ -11022,6 +11059,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   };
   const sortEntries=list=>noteSort==='manual'?(list||[]):[...(list||[])].sort(noteSort==='az'?byNoteTitle:byNoteRecent);
   const tree=sortItems(childrenOf(null));
+  const [treeLimit,setTreeLimit]=useState(BH_LIST_STEP);
+  const moreTree=()=>setTreeLimit(l=>l+BH_LIST_STEP);
 
   // Search across every note and every note inside a folder, flat, while the
   // tree stays the normal browsing view.
@@ -11121,7 +11160,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
             <div ref={treePaneRef} onScroll={e=>{treeScrollTopRef.current=e.currentTarget.scrollTop;}} style={{flex:1,overflowY:'auto',paddingRight:3}}>
               {noteResults?renderNoteResults():<>
               {tree.length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
-              {tree.map(n=>renderRow(n))}
+              {tree.slice(0,treeLimit).map(n=>renderRow(n))}
+              {tree.length>treeLimit&&<ListMoreSentinel key={treeLimit} onMore={moreTree}/>}
               {noteDrag&&renderRootDropZone('Solte aqui para mover para a raiz',{marginTop:8,padding:'8px 8px',fontSize:'.68rem',color:'var(--muted)',textAlign:'center'})}
               </>}
             </div></>
@@ -11155,7 +11195,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
               {renderNoteSearch()}
               {noteResults?renderNoteResults():<>
               {tree.length===0&&<div style={{fontSize:'.85rem',color:'var(--muted)',padding:'16px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
-              {tree.map(n=>renderRow(n))}
+              {tree.slice(0,treeLimit).map(n=>renderRow(n))}
+              {tree.length>treeLimit&&<ListMoreSentinel key={treeLimit} onMore={moreTree}/>}
               {/* Touch screens cannot drag, so the drop-zone hint would only confuse. */}
               {noteDrag&&!(window.matchMedia&&window.matchMedia('(hover: none)').matches)&&renderRootDropZone('Solte aqui para a raiz',{marginTop:8,padding:'9px 8px',fontSize:'.72rem',color:'var(--muted)',textAlign:'center'})}
               </>}
@@ -12668,7 +12709,7 @@ const App=()=>{
   },[]);
   const discardUnreadableState=useCallback(async()=>{
     if(!await bhConfirm({title:'Descartar estado ilegível',danger:true,confirmLabel:'Descartar',message:'Descartar os bytes locais ilegíveis e permitir novos salvamentos? Exporte o arquivo antes se quiser tentar recuperá-lo depois.'}))return;
-    try{localStorage.removeItem(LS_KEY);_lsWriteBlocked=false;setStorageRecovery(null);if(_latestState.current)saveLocal(_latestState.current);else setLocalSaveStatus('saved');}
+    try{localStorage.removeItem(LS_KEY);lsSaveForget();_lsWriteBlocked=false;setStorageRecovery(null);if(_latestState.current)saveLocal(_latestState.current);else setLocalSaveStatus('saved');}
     catch(e){bhLog('storageRecovery.discard',e);await bhAlert('O navegador ainda não permitiu gravar neste perfil.');}
   },[saveLocal]);
   const [syncStatus,setSyncStatus]=useState('idle'); // 'idle'|'syncing'|'synced'|'error'
@@ -13381,11 +13422,19 @@ const App=()=>{
     const isRemoteTrigger=_remoteApplyId.current!==_lastSeenApplyId.current;
     _lastSeenApplyId.current=_remoteApplyId.current;
     const state={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
-    const serialized=bhStableStringify(state);
     if(bhPersistenceBusy())return;
     if(isRemoteTrigger&&fbUser?.uid)bhSyncAck(fbUser.uid,state);
-    const changed=_observedSave.current!==serialized;
-    _observedSave.current=serialized;
+    // PERFORMANCE (phones): whether content changed is decided per section.
+    // Only a section whose object changed is serialized again (a note edit
+    // re-reads the notes, not the whole multi-MB state as before).
+    const seen=_observedSave.current||(_observedSave.current={refs:new Map(),text:new Map()});
+    let changed=false;
+    for(const [key,value] of Object.entries(state)){
+      if(seen.refs.has(key)&&seen.refs.get(key)===value)continue;
+      seen.refs.set(key,value);
+      const text=bhStableStringify(value===undefined?null:value);
+      if(seen.text.get(key)!==text){seen.text.set(key,text);changed=true;}
+    }
     if(!changed){bhDiag.record('writeSkipped',0,'render-unchanged');return;}
     if(_isMounted.current&&!isRemoteTrigger){
       // Only mark as a user edit after mount — the very first run is localStorage
