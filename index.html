@@ -6068,7 +6068,9 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     if (!circleRef.current) return null;
     const rect = circleRef.current.getBoundingClientRect();
     const t = 1 - Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-    return Math.max(1, Math.min(MAX_FOCUS_MINS, Math.round(t * MAX_FOCUS_MINS)));
+    // Steps of 5 minutes (5..120): at one minute per step the 2-hour range
+    // was too fine to land on a round value by finger.
+    return Math.max(5, Math.min(MAX_FOCUS_MINS, Math.round(t * MAX_FOCUS_MINS / 5) * 5));
   };
   const handlePointerDown = (e) => {
     if (isActiveRef.current||sessionMetaRef.current) return;
@@ -6210,7 +6212,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         <div className="card" style={{padding:'8px 12px 8px 8px',display:'flex',alignItems:'center',gap:10}}>
           <div ref={circleRef} className="pomo-metronome"
             style={{position:'relative',flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
-            title={!isActive?'Arraste para cima/baixo para ajustar de 1 a 120 min':'Pause o timer para ajustar a duração'}
+            title={!isActive?'Arraste para cima/baixo para ajustar de 5 a 120 min, de 5 em 5':'Pause o timer para ajustar a duração'}
             onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
             {/* M2.1 — the dial became an abstract metronome: truncated pyramid,
