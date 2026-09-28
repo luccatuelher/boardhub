@@ -4630,7 +4630,31 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   [...(incoming.rank.history||[]),...(current.rank.history||[])].forEach(row=>{if(row?.seasonId)historyBySeason.set(String(row.seasonId),row);});
   const acknowledged=new Set([...current.rank.notices,...incoming.rank.notices].filter(n=>n.dismissed).map(n=>String(n.id)));
   const notices=bhMergeRecords(current.rank.notices,incoming.rank.notices).map(n=>acknowledged.has(String(n.id))?{...n,dismissed:true}:n);
-  const rank={...current.rank,sessions,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))),notices};
+  let rank={...current.rank,sessions,notices};
+  // RANK POINTS. The comment above promises "the strongest same-season
+  // counters", but the code kept only the CURRENT points: once a season had
+  // rolled over (or a sync had zeroed them) a restored backup could never
+  // bring the points back, and the zero was re-saved into every new backup.
+  const inc=incoming.rank,cur=current.rank;
+  const incOrd=rankSeasonOrdinal(inc.seasonId),curOrd=rankSeasonOrdinal(cur.seasonId);
+  if(!rankIsPaused(cur)&&Number.isFinite(incOrd)&&Number.isFinite(curOrd)){
+    if(incOrd===curOrd&&inc.points>cur.points){
+      // Same season: take the backup's points together with ITS decay ledger, so
+      // pomoRankMaintain re-applies decay only for the days after the backup.
+      rank={...rank,points:inc.points,startedOn:inc.startedOn,decayApplied:{...(inc.decayApplied||{})}};
+    }else if(incOrd<curOrd){
+      // The backup belongs to a season that has since closed: its points are
+      // that season's result. File it in the season history (never lowering an
+      // existing row) instead of overwriting the current season.
+      const closed=rankApplyDecayThrough(inc,days,rankSeasonEnd(inc.seasonId));
+      const existing=[...(cur.history||[]),...(inc.history||[])].find(h=>h&&String(h.seasonId)===String(inc.seasonId));
+      if(!existing||Number(existing.points||0)<closed.points){
+        const fin=rankPosition(closed.points);
+        historyBySeason.set(String(inc.seasonId),{seasonId:inc.seasonId,rankIndex:fin.rankIndex,rankName:fin.rankName,division:fin.division,divisionRoman:fin.divisionRoman,points:closed.points,endedAt:rankSeasonEnd(inc.seasonId),restoredFromBackup:true});
+      }
+    }
+  }
+  rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
 };
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -6682,11 +6706,23 @@ const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Ca
 // edited inside each project, so a click opens it. Task dates default exactly
 // as in the project's own Gantt, and overdue tasks read as Atrasado there too.
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
+const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
 const ProjectsTimeline=({projects,onOpen,isMobile})=>{
   const DAY_W=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
   const today=localDateISO();
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
+  // "Esta semana" narrows the overview to the current Sunday-Saturday week,
+  // same convention as the per-project timeline.
+  const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
+  const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
+  const weekBounds=useMemo(()=>{
+    const d=new Date(today+'T12:00:00');
+    const day=d.getDay(); // 0=Sun...6=Sat
+    const sun=new Date(d);sun.setDate(d.getDate()-day);
+    const sat=new Date(sun);sat.setDate(sun.getDate()+6);
+    return{start:localDateISO(sun),end:localDateISO(sat)};
+  },[today]);
   const rows=useMemo(()=>{
     const out=[];
     projects.forEach(p=>{
@@ -6703,9 +6739,23 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     return out;
   },[projects,today]);
   const pendingCount=rows.filter(r=>r.kind==='task').length;
+  // When "Esta semana" is on, only rows overlapping the current week are
+  // shown; otherwise every project/task row from the full data set is used.
+  const visibleRows=useMemo(()=>{
+    if(!thisWeek)return rows;
+    return rows.filter(r=>!r.s||!r.e||(r.s<=weekBounds.end&&r.e>=weekBounds.start));
+  },[rows,thisWeek,weekBounds]);
   let start=today,end=today;
-  rows.forEach(r=>{if(r.s&&r.s<start)start=r.s;if(r.e&&r.e>end)end=r.e;});
-  start=addDays(start,-3);end=addDays(end,10);
+  if(thisWeek){
+    start=weekBounds.start;end=weekBounds.end;
+  }else{
+    visibleRows.forEach(r=>{if(r.s&&r.s<start)start=r.s;if(r.e&&r.e>end)end=r.e;});
+    start=addDays(start,-3);end=addDays(end,10);
+    // Let the timeline be scrolled all the way to the end of the current
+    // year even when no project/task extends that far yet.
+    const yearEnd=today.slice(0,4)+'-12-31';
+    if(yearEnd>end)end=yearEnd;
+  }
   const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
   const x=d=>daysBetween(start,d)*DAY_W;
   const months=[],weekends=[],dayNums=[];
@@ -6719,18 +6769,21 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
   const scrollRef=useRef(null);
   // Open on today rather than on the earliest date in the data.
   useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);},[open,start]);
-  const bodyH=rows.length*ROW_H;
+  const bodyH=visibleRows.length*ROW_H;
   return(
     <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
       <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
         <span className="label label-section" style={{margin:0}}><StaveGlyph name="half"/>Timeline</span>
         <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
-        <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:'auto',padding:'4px 8px',fontSize:'.76rem'}}>
+        {open&&<button type="button" onClick={toggleWeek} className="btn btn-outline" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+          <Icon name="calendar" size={10}/> Esta semana
+        </button>}
+        <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:open?0:'auto',padding:'4px 8px',fontSize:'.76rem'}}>
           <Icon name={open?'chevron-up':'chevron-down'} size={13}/>{open?'Ocultar':'Mostrar'}
         </button>
       </div>
-      {open&&(rows.length===0
-        ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>Nenhum projeto com datas ou tarefas pendentes.</div>
+      {open&&(visibleRows.length===0
+        ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>{thisWeek?'Nenhum projeto ou tarefa pendente nesta semana.':'Nenhum projeto com datas ou tarefas pendentes.'}</div>
         :<div ref={scrollRef} style={{overflow:'auto',maxHeight:320,position:'relative'}}>
           <div style={{width:LEFT_W+gridW,position:'relative'}}>
             {/* Header: months over day numbers */}
@@ -6750,14 +6803,18 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
               {weekends.map(i=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>)}
               <div style={{position:'absolute',left:x(today)+DAY_W/2,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.8}}/>
             </div>
-            {rows.map(r=>{
+            {visibleRows.map(r=>{
               const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
               const left=r.s?x(r.s):null,width=r.s?(daysBetween(r.s,r.e)+1)*DAY_W:0;
-              const label=isP?r.p.title:(r.t.text||r.t.title||'Tarefa');
+              // Tasks created without a name previously rendered as a blank
+              // box: the label was hidden below width>70 with no fallback,
+              // and the pill itself had no title to fall back to in the
+              // left column either.
+              const label=isP?(r.p.title||'Projeto sem nome'):(r.t.text||r.t.title||'Tarefa sem nome');
               const openIt=()=>onOpen(r.p);
               return(
                 <div key={r.key} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
-                  <div {...keyActivate(openIt,'Abrir projeto '+(r.p.title||''))} onClick={openIt} title={isP?r.p.title:label+' · '+r.t.status}
+                  <div {...keyActivate(openIt,'Abrir projeto '+(r.p.title||''))} onClick={openIt} title={isP?label:label+' · '+r.t.status}
                     style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',gap:7,padding:isP?'0 12px':'0 12px 0 26px',boxSizing:'border-box',cursor:'pointer',minWidth:0}}>
                     {isP
                       ?<BgImg src={r.p.cover} style={{width:16,height:16,borderRadius:4,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
@@ -6766,8 +6823,8 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
                   </div>
                   <div style={{position:'relative',width:gridW,flexShrink:0}}>
                     {left!=null&&(isP
-                      ?<div onClick={openIt} title={(r.p.title||'')+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
-                      :<div onClick={openIt} title={label+' · '+r.t.status} style={{position:'absolute',left,width,top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',padding:'0 6px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:'pointer'}}>{width>70?label:''}</div>)}
+                      ?<div onClick={openIt} title={label+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
+                      :<div onClick={openIt} title={label+' · '+r.t.status} style={{position:'absolute',left,width,top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',padding:'0 6px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:'pointer'}}><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>)}
                   </div>
                 </div>
               );
@@ -7059,12 +7116,25 @@ const deadlineInfo=deadline=>{
 };
 const fmtShort=d=>{if(!d)return'';const dt=new Date(d+'T12:00:00');return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});};
 
-const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,onSyncAdd,onSyncDelete})=>{
+const GT_WEEK_KEY='projectTimelineWeek';
+const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,onSyncAdd,onSyncDelete,projectId})=>{
   const today=useMemo(()=>todayISO(),[]);
   const [selectedId,setSelectedId]=useState(null);
   const [editDraft,setEditDraft]=useState(null);
   const [newTaskName,setNewTaskName]=useState('');
-  const [thisWeek,setThisWeek]=useState(true);
+  // Remembers whether this project's timeline was left on "Esta semana" so
+  // reopening the project restores the same view instead of always
+  // defaulting to the week filter.
+  const [thisWeek,setThisWeek]=useState(()=>{
+    if(projectId==null)return true;
+    const saved=bhUiLoad(GT_WEEK_KEY)[String(projectId)];
+    return saved===undefined?true:!!saved;
+  });
+  const toggleThisWeek=()=>setThisWeek(v=>{
+    const n=!v;
+    if(projectId!=null)bhUiSave(GT_WEEK_KEY,{[String(projectId)]:n});
+    return n;
+  });
   const [expanded,setExpanded]=useState(false);
   const scrollRef=useRef(null);
   const dragRef=useRef(null);
@@ -7072,13 +7142,13 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const dragRowRef=useRef(null);
   const dragOverRowRef=useRef(null);
 
-  // Compute this week Mon-Sun
+  // Compute this week Sunday-Saturday (Brazilian calendar convention).
   const getWeekBounds=()=>{
     const d=new Date(today+'T12:00:00');
-    const day=d.getDay(); // 0=Sun
-    const mon=new Date(d);mon.setDate(d.getDate()-(day===0?6:day-1));
-    const sun=new Date(mon);sun.setDate(mon.getDate()+6);
-    return{start:localDateISO(mon),end:localDateISO(sun)};
+    const day=d.getDay(); // 0=Sun...6=Sat
+    const sun=new Date(d);sun.setDate(d.getDate()-day);
+    const sat=new Date(sun);sat.setDate(sun.getDate()+6);
+    return{start:localDateISO(sun),end:localDateISO(sat)};
   };
 
   // - Compute chart bounds -
@@ -7101,7 +7171,9 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         return s<=chartEnd&&e>=chartStart;
       })
     : tasks;
-  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
+  // Inclusive: Sunday..Saturday is 7 columns. The old value (6) left the last day
+  // outside the grid and the month bands one day short.
+  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd)+1);
   const DAY_W=36;
   const ROW_H=38;
   const HEADER_H=44;
@@ -7115,27 +7187,25 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const mStart=localDateISO(cur);
     const label=cur.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',' ');
     const next=new Date(cur.getFullYear(),cur.getMonth()+1,1);
-    const mEnd=next>endDt?chartEnd:localDateISO(next);
-    months.push({label,days:daysBetween(mStart,mEnd)});
+    const lastMonth=next>endDt;
+    const mDays=lastMonth?daysBetween(mStart,chartEnd)+1:daysBetween(mStart,localDateISO(next));
+    // Narrow band (a week that straddles two months): drop the year so the
+    // label never wraps or gets cut.
+    const shortLabel=cur.toLocaleDateString('pt-BR',{month:'short'}).replace('.','');
+    months.push({label:mDays*DAY_W<100?shortLabel:label,days:mDays});
     cur=next;
-  }
-
-  const weekMarkers=[];
-  for(let i=0;i<=totalDays;i+=7){
-    const d=addDays(chartStart,i);
-    const dt=new Date(d+'T12:00:00');
-    weekMarkers.push({offset:i*DAY_W,label:dt.getDate()+'/'+(dt.getMonth()+1)});
   }
 
   // Weekend columns (Sat=6, Sun=0)
   const weekendCols=[];
-  for(let i=0;i<=totalDays;i++){
+  for(let i=0;i<totalDays;i++){
     const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
     const dow=dt.getDay();
     if(dow===0||dow===6)weekendCols.push(i);
   }
 
-  const todayOffset=daysBetween(chartStart,today)*DAY_W;
+  const todayIdx=daysBetween(chartStart,today);
+  const todayOffset=todayIdx*DAY_W;
   const gridW=totalDays*DAY_W;
 
   // - Bar geometry -
@@ -7145,10 +7215,27 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     // Clip to the visible window on BOTH ends. Only the start was clipped, so
     // in "Esta semana" a task running past Sunday was drawn beyond the grid.
     // A clipped end hides its resize grip: that edge is not the real date.
+    //
+    // Whether an edge counts as "clipped" (and its grip hidden) is decided
+    // using only dates the task or project actually set. A task with no
+    // due date fell back to "today + 7 days", which in the narrower "Esta
+    // semana" window is almost always past the visible Saturday — so every
+    // undated task looked clipped and its right handle silently vanished,
+    // even though there was no real date being cut off. The bar is still
+    // drawn clamped to the visible window either way; only the grip
+    // visibility now depends on a real date.
+    const hasStart=!!t.startDate||!!projectStart;
+    const hasEnd=!!t.dueDate||!!projectEnd;
     const visStart=s<chartStart?chartStart:s,visEnd=e>chartEnd?chartEnd:e;
     const left=Math.max(0,daysBetween(chartStart,s))*DAY_W;
     const width=Math.max(DAY_W,(daysBetween(visStart,visEnd)+1)*DAY_W);
-    return{left,width,clipStart:s<chartStart,clipEnd:e>chartEnd};
+    // The grip is hidden only when a *real* start/due date is the one being
+    // cut off. A task with no explicit date used a fallback (today, or
+    // today+7) that isn't a date the person actually set — in "Esta semana"
+    // that fallback almost always falls outside the visible week, which
+    // previously hid the grip on every undated task even though nothing
+    // real was being clipped.
+    return{left,width,clipStart:hasStart&&s<chartStart,clipEnd:hasEnd&&e>chartEnd};
   };
 
   // - Drag -
@@ -7230,7 +7317,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--surface)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span className="label label-section"><StaveGlyph name="clef"/>Timeline do Projeto</span>
-          <button onClick={()=>setThisWeek(w=>!w)} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+          <button onClick={toggleThisWeek} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
             <Icon name="calendar" size={10}/> Esta semana
           </button>
         </div>
@@ -7292,7 +7379,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             {/* Month row */}
             <div style={{height:HEADER_H/2,display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg)'}}>
               {months.map((m,i)=>(
-                <div key={i} style={{width:m.days*DAY_W,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 10px',
+                <div key={i} style={{width:m.days*DAY_W,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 8px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',
                   fontSize:'.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)'}}>
                   {m.label}
                 </div>
@@ -7300,17 +7387,17 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             </div>
             {/* Week sub-header */}
             <div style={{height:HEADER_H/2,background:'var(--bg)',borderBottom:'2px solid var(--border)',position:'relative'}}>
-              {weekMarkers.map((mk,i)=>(
-                <div key={i} style={{position:'absolute',left:mk.offset,height:'100%',display:'flex',alignItems:'center',paddingLeft:5,
-                  fontSize:'.62rem',color:'var(--muted)',borderLeft:'1px solid var(--border)'}}>
-                  {mk.label}
-                </div>
-              ))}
-              {weekendCols.map(d=>{
-                const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+d);
-                const lbl=dt.getDay()===0?'Dom':'Sáb';
-                return <div key={'wl'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
-                  fontSize:'.62rem',fontWeight:700,color:'var(--muted)',pointerEvents:'none',letterSpacing:'.03em'}}>{lbl}</div>;
+              {Array.from({length:totalDays},(_,i)=>{
+                const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
+                const dow=dt.getDay(),isWknd=dow===0||dow===6,isToday=i===todayIdx;
+                // One label per day: weekdays show the date, weekends the day
+                // name. Nothing else is drawn in this row, so labels cannot overlap.
+                return <div key={'dl'+i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
+                  borderLeft:dow===0?'1px solid var(--border)':'none',boxSizing:'border-box',pointerEvents:'none'}}>
+                  <span style={{fontSize:'.62rem',fontWeight:isWknd||isToday?700:400,letterSpacing:isWknd?'.03em':0,
+                    color:isToday?'#fff':'var(--muted)',background:isToday?'var(--danger-strong)':'transparent',
+                    borderRadius:9,padding:isToday?'1px 6px':0,lineHeight:1.3}}>{isWknd&&!isToday?(dow===0?'Dom':'Sáb'):dt.getDate()}</span>
+                </div>;
               })}
             </div>
 
@@ -7354,12 +7441,9 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
               );
             })}
 
-            {/* Today line */}
-            {todayOffset>=0&&todayOffset<=gridW&&(
-              <div style={{position:'absolute',left:todayOffset,top:0,bottom:0,width:2,background:'var(--danger-strong)',pointerEvents:'none',zIndex:10}}>
-                <div style={{position:'absolute',top:HEADER_H-18,left:'50%',transform:'translateX(-50%)',background:'color-mix(in srgb,var(--danger-strong) 88%,black)',color:'white',
-                  fontSize:'.62rem',fontWeight:800,padding:'2px 5px',borderRadius:3,whiteSpace:'nowrap',letterSpacing:'.06em'}}>HOJE</div>
-              </div>
+            {/* Today line — centred on today's column; the date pill is in the header */}
+            {todayIdx>=0&&todayIdx<totalDays&&(
+              <div style={{position:'absolute',left:todayOffset+DAY_W/2-1,top:HEADER_H,bottom:0,width:2,background:'var(--danger-strong)',opacity:.85,pointerEvents:'none',zIndex:10}}/>
             )}
           </div>
         </div>
@@ -8000,6 +8084,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 onSyncDelete={archiveTask}
                 projectStart={local.startDate}
                 projectEnd={local.deadline}
+                projectId={local.id}
               />
             </div>
           </div>,
@@ -8038,6 +8123,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}}
           onSyncAdd={addTimelineTaskCard}
           onSyncDelete={archiveTask}
+          projectId={local.id}
         />
         </>
       )}
