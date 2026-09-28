@@ -597,7 +597,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-panel-footer{grid-area:footer;display:grid;grid-template-columns:minmax(145px,1fr) minmax(130px,.8fr) auto;align-items:center;gap:18px;padding:11px 20px;border-top:1px solid var(--border);background:rgba(var(--ink),.018)}
 .rank-panel-metric{display:flex;flex-direction:column;gap:1px;min-width:0}.rank-panel-metric>span{font-size:.58rem;font-weight:700;letter-spacing:.075em;text-transform:uppercase;color:var(--muted)}.rank-panel-metric>strong{font:600 1rem 'Cormorant Garamond',serif;color:var(--text)}
 .rank-panel-metric>i{display:block;width:100%;height:3px;margin-top:3px;border-radius:9px;background:rgba(var(--ink),.1);overflow:hidden}.rank-panel-metric>i b{display:block;height:100%;border-radius:inherit;background:#3694a7}
-.rank-panel-actions{display:flex;gap:6px}.rank-panel-actions .btn{padding:5px 9px;font-size:.68rem;white-space:nowrap}
+.rank-panel-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;min-width:0}.rank-panel-actions .btn{padding:5px 9px;font-size:.68rem;white-space:nowrap}
+.rank-panel-footer>*{min-width:0}.rank-panel-metric>span,.rank-panel-metric>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .pomo-deferred-pill{display:inline-flex;align-items:center;gap:6px;margin:0 0 8px;padding:5px 11px;border-radius:20px;border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-fg);font:600 .72rem "Alegreya Sans",sans-serif;cursor:pointer}.pomo-deferred-pill:hover{border-color:var(--warn-strong)}
 .rank-history-list{display:flex;flex-direction:column;gap:7px;max-height:55vh;overflow:auto;padding-right:2px}.rank-history-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}.rank-history-row>div:not(.rank-session-date){display:flex;flex-direction:column;min-width:0}.rank-history-row strong{font-size:.82rem;color:var(--text)}.rank-history-row span{font-size:.7rem;color:var(--muted)}.rank-history-row>em{font-size:.7rem;font-style:normal;color:var(--muted);white-space:nowrap}.rank-history-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:32px;color:var(--muted);font-size:.82rem;text-align:center}
 .rank-guide{max-height:68vh;overflow:auto;padding-right:3px}.rank-guide-intro{margin:0 0 13px;color:var(--muted);font-size:.78rem;line-height:1.45}.rank-guide-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.rank-guide-card{display:flex;min-width:0;flex-direction:column;align-items:center;padding:10px 5px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);text-align:center}.rank-guide-card strong{margin-top:2px;font-size:.72rem;line-height:1.1}.rank-guide-card span{margin-top:2px;color:var(--muted);font-size:.58rem}.rank-guide-rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.rank-guide-rule{padding:11px 12px;border:1px solid var(--border);border-radius:10px}.rank-guide-rule h3{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:.72rem}.rank-guide-rule p{margin:0;color:var(--muted);font-size:.68rem;line-height:1.4}.rank-decay-table{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:7px}.rank-decay-table span{display:flex;flex-direction:column;align-items:center;padding:5px 2px;border-radius:6px;background:var(--bg);font-size:.56rem;color:var(--muted)}.rank-decay-table strong{font-size:.62rem;color:var(--text)}
@@ -644,7 +645,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .dashboard-header{margin-bottom:3px!important;padding-top:7px}
   .dashboard-header h1{font-size:1.62rem!important;line-height:1.14!important;margin-bottom:0!important;overflow:visible}
   .dashboard-header p{font-size:.68rem!important;line-height:1.15}
-  .rank-profile-panel{grid-template-columns:136px 1fr;min-height:126px!important;height:126px;margin-bottom:5px}
+  .rank-profile-panel{grid-template-columns:136px 1fr;min-height:126px!important;height:auto!important;margin-bottom:5px}
   .rank-panel-emblem{padding:6px}
   .rank-panel-emblem .rank-badge{width:110px!important;height:110px!important}
   .rank-panel-main{padding:6px 12px 4px}
@@ -689,7 +690,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @media(min-width:1600px) and (min-height:900px) and (max-width:2559px){
   .dashboard-shell{max-width:1320px!important;height:100%!important;overflow:hidden!important}
   .dashboard-header{margin-bottom:14px!important}.dashboard-header h1{font-size:2.65rem!important}
-  .rank-profile-panel{grid-template-columns:210px 1fr;min-height:190px!important;height:190px}
+  .rank-profile-panel{grid-template-columns:210px 1fr;min-height:190px!important;height:auto!important}
   .rank-panel-emblem .rank-badge{width:168px!important;height:168px!important}
   .dashboard-main-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)!important;gap:18px!important}
   .dashboard-activity-pane{flex-basis:clamp(250px,29vh,320px)!important;height:clamp(250px,29vh,320px)!important;min-height:250px!important}
@@ -699,7 +700,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @media(min-width:2560px) and (min-height:1400px){
   .dashboard-shell{max-width:1760px!important;height:100%!important;overflow:hidden!important}
   .dashboard-header{margin-bottom:18px!important}.dashboard-header h1{font-size:3.15rem!important}.dashboard-header p{font-size:1rem!important}
-  .rank-profile-panel{grid-template-columns:260px 1fr;min-height:230px!important;height:230px}
+  .rank-profile-panel{grid-template-columns:260px 1fr;min-height:230px!important;height:auto!important}
   .rank-panel-emblem .rank-badge{width:204px!important;height:204px!important}
   .rank-panel-main{padding:24px 30px 18px}.rank-panel-footer{padding:16px 30px}.rank-panel-title span{font-size:2.65rem}.rank-panel-title strong{font-size:1.65rem}
   .dashboard-main-grid{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr)!important;gap:24px!important}
@@ -6684,8 +6685,10 @@ const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Ca
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
 const ProjectsTimeline=({projects,onOpen,isMobile})=>{
-  const DAY_W=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
+  const DAY_BASE=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
   const today=localDateISO();
+  const cardRef=useRef(null);const [cardW,setCardW]=useState(0);
+  useEffect(()=>{const el=cardRef.current;if(!el)return;const upd=()=>setCardW(el.clientWidth);upd();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',upd);return()=>window.removeEventListener('resize',upd);}const ro=new ResizeObserver(upd);ro.observe(el);return()=>ro.disconnect();},[]);
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
@@ -6721,6 +6724,11 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     if(!thisWeek)return rows;
     return rows.filter(r=>!r.s||!r.e||(r.s<=weekBounds.end&&r.e>=weekBounds.start));
   },[rows,thisWeek,weekBounds]);
+  // "Esta semana": the 7 day columns are stretched to fill the whole width
+  // next to the label column (minus room for the vertical scrollbar), so
+  // nothing needs horizontal scrolling.
+  const needsV=HEADER_H+visibleRows.length*ROW_H>320;
+  const DAY_W=thisWeek&&cardW>0?Math.max(14,Math.floor(((cardW-LEFT_W-(needsV?16:0))/7)*100)/100):DAY_BASE;
   let start=today,end=today;
   if(thisWeek){
     start=weekBounds.start;end=weekBounds.end;
@@ -6744,10 +6752,10 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
   if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
   const scrollRef=useRef(null);
   // Open on today rather than on the earliest date in the data.
-  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);},[open,start]);
+  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:Math.max(0,x(today)-3*DAY_W);},[open,start,thisWeek]);
   const bodyH=visibleRows.length*ROW_H;
   return(
-    <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
+    <div ref={cardRef} className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
       <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
         <span className="label label-section" style={{margin:0}}><StaveGlyph name="half"/>Timeline</span>
         <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
@@ -6781,7 +6789,9 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
             </div>
             {visibleRows.map(r=>{
               const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
-              const left=r.s?x(r.s):null,width=r.s?(daysBetween(r.s,r.e)+1)*DAY_W:0;
+              // Clip to the visible window so bars of tasks running past the week never spill out of the grid.
+              const cs=r.s&&r.s<start?start:r.s,ce=r.e&&r.e>end?end:r.e;
+              const left=r.s?x(cs):null,width=r.s?Math.max(1,daysBetween(cs,ce)+1)*DAY_W:0;
               // Tasks created without a name previously rendered as a blank
               // box: the label was hidden below width>70 with no fallback,
               // and the pill itself had no title to fall back to in the
@@ -7113,6 +7123,8 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   });
   const [expanded,setExpanded]=useState(false);
   const scrollRef=useRef(null);
+  const [chartW,setChartW]=useState(0);
+  useEffect(()=>{const el=scrollRef.current;if(!el)return;const upd=()=>setChartW(el.clientWidth);upd();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',upd);return()=>window.removeEventListener('resize',upd);}const ro=new ResizeObserver(upd);ro.observe(el);return()=>ro.disconnect();},[]);
   const dragRef=useRef(null);
   const dragJustMovedRef=useRef(false);
   const dragRowRef=useRef(null);
@@ -7147,8 +7159,10 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         return s<=chartEnd&&e>=chartStart;
       })
     : tasks;
-  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
-  const DAY_W=36;
+  // Inclusive of the last day: Sunday..Saturday is 7 columns, not 6.
+  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd)+1);
+  // "Esta semana": stretch the 7 columns to fill the whole chart area.
+  const DAY_W=thisWeek&&chartW>0?Math.max(16,Math.floor((chartW/7)*100)/100):36;
   const ROW_H=38;
   const HEADER_H=44;
   const LEFT_W=200;
@@ -7161,13 +7175,13 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const mStart=localDateISO(cur);
     const label=cur.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',' ');
     const next=new Date(cur.getFullYear(),cur.getMonth()+1,1);
-    const mEnd=next>endDt?chartEnd:localDateISO(next);
+    const mEnd=next>endDt?addDays(chartEnd,1):localDateISO(next);
     months.push({label,days:daysBetween(mStart,mEnd)});
     cur=next;
   }
 
   const weekMarkers=[];
-  for(let i=0;i<=totalDays;i+=7){
+  for(let i=0;i<totalDays;i+=7){
     const d=addDays(chartStart,i);
     const dt=new Date(d+'T12:00:00');
     weekMarkers.push({offset:i*DAY_W,label:dt.getDate()+'/'+(dt.getMonth()+1)});
@@ -7175,7 +7189,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
 
   // Weekend columns (Sat=6, Sun=0)
   const weekendCols=[];
-  for(let i=0;i<=totalDays;i++){
+  for(let i=0;i<totalDays;i++){
     const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
     const dow=dt.getDay();
     if(dow===0||dow===6)weekendCols.push(i);
@@ -7203,8 +7217,8 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const hasStart=!!t.startDate||!!projectStart;
     const hasEnd=!!t.dueDate||!!projectEnd;
     const visStart=s<chartStart?chartStart:s,visEnd=e>chartEnd?chartEnd:e;
-    const left=Math.max(0,daysBetween(chartStart,s))*DAY_W;
-    const width=Math.max(DAY_W,(daysBetween(visStart,visEnd)+1)*DAY_W);
+    const width=Math.min(gridW,Math.max(DAY_W,(daysBetween(visStart,visEnd)+1)*DAY_W));
+    const left=Math.min(Math.max(0,daysBetween(chartStart,s))*DAY_W,Math.max(0,gridW-width));
     // The grip is hidden only when a *real* start/due date is the one being
     // cut off. A task with no explicit date used a fallback (today, or
     // today+7) that isn't a date the person actually set — in "Esta semana"
@@ -7283,6 +7297,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   useEffect(()=>{
     const el=scrollRef.current;
     if(!el)return;
+    if(thisWeek){el.scrollLeft=0;return;}
     const targetX=todayOffset-(el.clientWidth/2);
     el.scrollLeft=Math.max(0,targetX);
   },[todayOffset,thisWeek,expanded]);
@@ -7390,7 +7405,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
               return(
                 <div key={t.id} style={{height:ROW_H,position:'relative',borderBottom:'1px solid var(--border)',background:i%2===0?'transparent':'rgba(var(--ink),.02)'}}>
                   {/* Day-by-day grid lines — subtle for each day, stronger at week boundaries */}
-                  {Array.from({length:totalDays+1},(_,d)=>(
+                  {Array.from({length:totalDays},(_,d)=>(
                     <div key={'d'+d} style={{position:'absolute',left:d*DAY_W,top:0,bottom:0,borderLeft:d%7===0?'1px dashed var(--border)':'1px solid var(--border)',opacity:d%7===0?.55:.15,pointerEvents:'none'}}/>
                   ))}
                   {/* Bar */}
