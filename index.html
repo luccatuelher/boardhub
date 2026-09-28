@@ -606,6 +606,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-panel-footer>*{min-width:0}.rank-panel-metric>span,.rank-panel-metric>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .rank-history-list{display:flex;flex-direction:column;gap:7px;max-height:55vh;overflow:auto;padding-right:2px}.rank-history-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}.rank-history-row>div:not(.rank-session-date){display:flex;flex-direction:column;min-width:0}.rank-history-row strong{font-size:.82rem;color:var(--text)}.rank-history-row span{font-size:.7rem;color:var(--muted)}.rank-history-row>em{font-size:.7rem;font-style:normal;color:var(--muted);white-space:nowrap}.rank-history-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:32px;color:var(--muted);font-size:.82rem;text-align:center}
 .rank-guide{max-height:68vh;overflow:auto;padding-right:3px}.rank-guide-intro{margin:0 0 13px;color:var(--muted);font-size:.78rem;line-height:1.45}.rank-guide-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.rank-guide-card{display:flex;min-width:0;flex-direction:column;align-items:center;padding:10px 5px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);text-align:center}.rank-guide-card strong{margin-top:2px;font-size:.72rem;line-height:1.1}.rank-guide-card span{margin-top:2px;color:var(--muted);font-size:.58rem}.rank-guide-rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.rank-guide-rule{padding:11px 12px;border:1px solid var(--border);border-radius:10px}.rank-guide-rule h3{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:.72rem}.rank-guide-rule p{margin:0;color:var(--muted);font-size:.68rem;line-height:1.4}.rank-decay-table{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:7px}.rank-decay-table span{display:flex;flex-direction:column;align-items:center;padding:5px 2px;border-radius:6px;background:var(--bg);font-size:.56rem;color:var(--muted)}.rank-decay-table strong{font-size:.62rem;color:var(--text)}
+.task-filter{display:flex;gap:3px;margin:0 0 6px;flex-shrink:0}.task-filter button{border:1px solid var(--border);background:transparent;border-radius:20px;padding:1px 8px;font:500 .68rem 'Alegreya Sans',sans-serif;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:4px}.task-filter button span{opacity:.7;font-size:.62rem}.task-filter button.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+.focus-hist-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:-4px 0 14px}.focus-hist-tabs button{flex:1;padding:9px 0;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;cursor:pointer;font:500 .82rem 'Alegreya Sans',sans-serif;color:var(--muted)}.focus-hist-tabs button.on{color:var(--text);border-bottom-color:var(--text)}
 .rank-session-row{grid-template-columns:48px 46px 1fr auto}.rank-session-row.is-linked{cursor:pointer;transition:border-color .15s,transform .15s,background .15s}.rank-session-row.is-linked:hover{border-color:color-mix(in srgb,var(--text) 32%,var(--border));background:var(--surface);transform:translateY(-1px)}.rank-session-thumb{width:46px;height:34px;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--border)}.rank-session-thumb img,.rank-session-thumb video{width:100%;height:100%;display:block;object-fit:cover}.rank-session-date{display:flex;flex-direction:column;border-right:1px solid var(--border)}.rank-session-date strong{font-variant-numeric:tabular-nums}.rank-session-status{padding:3px 7px;border-radius:20px;font-weight:700;white-space:nowrap}.rank-session-status.saved{color:var(--ok-fg);background:var(--ok-bg)}.rank-session-status.local{color:#28667a;background:#e5f4f7}.rank-session-status.pending{color:#9a5c18;background:#fff3dc}.rank-session-status.abandoned,.rank-session-status.deleted{color:var(--danger-fg);background:var(--danger-bg)}.rank-session-groups{display:flex;flex-direction:column;gap:15px;max-height:55vh;overflow:auto;padding-right:3px}.rank-session-group{display:flex;flex-direction:column;gap:6px}.rank-session-day{display:flex;align-items:center;gap:9px;color:var(--muted);font:700 .68rem Alegreya Sans,sans-serif;letter-spacing:.09em;text-transform:uppercase}.rank-session-day:after{content:'';height:1px;flex:1;background:var(--border)}.rank-session-pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.rank-session-pagination span{min-width:88px;text-align:center;color:var(--muted);font:600 .72rem Alegreya Sans,sans-serif}.rank-session-pagination .btn{padding:5px 9px}
 .session-capture-overlay{position:fixed;z-index:110000;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,12,15,.78);backdrop-filter:blur(9px);animation:rankOverlayIn .25s ease both}
 .session-capture-modal{width:min(640px,100%);max-height:92vh;overflow:auto;padding:24px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:var(--surface);box-shadow:0 30px 90px rgba(0,0,0,.42);outline:none;box-sizing:border-box}
@@ -5254,7 +5256,8 @@ const RankSeasonHistory=({rank,onClose})=>{
 // clicking it opens the registration. 'deferred' is the older "Registrar
 // depois" status and reads the same way.
 const bhSessionUnregistered=row=>!!row&&(row.status==='skipped'||row.status==='deferred');
-const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[],projects=[],showPoints=true})=>{
+const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[],projects=[],showPoints=true,pomoData=null,todayExtraSecs=0})=>{
+  const [histTab,setHistTab]=useState('sessions');
   const rows=[...(rank.sessions||[])].sort((a,b)=>String(b.endedAt||'').localeCompare(String(a.endedAt||'')));
   const [page,setPage]=useState(0);
   const daysPerPage=5;
@@ -5276,7 +5279,11 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
   const visibleGroups=dayGroups.slice(page*daysPerPage,(page+1)*daysPerPage);
   const statusInfo=(row,post,taskNote)=>row.taskNoteId?(taskNote?{cls:'saved',label:'Na tarefa'}:{cls:'deleted',label:'Nota apagada'}):((row.projectPostId||row.galleryPostId)&&!post)?{cls:'deleted',label:'Post apagado'}:row.status==='abandoned'?{cls:'abandoned',label:'Desistida'}:bhSessionUnregistered(row)?null:row.postDestination==='project'?{cls:'saved',label:'No projeto'}:row.status==='saved-local'?{cls:'local',label:'Neste dispositivo'}:row.status==='saved'?{cls:'saved',label:'Na galeria'}:{cls:'pending',label:'Imagem pendente'};
   return <Modal title="Histórico de sessões" onClose={onClose} width={680}>
-    {rows.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
+    {pomoData&&<div className="focus-hist-tabs" role="tablist">
+      {[['sessions','Sessões'],['days','Por dia'],['months','Por mês']].map(([k,l])=><button key={k} type="button" role="tab" aria-selected={histTab===k} className={histTab===k?'on':''} onClick={()=>setHistTab(k)}>{l}</button>)}
+    </div>}
+    {pomoData&&histTab!=='sessions'?<FocusStatsBody pomoData={pomoData} todayExtraSecs={todayExtraSecs} tab={histTab}/>:
+    rows.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
       <>
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
           <div className="rank-session-day">{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</div>
@@ -5328,7 +5335,7 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
     </section>
     {historyView==='ranks'&&<RankGuide onClose={()=>setHistoryView(null)}/>} 
     {historyView==='seasons'&&<RankSeasonHistory rank={rank} onClose={()=>setHistoryView(null)}/>} 
-    {historyView==='sessions'&&<RankSessionHistory rank={rank} onClose={()=>setHistoryView(null)} onOpenPost={onOpenPost} onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects}/>} 
+    {historyView==='sessions'&&<RankSessionHistory rank={rank} onClose={()=>setHistoryView(null)} onOpenPost={onOpenPost} onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects} pomoData={pomoData}/>} 
   </>;
 };
 
@@ -5575,6 +5582,146 @@ window.addEventListener('pagehide',()=>{
   pomoTimerSave({isActive:false,mode:'focus',timeLeft:(saved.focusMins||30)*60,focusMins:saved.focusMins||30,targetKey:saved.targetKey||'none',sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:at,abandonedSession});
 });
 
+// Focus tiers, shared by the Pomodoro and the focus statistics (formerly
+// local to the Pomodoro).
+// M1 — the focus tiers became TEMPI. A video-game medal (star, bronze, silver,
+// trophy, diamond) does not go with an app set in Cormorant Garamond on warm
+// paper, and tempo is the right unit: it measures the rhythm of work, which is
+// exactly what the counter measures. The BPMs are the conventional ranges of
+// each marking — they serve as a real value for the optional metronome (M2),
+// they are not decoration.
+//
+// THE FLOORS DID NOT CHANGE (0/2/4/6/8h). Renaming is safe; touching a floor
+// would retroactively rewrite the tier of every day already recorded in the
+// history.
+const DAY_TIERS = [
+  {level:'adagio',   name:'Adagio',   bpm:TEMPO_BPM.adagio,   glyph:'♩', color:'var(--muted)',   floor:0},
+  {level:'andante',  name:'Andante',  bpm:TEMPO_BPM.andante,  glyph:'♩', color:'var(--tempo-1)', floor:2*3600},
+  {level:'moderato', name:'Moderato', bpm:TEMPO_BPM.moderato, glyph:'♪', color:'var(--tempo-2)', floor:4*3600},
+  {level:'allegro',  name:'Allegro',  bpm:TEMPO_BPM.allegro,  glyph:'♪', color:'var(--tempo-3)', floor:6*3600},
+  {level:'vivace',   name:'Vivace',   bpm:TEMPO_BPM.vivace,   glyph:'♫', color:'var(--tempo-4)', floor:8*3600},
+];
+// Adagio is the base tier, not an achievement — the UI treats it as the old 'none'.
+const isBaseTempo = t => t.level === 'adagio';
+const getStarLevel = s => { for(let i=DAY_TIERS.length-1;i>=0;i--) if(s>=DAY_TIERS[i].floor) return DAY_TIERS[i]; return DAY_TIERS[0]; };
+// M1 — the month uses DYNAMICS, not tempo. Repeating Adagio…Vivace on both
+// scales would confuse the readings: the day measures RHYTHM (how fast you went
+// today), the month measures VOLUME (how much you accumulated). Dynamics is the
+// right Italian word for volume, and the engraving convention already calls for
+// writing it in italic serif — which is what Cormorant does well.
+// The floors remain untouched (0/40/80/120/160h): a pure rename.
+const MONTH_TIERS = [
+  {level:'pianissimo',name:'Pianissimo',mark:'pp', color:'var(--muted)',   floor:0},
+  {level:'piano',     name:'Piano',     mark:'p',  color:'var(--tempo-1)', floor:40*3600},
+  {level:'mezzoforte',name:'Mezzo-forte',mark:'mf',color:'var(--tempo-2)', floor:80*3600},
+  {level:'forte',     name:'Forte',     mark:'f',  color:'var(--tempo-3)', floor:120*3600},
+  {level:'fortissimo',name:'Fortissimo',mark:'ff', color:'var(--tempo-4)', floor:160*3600},
+];
+const isBaseDynamic = t => t.level === 'pianissimo';
+const getMonthMedal = s => { for(let i=MONTH_TIERS.length-1;i>=0;i--) if(s>=MONTH_TIERS[i].floor) return MONTH_TIERS[i]; return MONTH_TIERS[0]; };
+
+// FOCUS STATISTICS — today / tempo / total, then per day and per month. It
+// was the Pomodoro's own "Histórico de foco" dialog; it now lives as tabs of
+// the session history, so there is one history button.
+const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
+  const todayDisplay=(Number((pomoData?.days||{})[localDateISO()])||0)+Math.max(0,Number(todayExtraSecs)||0);
+  const currentStar=getStarLevel(todayDisplay);
+  const dayEntries=useMemo(()=>{
+    const filtered=Object.entries(pomoData?.days||{}).filter(e=>e[0]!=='_total'&&e[0].length===10&&e[1]>0);
+    filtered.sort((a,b)=>b[0].localeCompare(a[0]));
+    return filtered.slice(0,60);
+  },[pomoData?.days]);
+  const monthEntries=useMemo(()=>{
+    const months={};
+    for(const[day,s] of Object.entries(pomoData?.days||{})){
+      if(day==='_total'||day.length!==10)continue;
+      const mk=day.slice(0,7);months[mk]=(months[mk]||0)+s;
+    }
+    const result=Object.entries(months);result.sort((a,b)=>b[0].localeCompare(a[0]));return result;
+  },[pomoData?.days]);
+  const statsTab=tab;
+  const maxDay=dayEntries.reduce((m,e)=>Math.max(m,e[1]),1);
+  const totalAll=dayEntries.reduce((sum,e)=>sum+e[1],0);
+  return(<div style={{display:'flex',flexDirection:'column',minHeight:0}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+              <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
+                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Hoje</div>
+                <div style={{fontSize:'1.2rem',fontWeight:600,fontFamily:'Cormorant Garamond,serif'}}>{pomoFmtSecs(todayDisplay)}</div>
+              </div>
+              <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
+                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Andamento</div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+                  <span style={{fontSize:'1.15rem',lineHeight:1,color:isBaseTempo(currentStar)?'var(--muted)':currentStar.color}}>{currentStar.glyph}</span>
+                  <span className="serif" style={{fontStyle:'italic',fontSize:'1.2rem',fontWeight:500,lineHeight:1,color:isBaseTempo(currentStar)?'var(--muted)':currentStar.color}}>{currentStar.name}</span>
+                </div>
+              </div>
+              <div style={{padding:'14px 20px',textAlign:'center'}}>
+                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Total</div>
+                <div style={{fontSize:'1.2rem',fontWeight:600,fontFamily:'Cormorant Garamond,serif'}}>{pomoFmtSecs(totalAll)}</div>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'16px 24px'}}>
+              {statsTab==='days'&&(dayEntries.length===0
+                ?<p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',padding:'32px 0',margin:0}}>Nenhuma sessao registrada.</p>
+                :<div style={{display:'flex',flexDirection:'column',gap:12}}>
+                  {dayEntries.map(([day,s])=>{
+                    const dayStar = getStarLevel(s);
+                    return(
+                    <div key={day}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,alignItems:'center'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{fontSize:'.82rem',fontWeight:500}}>{pomoFmtDay(day)}</span>
+                          {!isBaseTempo(dayStar) && (
+                            <span className="serif" style={{fontStyle:'italic',fontSize:'.85rem',lineHeight:1,color:dayStar.color}} title={`${dayStar.name} · ${dayStar.bpm} BPM`}>{dayStar.glyph} {dayStar.name}</span>
+                          )}
+                        </div>
+                        <span style={{fontSize:'.82rem',fontWeight:600}}>{pomoFmtSecs(s)}</span>
+                      </div>
+                      <div style={{height:5,background:'var(--bg)',borderRadius:3,overflow:'hidden'}}>
+                        <div style={{height:'100%',width:Math.round(s/maxDay*100)+'%',background:isBaseTempo(dayStar) ? 'var(--text)' : dayStar.color,borderRadius:3}}/>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              )}
+              {statsTab==='months'&&(monthEntries.length===0
+                ?<p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',padding:'32px 0',margin:0}}>Nenhuma sessao registrada.</p>
+                :<div style={{display:'flex',flexDirection:'column',gap:16}}>
+                  {monthEntries.map(([mk,s])=>{
+                    const daysInMonth=dayEntries.filter(e=>e[0].slice(0,7)===mk);
+                    const mMedal=getMonthMedal(s);
+                    const mNext=MONTH_TIERS.find(t=>t.floor>mMedal.floor)||null;
+                    const mPct=mNext?Math.min(100,((s-mMedal.floor)/(mNext.floor-mMedal.floor))*100):100;
+                    return(
+                      <div key={mk}>
+                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,alignItems:'center'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6}}>
+                            <span style={{fontSize:'.85rem',fontWeight:600,textTransform:'capitalize'}}>{pomoFmtMonth(mk)}</span>
+                            <span title={mMedal.name} className="serif" style={{fontStyle:'italic',fontWeight:600,fontSize:'1.05rem',lineHeight:1,color:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color}}>{mMedal.mark}</span>
+                          </div>
+                          <span style={{fontSize:'.85rem',fontWeight:700}}>{pomoFmtSecs(s)}</span>
+                        </div>
+                        <div style={{height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden',marginBottom:2}}>
+                          <div style={{height:'100%',width:mPct+'%',background:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color,borderRadius:3,transition:'width .3s'}}/>
+                        </div>
+                        {mNext&&<div style={{fontSize:'.62rem',color:'var(--muted)',marginBottom:6,textAlign:'right'}}>{Math.round(mPct)}% → <span className="serif" style={{fontStyle:'italic',fontSize:'.76rem'}}>{mNext.name}</span></div>}
+                        <div style={{paddingLeft:8}}>
+                          {daysInMonth.map(([d,ds])=>(
+                            <div key={d} style={{display:'flex',justifyContent:'space-between',padding:'2px 0'}}>
+                              <span style={{fontSize:'.74rem',color:'var(--muted)'}}>{pomoFmtDay(d)}</span>
+                              <span style={{fontSize:'.74rem',color:'var(--muted)'}}>{pomoFmtSecs(ds)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+  </div>);
+};
+
 const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], onSessionComplete, onResumeSession, onOpenPost, galleryPosts=[] }) => {
   const BREAK_SECS = 5 * 60;
   const MAX_FOCUS_MINS = 60;
@@ -5607,7 +5754,6 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const [timeLeft, setTimeLeft]   = useState(_init.timeLeft);
   const [isActive, setIsActive]   = useState(_init.isActive);
   const [mode, setMode]           = useState(_init.mode);
-  const [showStats, setShowStats] = useState(false);
   // The session list lived only in the rank panel, which is hidden while
   // ranks are off; focus sessions are not a rank feature, so it opens from
   // here too. A session left unregistered ("Não registrar") is a choice, not a
@@ -6009,26 +6155,6 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const todaySecs = ((pomoData.days||{})[pomoTodayKey()])||0;
   const todayDisplay = todaySecs + displayUnsaved + pendingSecsRef.current;
 
-  // M1 — the focus tiers became TEMPI. A video-game medal (star, bronze, silver,
-  // trophy, diamond) does not go with an app set in Cormorant Garamond on warm
-  // paper, and tempo is the right unit: it measures the rhythm of work, which is
-  // exactly what the counter measures. The BPMs are the conventional ranges of
-  // each marking — they serve as a real value for the optional metronome (M2),
-  // they are not decoration.
-  //
-  // THE FLOORS DID NOT CHANGE (0/2/4/6/8h). Renaming is safe; touching a floor
-  // would retroactively rewrite the tier of every day already recorded in the
-  // history.
-  const DAY_TIERS = [
-    {level:'adagio',   name:'Adagio',   bpm:TEMPO_BPM.adagio,   glyph:'♩', color:'var(--muted)',   floor:0},
-    {level:'andante',  name:'Andante',  bpm:TEMPO_BPM.andante,  glyph:'♩', color:'var(--tempo-1)', floor:2*3600},
-    {level:'moderato', name:'Moderato', bpm:TEMPO_BPM.moderato, glyph:'♪', color:'var(--tempo-2)', floor:4*3600},
-    {level:'allegro',  name:'Allegro',  bpm:TEMPO_BPM.allegro,  glyph:'♪', color:'var(--tempo-3)', floor:6*3600},
-    {level:'vivace',   name:'Vivace',   bpm:TEMPO_BPM.vivace,   glyph:'♫', color:'var(--tempo-4)', floor:8*3600},
-  ];
-  // Adagio is the base tier, not an achievement — the UI treats it as the old 'none'.
-  const isBaseTempo = t => t.level === 'adagio';
-  const getStarLevel = s => { for(let i=DAY_TIERS.length-1;i>=0;i--) if(s>=DAY_TIERS[i].floor) return DAY_TIERS[i]; return DAY_TIERS[0]; };
   const currentStar = getStarLevel(todayDisplay);
   const prevStarLevelRef = React.useRef(currentStar.level);
   React.useEffect(()=>{
@@ -6057,64 +6183,30 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   // running session — worse for the user than the motion it removes.
   const pendulumOn = isActive;
 
-  // M1 — the month uses DYNAMICS, not tempo. Repeating Adagio…Vivace on both
-  // scales would confuse the readings: the day measures RHYTHM (how fast you went
-  // today), the month measures VOLUME (how much you accumulated). Dynamics is the
-  // right Italian word for volume, and the engraving convention already calls for
-  // writing it in italic serif — which is what Cormorant does well.
-  // The floors remain untouched (0/40/80/120/160h): a pure rename.
-  const MONTH_TIERS = [
-    {level:'pianissimo',name:'Pianissimo',mark:'pp', color:'var(--muted)',   floor:0},
-    {level:'piano',     name:'Piano',     mark:'p',  color:'var(--tempo-1)', floor:40*3600},
-    {level:'mezzoforte',name:'Mezzo-forte',mark:'mf',color:'var(--tempo-2)', floor:80*3600},
-    {level:'forte',     name:'Forte',     mark:'f',  color:'var(--tempo-3)', floor:120*3600},
-    {level:'fortissimo',name:'Fortissimo',mark:'ff', color:'var(--tempo-4)', floor:160*3600},
-  ];
-  const isBaseDynamic = t => t.level === 'pianissimo';
-  const getMonthMedal = s => { for(let i=MONTH_TIERS.length-1;i>=0;i--) if(s>=MONTH_TIERS[i].floor) return MONTH_TIERS[i]; return MONTH_TIERS[0]; };
-
-  const dayEntries = useMemo(()=>{
-    const entries=Object.entries(pomoData.days||{});
-    const filtered=entries.filter(e=>e[0]!=='_total'&&e[0].length===10&&e[1]>0);
-    filtered.sort((a,b)=>b[0].localeCompare(a[0]));
-    return filtered.slice(0,60);
-  },[pomoData]);
-  const monthEntries = useMemo(()=>{
-    const months={};
-    for(const[day,s] of Object.entries(pomoData.days||{})){
-      if(day==='_total'||day.length!==10)continue;
-      const mk=day.slice(0,7); months[mk]=(months[mk]||0)+s;
-    }
-    const result=Object.entries(months); result.sort((a,b)=>b[0].localeCompare(a[0])); return result;
-  },[pomoData]);
-
-  const [statsTab,setStatsTab]=useState('days');
-  const maxDay   = dayEntries.reduce((m,e)=>Math.max(m,e[1]),1);
-  const totalAll = dayEntries.reduce((sum,e)=>sum+e[1],0);
 
   return(
     <div style={{marginBottom:0}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:7}}>
         <span className="label label-section"><StaveGlyph name="quarter"/>Pomodoro</span>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:20,background:isFocus?'rgba(var(--ink),.06)':'var(--ok-bg)',color:isFocus?'var(--muted-chip)':'var(--ok-fg)',fontSize:'.7rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em'}}>
-            <Icon name={isFocus?'brain':'coffee'} size={11}/>
-            {isFocus?'Foco':'Pausa'}
-          </div>
           <button className="btn btn-ghost" onClick={()=>setShowCategories(true)} title="Gerenciar categorias de foco"
             style={{padding:'4px 8px',borderRadius:6,background:showCategories?'var(--text)':'transparent',color:showCategories?'var(--bg)':'var(--muted)'}}>
             <Icon name="folder" size={14}/>
           </button>
-          <button className="btn btn-ghost" onClick={()=>setShowStats(s=>!s)} title="Histórico de foco"
-            style={{padding:'4px 8px',borderRadius:6,background:showStats?'var(--text)':'transparent',color:showStats?'var(--bg)':'var(--muted)'}}>
-            <Icon name="timer" size={14}/>
-          </button>
+          {/* One history for focus: sessions + per-day/per-month totals. With
+              ranks on it lives in the rank panel ("Sessões"); with ranks off
+              that panel is hidden, so the button sits here instead. */}
+          {rankIsPaused(pomoData?.rank)&&<button className="btn btn-ghost" onClick={()=>setShowSessions(true)} title="Histórico de sessões"
+            style={{padding:'4px 8px',borderRadius:6,color:'var(--muted)',fontSize:'.74rem',gap:5}}>
+            <Icon name="list" size={14}/> Sessões
+          </button>}
         </div>
       </div>
       {showSessions&&<RankSessionHistory rank={rankNormalize(pomoData?.rank)} onClose={()=>setShowSessions(false)} onOpenPost={onOpenPost}
-        onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects} showPoints={!rankIsPaused(pomoData?.rank)}/>}
+        onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects} showPoints={!rankIsPaused(pomoData?.rank)}
+        pomoData={pomoData} todayExtraSecs={displayUnsaved+pendingSecsRef.current}/>}
 
-      {!showStats&&(
+      {(
         <div className="card" style={{padding:'8px 12px 8px 8px',display:'flex',alignItems:'center',gap:10}}>
           <div ref={circleRef} className="pomo-metronome"
             style={{position:'relative',flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
@@ -6371,101 +6463,6 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         </Modal>
       )}
 
-      {showStats && (
-        <DialogLayer onClose={()=>setShowStats(false)} label="Histórico de Foco"
-          style={{background:'var(--surface)',borderRadius:18,border:'1px solid var(--border)',width:'100%',maxWidth:440,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(28,25,23,.15)',overflow:'hidden',outline:'none'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'20px 24px',borderBottom:'1px solid var(--border)',flexShrink:0}}>
-              <h2 className="serif" style={{fontSize:'1.5rem',fontWeight:400,margin:0}}>Histórico de Foco</h2>
-              <div style={{display:'flex',alignItems:'center',gap:6}}>
-                <button className="btn btn-outline" onClick={()=>{setShowStats(false);setShowSessions(true);}} style={{padding:'5px 10px',fontSize:'.75rem'}}><Icon name="list" size={13}/> Ver sessões</button>
-                <button className="btn btn-ghost" onClick={()=>setShowStats(false)} style={{padding:6}} aria-label="Fechar"><Icon name="x" size={18}/></button>
-              </div>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderBottom:'1px solid var(--border)',flexShrink:0}}>
-              <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
-                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Hoje</div>
-                <div style={{fontSize:'1.2rem',fontWeight:600,fontFamily:'Cormorant Garamond,serif'}}>{pomoFmtSecs(todayDisplay)}</div>
-              </div>
-              <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
-                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Andamento</div>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
-                  <span style={{fontSize:'1.15rem',lineHeight:1,color:isBaseTempo(currentStar)?'var(--muted)':currentStar.color}}>{currentStar.glyph}</span>
-                  <span className="serif" style={{fontStyle:'italic',fontSize:'1.2rem',fontWeight:500,lineHeight:1,color:isBaseTempo(currentStar)?'var(--muted)':currentStar.color}}>{currentStar.name}</span>
-                </div>
-              </div>
-              <div style={{padding:'14px 20px',textAlign:'center'}}>
-                <div style={{fontSize:'.62rem',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',marginBottom:4}}>Total</div>
-                <div style={{fontSize:'1.2rem',fontWeight:600,fontFamily:'Cormorant Garamond,serif'}}>{pomoFmtSecs(totalAll)}</div>
-              </div>
-            </div>
-            <div style={{display:'flex',borderBottom:'1px solid var(--border)',flexShrink:0}}>
-              {['days','months'].map(t=>(
-                <button key={t} onClick={()=>setStatsTab(t)} style={{flex:1,padding:'10px 0',border:'none',background:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.82rem',fontWeight:500,color:statsTab===t?'var(--text)':'var(--muted)',borderBottom:statsTab===t?'2px solid var(--text)':'2px solid transparent',marginBottom:-1,transition:'all .15s'}}>
-                  {t==='days'?'Por Dia':'Por Mes'}
-                </button>
-              ))}
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'16px 24px'}}>
-              {statsTab==='days'&&(dayEntries.length===0
-                ?<p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',padding:'32px 0',margin:0}}>Nenhuma sessao registrada.</p>
-                :<div style={{display:'flex',flexDirection:'column',gap:12}}>
-                  {dayEntries.map(([day,s])=>{
-                    const dayStar = getStarLevel(s);
-                    return(
-                    <div key={day}>
-                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,alignItems:'center'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:'.82rem',fontWeight:500}}>{pomoFmtDay(day)}</span>
-                          {!isBaseTempo(dayStar) && (
-                            <span className="serif" style={{fontStyle:'italic',fontSize:'.85rem',lineHeight:1,color:dayStar.color}} title={`${dayStar.name} · ${dayStar.bpm} BPM`}>{dayStar.glyph} {dayStar.name}</span>
-                          )}
-                        </div>
-                        <span style={{fontSize:'.82rem',fontWeight:600}}>{pomoFmtSecs(s)}</span>
-                      </div>
-                      <div style={{height:5,background:'var(--bg)',borderRadius:3,overflow:'hidden'}}>
-                        <div style={{height:'100%',width:Math.round(s/maxDay*100)+'%',background:isBaseTempo(dayStar) ? 'var(--text)' : dayStar.color,borderRadius:3}}/>
-                      </div>
-                    </div>
-                  )})}
-                </div>
-              )}
-              {statsTab==='months'&&(monthEntries.length===0
-                ?<p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',padding:'32px 0',margin:0}}>Nenhuma sessao registrada.</p>
-                :<div style={{display:'flex',flexDirection:'column',gap:16}}>
-                  {monthEntries.map(([mk,s])=>{
-                    const daysInMonth=dayEntries.filter(e=>e[0].slice(0,7)===mk);
-                    const mMedal=getMonthMedal(s);
-                    const mNext=MONTH_TIERS.find(t=>t.floor>mMedal.floor)||null;
-                    const mPct=mNext?Math.min(100,((s-mMedal.floor)/(mNext.floor-mMedal.floor))*100):100;
-                    return(
-                      <div key={mk}>
-                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,alignItems:'center'}}>
-                          <div style={{display:'flex',alignItems:'center',gap:6}}>
-                            <span style={{fontSize:'.85rem',fontWeight:600,textTransform:'capitalize'}}>{pomoFmtMonth(mk)}</span>
-                            <span title={mMedal.name} className="serif" style={{fontStyle:'italic',fontWeight:600,fontSize:'1.05rem',lineHeight:1,color:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color}}>{mMedal.mark}</span>
-                          </div>
-                          <span style={{fontSize:'.85rem',fontWeight:700}}>{pomoFmtSecs(s)}</span>
-                        </div>
-                        <div style={{height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden',marginBottom:2}}>
-                          <div style={{height:'100%',width:mPct+'%',background:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color,borderRadius:3,transition:'width .3s'}}/>
-                        </div>
-                        {mNext&&<div style={{fontSize:'.62rem',color:'var(--muted)',marginBottom:6,textAlign:'right'}}>{Math.round(mPct)}% → <span className="serif" style={{fontStyle:'italic',fontSize:'.76rem'}}>{mNext.name}</span></div>}
-                        <div style={{paddingLeft:8}}>
-                          {daysInMonth.map(([d,ds])=>(
-                            <div key={d} style={{display:'flex',justifyContent:'space-between',padding:'2px 0'}}>
-                              <span style={{fontSize:'.74rem',color:'var(--muted)'}}>{pomoFmtDay(d)}</span>
-                              <span style={{fontSize:'.74rem',color:'var(--muted)'}}>{pomoFmtSecs(ds)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-        </DialogLayer>
-      )}
     </div>
   );
 };
@@ -6485,8 +6482,8 @@ const noteTextPreview=value=>{
 // "Ver todas" on the dashboard's activity list set this state but nothing
 // ever rendered it — the button did nothing. Full list with filter, inline
 // edit (the dashboard rows had no way to fix a typo) and a guarded "clear done".
-const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone})=>{
-  const [filter,setFilter]=useState('open');
+const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone,initialFilter='open'})=>{
+  const [filter,setFilter]=useState(initialFilter);
   const [editing,setEditing]=useState(null); // {id,text}
   const list=tasks.filter(t=>filter==='all'||(filter==='done'?t.done:!t.done));
   const doneCount=tasks.filter(t=>t.done).length;
@@ -6564,6 +6561,12 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const greeting=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
   const [newTask,setNewTask]=useState('');
   const [showAllTasks,setShowAllTasks]=useState(false);
+  // Todas / A fazer / Feitas on the dashboard list; remembered, and the
+  // "Ver todas" dialog opens on the same choice.
+  const TASK_FILTER_KEY='boardhub_tasks_filter';
+  const [taskFilter,setTaskFilterRaw]=useState(()=>{try{const v=localStorage.getItem(TASK_FILTER_KEY);return v==='open'||v==='done'?v:'all';}catch{return'all';}});
+  const setTaskFilter=v=>{setTaskFilterRaw(v);try{localStorage.setItem(TASK_FILTER_KEY,v);}catch(e){bhLog('tasks.filter',e);}};
+  const shownTasks=taskFilter==='all'?tasks:tasks.filter(t=>taskFilter==='done'?t.done:!t.done);
   const streakDays=useMemo(()=>{
     // pomoData.days values are plain seconds (numbers), not {total} objects —
     // the old .total read made the streak permanently 0.
@@ -6689,8 +6692,13 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                 <Icon name="check-circle" size={18} style={{opacity:.25}}/>
                 <p style={{fontSize:'.78rem',margin:0}}>Tudo limpo! Adicione uma atividade acima.</p>
               </div>}
+              {tasks.length>0&&<div className="task-filter" role="group" aria-label="Filtrar atividades">
+                {[['all','Todas',tasks.length],['open','A fazer',tasks.filter(t=>!t.done).length],['done','Feitas',tasks.filter(t=>t.done).length]].map(([k,l,n])=>
+                  <button key={k} type="button" aria-pressed={taskFilter===k} className={taskFilter===k?'on':''} onClick={()=>setTaskFilter(k)}>{l}<span>{n}</span></button>)}
+              </div>}
+              {tasks.length>0&&shownTasks.length===0&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:'6px 0',textAlign:'center'}}>{taskFilter==='done'?'Nenhuma atividade feita.':'Nada a fazer.'}</p>}
               <div className="dashboard-activity-list" style={{overflow:'auto',flex:1}}>
-                {tasks.map(t=>(
+                {shownTasks.map(t=>(
                   <div key={t.id} className="task-row" style={{paddingTop:isSmall?4:6,paddingBottom:isSmall?4:6}}>
                     <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>toggleTask(t.id)}/>
                     <span style={{flex:1,fontSize:'.8rem',textDecoration:t.done?'line-through':'none',color:t.done?'var(--muted)':'var(--text)',lineHeight:1.35}}>{t.text}</span>
@@ -6743,7 +6751,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
 
     </div>
   );
-  return <>{content}{showAllTasks&&<AllTasksModal tasks={tasks} onClose={()=>setShowAllTasks(false)} onToggle={toggleTask} onRemove={removeTask} onEdit={editTask} onClearDone={()=>setTasks(p=>p.filter(t=>!t.done))}/>}</>;
+  return <>{content}{showAllTasks&&<AllTasksModal tasks={tasks} initialFilter={taskFilter} onClose={()=>setShowAllTasks(false)} onToggle={toggleTask} onRemove={removeTask} onEdit={editTask} onClearDone={()=>setTasks(p=>p.filter(t=>!t.done))}/>}</>;
 });
 
 // - NEW PROJECT MODAL -
