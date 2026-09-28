@@ -2798,9 +2798,52 @@ const bhMergeSync=(base,local,remote)=>{
       const v=bhMergeSync(base[key],local[key],remote[key]);if(v!==undefined)out[key]=v;
     }
     if(base.deleted!==true&&(local.deleted===true||remote.deleted===true))out.deleted=true;
+    if(bhSyncIsRank(local)&&bhSyncIsRank(remote))bhSyncRankResolve(base,local,remote,out);
+    if(bhSyncIsPomo(local)&&bhSyncIsPomo(remote))bhSyncPomoResolve(local,remote,out);
     return out;
   }
   return local; // Same scalar/ordered-image-list: last transaction wins.
+};
+// FOCUS / RANK CONFLICTS. Focus data is cumulative, so "last transaction wins"
+// loses progress: a device that had been closed for days opens, charges decay
+// for those days from ITS focus ledger (which lacks the time logged on the
+// other device, so every day costs the full 500) and zeroes the points; its
+// push then conflicted with the cloud's real score, the local zero won, and
+// the other devices adopted it. Conflicts on these counters now resolve
+// towards progress: focus seconds per day take the larger value, a day's decay
+// the smaller one, and same-season points the higher score. Works on plain
+// state and on the packed entity form ({scalar}/{object} wrappers).
+const bhSyncRec=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+const bhSyncScalar=v=>bhSyncRec(v)&&Object.keys(v).length===1&&Object.prototype.hasOwnProperty.call(v,'scalar')?v.scalar:v;
+const bhSyncWrapped=v=>bhSyncRec(v)&&Object.keys(v).length===1&&bhSyncRec(v.object);
+const bhSyncObj=v=>bhSyncWrapped(v)?v.object:v;
+const bhSyncIsRank=v=>bhSyncRec(v)&&typeof bhSyncScalar(v.seasonId)==='string'&&v.points!==undefined&&v.decayApplied!==undefined;
+const bhSyncIsPomo=v=>bhSyncRec(v)&&v.days!==undefined&&bhSyncIsRank(bhSyncObj(v.rank));
+// Combine two flat {key:number} maps (plain or packed) key by key with pick().
+const bhSyncNumMap=(local,remote,merged,pick)=>{
+  const l=bhSyncObj(local),r=bhSyncObj(remote);
+  if(!bhSyncRec(l)||!bhSyncRec(r)||!bhSyncRec(merged))return merged;
+  const wrapped=bhSyncWrapped(merged),out={...bhSyncObj(merged)};
+  for(const key of Object.keys(l)){
+    if(r[key]===undefined||out[key]===undefined)continue;
+    const a=bhSyncScalar(l[key]),b=bhSyncScalar(r[key]);
+    if(typeof a!=='number'||typeof b!=='number')continue;
+    const v=pick(a,b);
+    out[key]=bhSyncRec(l[key])?{scalar:v}:v;
+  }
+  return wrapped?{object:out}:out;
+};
+const bhSyncRankResolve=(base,local,remote,out)=>{
+  const season=bhSyncScalar(local.seasonId);
+  if(season!==bhSyncScalar(remote.seasonId)||bhSyncScalar(out.seasonId)!==season)return;
+  const pl=Number(bhSyncScalar(local.points))||0,pr=Number(bhSyncScalar(remote.points))||0;
+  const pb=bhSyncRec(base)&&base.points!==undefined?Number(bhSyncScalar(base.points))||0:NaN;
+  if(pl!==pb&&pr!==pb){const p=Math.max(pl,pr);out.points=bhSyncRec(local.points)?{scalar:p}:p;}
+  if(out.decayApplied!==undefined)out.decayApplied=bhSyncNumMap(local.decayApplied,remote.decayApplied,out.decayApplied,Math.min);
+};
+const bhSyncPomoResolve=(local,remote,out)=>{
+  if(out.days!==undefined)out.days=bhSyncNumMap(local.days,remote.days,out.days,Math.max);
+  if(out.allocations!==undefined)out.allocations=bhSyncNumMap(local.allocations,remote.allocations,out.allocations,Math.max);
 };
 const bhSyncPlan=(base,local)=>{
   const before=bhSplitState(base||{}),after=bhSplitState(local),plan=[];
@@ -4631,7 +4674,30 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   [...(incoming.rank.history||[]),...(current.rank.history||[])].forEach(row=>{if(row?.seasonId)historyBySeason.set(String(row.seasonId),row);});
   const acknowledged=new Set([...current.rank.notices,...incoming.rank.notices].filter(n=>n.dismissed).map(n=>String(n.id)));
   const notices=bhMergeRecords(current.rank.notices,incoming.rank.notices).map(n=>acknowledged.has(String(n.id))?{...n,dismissed:true}:n);
-  const rank={...current.rank,sessions,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))),notices};
+  let rank={...current.rank,sessions,notices};
+  // RANK POINTS. Restoring a backup must bring its score back as it was. The
+  // merge used to keep only the CURRENT points, so once a sync had zeroed
+  // them no backup could ever undo it, and the zero went into every new
+  // backup. Same season: the higher score wins, and every day either side had
+  // already settled stays settled (lowest loss per day), so decay is never
+  // charged again for a day before today. Older season: the backup's score is
+  // that season's result and goes into the history, never lowering a row.
+  const inc=incoming.rank,cur=current.rank;
+  const incOrd=rankSeasonOrdinal(inc.seasonId),curOrd=rankSeasonOrdinal(cur.seasonId);
+  if(Number.isFinite(incOrd)&&Number.isFinite(curOrd)){
+    if(incOrd===curOrd&&inc.points>cur.points){
+      const ledger={...(inc.decayApplied||{})};
+      Object.entries(cur.decayApplied||{}).forEach(([day,loss])=>{ledger[day]=Object.prototype.hasOwnProperty.call(ledger,day)?Math.min(Number(ledger[day])||0,Number(loss)||0):loss;});
+      rank={...rank,points:inc.points,decayApplied:ledger};
+    }else if(incOrd<curOrd){
+      const existing=[...(cur.history||[]),...(inc.history||[])].find(h=>h&&String(h.seasonId)===String(inc.seasonId));
+      if(!existing||Number(existing.points||0)<inc.points){
+        const fin=rankPosition(inc.points);
+        historyBySeason.set(String(inc.seasonId),{seasonId:inc.seasonId,rankIndex:fin.rankIndex,rankName:fin.rankName,division:fin.division,divisionRoman:fin.divisionRoman,points:inc.points,endedAt:rankSeasonEnd(inc.seasonId)});
+      }
+    }
+  }
+  rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
 };
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -6682,31 +6748,154 @@ const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Ca
 // sidebar, which listed the same tasks without dates. Read-only: bars are
 // edited inside each project, so a click opens it. Task dates default exactly
 // as in the project's own Gantt, and overdue tasks read as Atrasado there too.
+// Shared by both timelines (Projects page and the project's own Gantt).
+// Month bands read "out 26": toLocaleDateString gave "out. de 26", which did
+// not fit the 3-day band a Sunday-Saturday week leaves at a month's edge.
+const TL_MONTHS=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const tlMonthLabel=d=>TL_MONTHS[d.getMonth()]+' '+String(d.getFullYear()).slice(2);
+const tlWeekBounds=today=>{
+  const d=new Date(today+'T12:00:00');
+  const sun=new Date(d);sun.setDate(d.getDate()-d.getDay()); // 0=Sun...6=Sat
+  const sat=new Date(sun);sat.setDate(sun.getDate()+6);
+  return{start:localDateISO(sun),end:localDateISO(sat)};
+};
+// Day columns, month bands and weekends of [start, end] (inclusive).
+const tlCalendar=(start,end,DAY_W)=>{
+  const totalDays=Math.max(1,daysBetween(start,end)+1),days=[],months=[];
+  for(let i=0;i<totalDays;i++){
+    const d=new Date(start+'T12:00:00');d.setDate(d.getDate()+i);
+    const dow=d.getDay();
+    days.push({i,iso:localDateISO(d),n:d.getDate(),init:'DSTQQSS'[dow],weekend:dow===0||dow===6});
+    if(i===0||d.getDate()===1){if(months.length)months[months.length-1].width=i*DAY_W-months[months.length-1].left;months.push({left:i*DAY_W,width:0,label:tlMonthLabel(d)});}
+  }
+  if(months.length)months[months.length-1].width=totalDays*DAY_W-months[months.length-1].left;
+  return{totalDays,days,months,gridW:totalDays*DAY_W};
+};
+// Width of an element that may mount later (the scroll area only exists while
+// the timeline is open). clientWidth already excludes a vertical scrollbar, so
+// "Esta semana" can split exactly what is visible into 7 columns.
+const useTlWidth=()=>{
+  const [node,setNode]=useState(null),[w,setW]=useState(0);
+  useEffect(()=>{
+    if(!node)return;
+    const upd=()=>setW(node.clientWidth);upd();
+    if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',upd);return()=>window.removeEventListener('resize',upd);}
+    const ro=new ResizeObserver(upd);ro.observe(node);return()=>ro.disconnect();
+  },[node]);
+  return[setNode,w];
+};
+// Header strip shared by both timelines: sticky month bands over one cell per
+// day (weekday initial + number, hairline between days, today in red).
+const TlHeader=({cal,DAY_W,LEFT_W,HEADER_H,today,corner})=>(
+  <div style={{position:'sticky',top:0,zIndex:4,display:'flex',height:HEADER_H,background:'var(--surface)',borderBottom:'1px solid var(--border)'}}>
+    <div style={{position:'sticky',left:0,zIndex:5,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'flex-end',padding:'0 12px 6px',boxSizing:'border-box'}}>
+      <span className="label" style={{fontSize:'.6rem',margin:0}}>{corner}</span>
+    </div>
+    <div style={{position:'relative',width:cal.gridW,flexShrink:0}}>
+      {/* Each month is a band; its label sticks to the left edge while the
+          month is in view and is clipped (not spilled) when the band is short. */}
+      {cal.months.map(m=><div key={m.left} style={{position:'absolute',left:m.left,width:m.width,top:0,height:HEADER_H/2,borderLeft:m.left?'1px solid var(--border)':'none',boxSizing:'border-box',overflow:'clip',display:'flex',alignItems:'center'}}>
+        <span style={{position:'sticky',left:LEFT_W,paddingLeft:5,fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)',whiteSpace:'nowrap'}}>{m.label}</span>
+      </div>)}
+      {cal.days.map(d=>{
+        const isToday=d.iso===today;
+        return <div key={d.i} title={isToday?'Hoje':undefined} style={{position:'absolute',left:d.i*DAY_W,width:DAY_W,top:HEADER_H/2,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',gap:DAY_W<24?0:3,boxSizing:'border-box',overflow:'hidden',
+          borderLeft:d.i===0?'none':'1px solid rgba(var(--ink),.07)',fontSize:'.6rem',color:d.weekend?'var(--muted)':'var(--text)'}}>
+          {DAY_W>=24&&<span style={{opacity:.5,fontWeight:700,fontSize:'.55rem'}}>{d.init}</span>}
+          <span style={isToday?{background:'var(--danger-strong)',color:'#fff',borderRadius:4,padding:'0 4px',fontWeight:700}:undefined}>{d.n}</span>
+        </div>;
+      })}
+    </div>
+  </div>
+);
+// Background of the rows: weekend shading, faint day separators and the today
+// line through the middle of today's column.
+const TlBackdrop=({cal,DAY_W,LEFT_W,top,height,today})=>{
+  const ti=cal.days.findIndex(d=>d.iso===today);
+  return(
+    <div aria-hidden="true" style={{position:'absolute',left:LEFT_W,top,width:cal.gridW,height,pointerEvents:'none',zIndex:0}}>
+      {cal.days.map(d=>d.weekend?<div key={'w'+d.i} style={{position:'absolute',left:d.i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>:null)}
+      {cal.days.map(d=>d.i===0?null:<div key={'l'+d.i} style={{position:'absolute',left:d.i*DAY_W,top:0,bottom:0,width:0,borderLeft:'1px solid rgba(var(--ink),.06)'}}/>)}
+      {ti>=0&&<div style={{position:'absolute',left:ti*DAY_W+DAY_W/2-1,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.75}}/>}
+    </div>
+  );
+};
+// A bar's name: inside when it fits, otherwise beside the bar (right, or left
+// when the bar ends near the grid's edge). Narrow bars used to render blank.
+const tlLabelFits=(width,text)=>width-16>=Math.min(90,String(text).length*5.6);
+const tlLabelEst=text=>Math.min(220,String(text).length*6+8);
+// 'inside' | 'right' | 'left'. A bar with no room on either side keeps its
+// name inside, cut with an ellipsis, rather than showing nothing.
+const tlLabelMode=(left,width,gridW,text,inner=width)=>{
+  if(tlLabelFits(inner,text))return'inside';
+  const est=tlLabelEst(text);
+  if(left+width+4+est<=gridW)return'right';
+  if(left-4-est>=0)return'left';
+  return inner>=28?'inside':'right';
+};
+const TlOutsideLabel=({mode,left,width,gridW,text,color,rowH})=>(
+  <span aria-hidden="true" style={{position:'absolute',top:0,height:rowH,display:'flex',alignItems:'center',pointerEvents:'none',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:220,fontSize:'.64rem',fontWeight:600,color:color||'var(--muted)',
+    ...(mode==='right'?{left:left+width+4}:{right:gridW-left+4,justifyContent:'flex-end'})}}>{text}</span>
+);
+// Dragging a bar: 'move' shifts both dates, 'left'/'right' resize one end by
+// whole days. g = {s,e} real dates, {vs,ve} what is drawn, clipStart/clipEnd.
+// A clipped edge is dragged from where it is drawn (the window's edge) and
+// can only be pulled inwards, never pushed past its real date.
+const tlDragDates=(g,type,delta)=>{
+  let ns=g.s,ne=g.e;
+  if(type==='move'){ns=addDays(g.s,delta);ne=addDays(g.e,delta);}
+  else if(type==='left'){ns=g.clipStart?(delta>0?addDays(g.vs,delta):g.s):addDays(g.s,delta);if(ns>ne)ns=ne;}
+  else{ne=g.clipEnd?(delta<0?addDays(g.ve,delta):g.e):addDays(g.e,delta);if(ne<ns)ne=ns;}
+  return{startDate:ns,dueDate:ne};
+};
+// Pointer drag in whole days (mouse, pen and touch). onDays(delta) runs only
+// when the day count changes; onEnd(moved) tells a real drag from a click.
+const tlPointerDrag=(e,DAY_W,onDays,onEnd)=>{
+  e.preventDefault();e.stopPropagation();
+  const startX=e.clientX;let last=0,moved=false;
+  const onMove=me=>{
+    const dx=me.clientX-startX,delta=Math.round(dx/DAY_W);
+    if(Math.abs(dx)>3)moved=true;
+    if(delta===last)return;
+    last=delta;onDays(delta);
+  };
+  const onUp=()=>{
+    window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);
+    if(onEnd)onEnd(moved);
+  };
+  window.addEventListener('pointermove',onMove);
+  window.addEventListener('pointerup',onUp);
+  window.addEventListener('pointercancel',onUp);
+};
+// Resize grip at either end of a bar; a clipped end shows a chevron.
+const TlGrip=({side,clipped,color,onDown,unit='semana'})=>(
+  <div onPointerDown={e=>{if(e.button===0)onDown(e,side);}}
+    title={side==='left'?(clipped?'Começa antes desta '+unit+' — arraste para mudar':'Arrastar início'):(clipped?'Termina depois desta '+unit+' — arraste para mudar':'Arrastar prazo')}
+    style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,touchAction:'none'}}>
+    <span aria-hidden="true" style={{fontSize:clipped?11:9,fontWeight:clipped?700:400,color,opacity:.8,lineHeight:1}}>{clipped?(side==='left'?'‹':'›'):'⠿'}</span>
+  </div>
+);
+
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
-const ProjectsTimeline=({projects,onOpen,isMobile})=>{
+const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const DAY_BASE=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
   const today=localDateISO();
-  const cardRef=useRef(null);const [cardW,setCardW]=useState(0);
-  useEffect(()=>{const el=cardRef.current;if(!el)return;const upd=()=>setCardW(el.clientWidth);upd();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',upd);return()=>window.removeEventListener('resize',upd);}const ro=new ResizeObserver(upd);ro.observe(el);return()=>ro.disconnect();},[]);
+  const [setScrollNode,scrollW]=useTlWidth();
+  const scrollRef=useRef(null);
+  const scrollSetter=useCallback(node=>{scrollRef.current=node;setScrollNode(node);},[setScrollNode]);
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
   // same convention as the per-project timeline.
   const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
   const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
-  const weekBounds=useMemo(()=>{
-    const d=new Date(today+'T12:00:00');
-    const day=d.getDay(); // 0=Sun...6=Sat
-    const sun=new Date(d);sun.setDate(d.getDate()-day);
-    const sat=new Date(sun);sat.setDate(sun.getDate()+6);
-    return{start:localDateISO(sun),end:localDateISO(sat)};
-  },[today]);
+  const weekBounds=useMemo(()=>tlWeekBounds(today),[today]);
   const rows=useMemo(()=>{
     const out=[];
     projects.forEach(p=>{
       const pStart=p.startDate||'',pEnd=p.deadline||'';
-      const tasks=applyAutoLate(Array.isArray(p.projectTasks)?p.projectTasks:[]).filter(t=>t&&t.status!=='Concluído');
+      const tasks=projectTaskNamed(applyAutoLate(Array.isArray(p.projectTasks)?p.projectTasks:[]),p.miniProjects).filter(t=>t&&t.status!=='Concluído');
       if(!tasks.length&&!pStart&&!pEnd)return;
       const ps=pStart||pEnd,pe=pEnd||pStart;
       out.push({kind:'project',key:'p'+p.id,p,s:ps&&pe&&ps>pe?pe:ps,e:ps&&pe&&ps>pe?ps:pe});
@@ -6724,11 +6913,10 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     if(!thisWeek)return rows;
     return rows.filter(r=>!r.s||!r.e||(r.s<=weekBounds.end&&r.e>=weekBounds.start));
   },[rows,thisWeek,weekBounds]);
-  // "Esta semana": the 7 day columns are stretched to fill the whole width
-  // next to the label column (minus room for the vertical scrollbar), so
-  // nothing needs horizontal scrolling.
-  const needsV=HEADER_H+visibleRows.length*ROW_H>320;
-  const DAY_W=thisWeek&&cardW>0?Math.max(14,Math.floor(((cardW-LEFT_W-(needsV?16:0))/7)*100)/100):DAY_BASE;
+  // "Esta semana": the 7 day columns split exactly the visible width next to
+  // the label column (the scroll area's clientWidth, which already leaves out
+  // a vertical scrollbar), Sunday at the left edge and Saturday at the right.
+  const DAY_W=thisWeek&&scrollW>LEFT_W?Math.max(14,Math.floor(((scrollW-LEFT_W)/7)*100)/100):DAY_BASE;
   let start=today,end=today;
   if(thisWeek){
     start=weekBounds.start;end=weekBounds.end;
@@ -6740,26 +6928,25 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     const yearEnd=today.slice(0,4)+'-12-31';
     if(yearEnd>end)end=yearEnd;
   }
-  const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
+  const cal=tlCalendar(start,end,DAY_W),gridW=cal.gridW;
   const x=d=>daysBetween(start,d)*DAY_W;
-  const months=[],weekends=[],dayNums=[],dayInit=[];
-  for(let i=0;i<totalDays;i++){
-    const d=new Date(start+'T12:00:00');d.setDate(d.getDate()+i);
-    if(i===0||d.getDate()===1){if(months.length)months[months.length-1].width=i*DAY_W-months[months.length-1].left;months.push({left:i*DAY_W,width:0,label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.','')});}
-    if(d.getDay()===0||d.getDay()===6)weekends.push(i);
-    dayNums.push(d.getDate());dayInit.push('DSTQQSS'[d.getDay()]);
-  }
-  if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
-  const scrollRef=useRef(null);
   // Open on today rather than on the earliest date in the data.
-  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:Math.max(0,x(today)-3*DAY_W);},[open,start,thisWeek]);
+  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:Math.max(0,x(today)-3*DAY_W);},[open,start,thisWeek,visibleRows.length>0]);
   const bodyH=visibleRows.length*ROW_H;
+  // Task bars are edited in place, like in the project's own timeline: drag
+  // the bar to move it, its grips to change start/due. A plain click still
+  // opens the project.
+  const justMovedRef=useRef(false);
+  const startDrag=(e,r,type,g)=>{
+    if(!onUpdateTask)return;
+    tlPointerDrag(e,DAY_W,delta=>onUpdateTask(r.p.id,r.t.id,tlDragDates(g,type,delta)),moved=>{justMovedRef.current=moved;});
+  };
   return(
-    <div ref={cardRef} className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
+    <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
       <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
         <span className="label label-section" style={{margin:0}}><StaveGlyph name="half"/>Timeline</span>
         <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
-        {open&&<button type="button" onClick={toggleWeek} className="btn btn-outline" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+        {open&&<button type="button" onClick={toggleWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
           <Icon name="calendar" size={10}/> Esta semana
         </button>}
         <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:open?0:'auto',padding:'4px 8px',fontSize:'.76rem'}}>
@@ -6768,36 +6955,18 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
       </div>
       {open&&(visibleRows.length===0
         ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>{thisWeek?'Nenhum projeto ou tarefa pendente nesta semana.':'Nenhum projeto com datas ou tarefas pendentes.'}</div>
-        :<div ref={scrollRef} style={{overflow:'auto',maxHeight:320,position:'relative'}}>
+        :<div ref={scrollSetter} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:320,position:'relative'}}>
           <div style={{width:LEFT_W+gridW,position:'relative'}}>
-            {/* Header: months over day numbers */}
-            <div style={{position:'sticky',top:0,zIndex:3,display:'flex',height:HEADER_H,background:'var(--surface)',borderBottom:'1px solid var(--border)'}}>
-              <div style={{position:'sticky',left:0,zIndex:4,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'flex-end',padding:'0 12px 6px',boxSizing:'border-box'}}>
-                <span className="label" style={{fontSize:'.6rem'}}>Projeto / tarefa</span>
-              </div>
-              <div style={{position:'relative',width:gridW,flexShrink:0}}>
-                {/* Each month is a band; its label sticks to the left edge while the
-                    month is in view, so opening on today still names it. */}
-                {months.map(m=><div key={m.left} style={{position:'absolute',left:m.left,width:m.width,top:4,height:14,borderLeft:'1px solid var(--border)',boxSizing:'border-box'}}><span style={{position:'sticky',left:LEFT_W,display:'inline-block',paddingLeft:4,fontSize:'.64rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)',whiteSpace:'nowrap'}}>{m.label}</span></div>)}
-                {dayNums.map((n,i)=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:20,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',gap:3,boxSizing:'border-box',borderLeft:i===0?'none':'1px solid rgba(var(--ink),.08)',fontSize:'.6rem',color:weekends.includes(i)?'var(--muted)':'var(--text)'}}><span style={{opacity:.55,fontWeight:700,fontSize:'.56rem'}}>{dayInit[i]}</span><span>{n}</span></div>)}
-              </div>
-            </div>
-            {/* Weekend shading and the today line, under the bars */}
-            <div aria-hidden="true" style={{position:'absolute',left:LEFT_W,top:HEADER_H,width:gridW,height:bodyH,pointerEvents:'none'}}>
-              {weekends.map(i=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>)}
-              {dayNums.map((n,i)=>i===0?null:<div key={'dl'+i} style={{position:'absolute',left:i*DAY_W,top:0,bottom:0,width:0,borderLeft:'1px solid rgba(var(--ink),.07)'}}/>)}
-              <div style={{position:'absolute',left:x(today)+DAY_W/2,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.8}}/>
-            </div>
+            <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner="Projeto / tarefa"/>
+            <TlBackdrop cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} top={HEADER_H} height={bodyH} today={today}/>
             {visibleRows.map(r=>{
               const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
               // Clip to the visible window so bars of tasks running past the week never spill out of the grid.
               const cs=r.s&&r.s<start?start:r.s,ce=r.e&&r.e>end?end:r.e;
               const left=r.s?x(cs):null,width=r.s?Math.max(1,daysBetween(cs,ce)+1)*DAY_W:0;
-              // Tasks created without a name previously rendered as a blank
-              // box: the label was hidden below width>70 with no fallback,
-              // and the pill itself had no title to fall back to in the
-              // left column either.
               const label=isP?(r.p.title||'Projeto sem nome'):(r.t.text||r.t.title||'Tarefa sem nome');
+              const mode=isP?null:tlLabelMode(left,width,gridW,label,width-(onUpdateTask?20:0)),fits=mode==='inside';
+              const g=isP?null:{s:r.s,e:r.e,vs:cs,ve:ce,clipStart:r.s<start,clipEnd:r.e>end};
               const openIt=()=>onOpen(r.p);
               return(
                 <div key={r.key} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
@@ -6808,10 +6977,21 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
                       :<span aria-hidden="true" style={{width:7,height:7,borderRadius:'50%',background:c.dot,flexShrink:0}}/>}
                     <span style={{fontSize:isP?'.78rem':'.74rem',fontWeight:isP?600:400,color:isP?'var(--text)':'var(--muted-chip)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span>
                   </div>
-                  <div style={{position:'relative',width:gridW,flexShrink:0}}>
+                  <div style={{position:'relative',width:gridW,flexShrink:0,overflow:'hidden',zIndex:1}}>
                     {left!=null&&(isP
                       ?<div onClick={openIt} title={label+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
-                      :<div onClick={openIt} title={label+' · '+r.t.status} style={{position:'absolute',left,width,top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',padding:'0 6px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:'pointer'}}><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>)}
+                      :<>
+                        <div onPointerDown={e=>{if(e.button===0&&onUpdateTask)startDrag(e,r,'move',g);}}
+                          onClick={()=>{if(justMovedRef.current){justMovedRef.current=false;return;}openIt();}}
+                          title={label+' · '+r.t.status+'\n'+fmtShort(r.s)+' \u2192 '+fmtShort(r.e)}
+                          style={{position:'absolute',left,width:Math.max(22,width),top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:onUpdateTask?'grab':'pointer',userSelect:'none',touchAction:'pan-y',
+                            ...(g.clipStart?{borderTopLeftRadius:2,borderBottomLeftRadius:2,borderLeftStyle:'dashed'}:{}),...(g.clipEnd?{borderTopRightRadius:2,borderBottomRightRadius:2,borderRightStyle:'dashed'}:{})}}>
+                          {onUpdateTask?<TlGrip side="left" clipped={g.clipStart} color={c.text} onDown={e=>startDrag(e,r,'left',g)} unit={thisWeek?'semana':'janela'}/>:<span style={{width:6,flexShrink:0}}/>}
+                          <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fits?label:''}</span>
+                          {onUpdateTask&&<TlGrip side="right" clipped={g.clipEnd} color={c.text} onDown={e=>startDrag(e,r,'right',g)} unit={thisWeek?'semana':'janela'}/>}
+                        </div>
+                        {!fits&&<TlOutsideLabel mode={mode} left={left} width={width} gridW={gridW} text={label} color={c.text} rowH={ROW_H}/>}
+                      </>)}
                   </div>
                 </div>
               );
@@ -6840,6 +7020,9 @@ const bhDuplicateProject=p0=>{
     miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:nestedSeq++}))}))};
 };
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts})=>{
+  // Dates edited on the Projects-page timeline go straight into the project.
+  const updateTimelineTask=useCallback((projectId,taskId,patch)=>setProjects(prev=>prev.map(p=>String(p.id)!==String(projectId)?p
+    :{...p,projectTasks:(p.projectTasks||[]).map(t=>String(t.id)===String(taskId)?{...t,...patch}:t)})),[setProjects]);
   const [filterType,setFilterType]=useState('all');
   const [onlyActive,setOnlyActive]=useState(false);
   const [trash,setTrash]=useState(false);
@@ -6944,7 +7127,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
               </div>
             </div>
           )}
-          {!trash&&<ProjectsTimeline projects={visible} onOpen={onSelect} isMobile={isMobile}/>}
+          {!trash&&<ProjectsTimeline projects={visible} onOpen={onSelect} onUpdateTask={updateTimelineTask} isMobile={isMobile}/>}
           {isMobile&&!trash?(
             /* Mobile: compact list rows */
             <div className="card" style={{overflow:'hidden',borderRadius:12}}>
@@ -7103,345 +7286,237 @@ const deadlineInfo=deadline=>{
 };
 const fmtShort=d=>{if(!d)return'';const dt=new Date(d+'T12:00:00');return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});};
 
-const GT_WEEK_KEY='projectTimelineWeek';
+// "Esta semana" per project, remembered across visits AND app restarts (it
+// lived in sessionStorage, which forgets on every relaunch of the app).
+const GT_WEEK_KEY='boardhub_gantt_week_v1';
+const gtWeekLoad=projectId=>{
+  if(projectId==null)return true;
+  try{const all=JSON.parse(localStorage.getItem(GT_WEEK_KEY)||'{}');const v=all&&all[String(projectId)];if(typeof v==='boolean')return v;}catch{/*silent-ok: falls back to the session copy / default*/}
+  const legacy=bhUiLoad('projectTimelineWeek')[String(projectId)];
+  return legacy===undefined?true:!!legacy;
+};
+const gtWeekSave=(projectId,value)=>{
+  if(projectId==null)return;
+  try{const all=JSON.parse(localStorage.getItem(GT_WEEK_KEY)||'{}')||{};all[String(projectId)]=!!value;localStorage.setItem(GT_WEEK_KEY,JSON.stringify(all));}catch(e){bhLog('gantt.week',e,'the "Esta semana" choice is kept only for this session');}
+  bhUiSave('projectTimelineWeek',{[String(projectId)]:!!value});
+};
 const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,onSyncAdd,onSyncDelete,projectId})=>{
   const today=useMemo(()=>todayISO(),[]);
   const [selectedId,setSelectedId]=useState(null);
   const [editDraft,setEditDraft]=useState(null);
   const [newTaskName,setNewTaskName]=useState('');
-  // Remembers whether this project's timeline was left on "Esta semana" so
-  // reopening the project restores the same view instead of always
-  // defaulting to the week filter.
-  const [thisWeek,setThisWeek]=useState(()=>{
-    if(projectId==null)return true;
-    const saved=bhUiLoad(GT_WEEK_KEY)[String(projectId)];
-    return saved===undefined?true:!!saved;
-  });
-  const toggleThisWeek=()=>setThisWeek(v=>{
-    const n=!v;
-    if(projectId!=null)bhUiSave(GT_WEEK_KEY,{[String(projectId)]:n});
-    return n;
-  });
+  const [thisWeek,setThisWeek]=useState(()=>gtWeekLoad(projectId));
+  useEffect(()=>{setThisWeek(gtWeekLoad(projectId));},[projectId]);
+  const toggleThisWeek=()=>setThisWeek(v=>{const n=!v;gtWeekSave(projectId,n);return n;});
   const [expanded,setExpanded]=useState(false);
+  // One scroll area holds names AND bars (names column sticky on the left,
+  // calendar sticky on top). They were two panes scrolling separately, so a
+  // vertical scroll in one left each name next to another task's bar.
   const scrollRef=useRef(null);
-  const [chartW,setChartW]=useState(0);
-  useEffect(()=>{const el=scrollRef.current;if(!el)return;const upd=()=>setChartW(el.clientWidth);upd();if(typeof ResizeObserver==='undefined'){window.addEventListener('resize',upd);return()=>window.removeEventListener('resize',upd);}const ro=new ResizeObserver(upd);ro.observe(el);return()=>ro.disconnect();},[]);
-  const dragRef=useRef(null);
+  const [setScrollNode,viewW]=useTlWidth();
+  const scrollSetter=useCallback(node=>{scrollRef.current=node;setScrollNode(node);},[setScrollNode]);
   const dragJustMovedRef=useRef(false);
   const dragRowRef=useRef(null);
   const dragOverRowRef=useRef(null);
 
-  // Compute this week Sunday-Saturday (Brazilian calendar convention).
-  const getWeekBounds=()=>{
-    const d=new Date(today+'T12:00:00');
-    const day=d.getDay(); // 0=Sun...6=Sat
-    const sun=new Date(d);sun.setDate(d.getDate()-day);
-    const sat=new Date(sun);sat.setDate(sun.getDate()+6);
-    return{start:localDateISO(sun),end:localDateISO(sat)};
-  };
+  const ROW_H=38,HEADER_H=44;
+  const LEFT_W=viewW>0&&viewW<560?128:200;
+  const taskDates=t=>{const s=t.startDate||(projectStart||today),e=t.dueDate||(projectEnd||addDays(today,7));return s<=e?{s,e}:{s:e,e:s};};
 
-  // - Compute chart bounds -
-  let chartStart=projectStart||today;
-  let chartEnd=projectEnd||addDays(today,45);
-  tasks.forEach(t=>{
-    if(t.startDate&&t.startDate<chartStart)chartStart=t.startDate;
-    if(t.dueDate&&t.dueDate>chartEnd)chartEnd=t.dueDate;
-  });
-  if(thisWeek){const wb=getWeekBounds();chartStart=wb.start;chartEnd=wb.end;}
-  else{chartStart=addDays(chartStart,-5);chartEnd=addDays(chartEnd,12);}
-  // When showing "this week", only render tasks that overlap the visible window.
-  // A task overlaps [chartStart, chartEnd] if its start <= chartEnd AND its end >= chartStart.
+  // - Chart bounds -
+  let chartStart,chartEnd;
+  if(thisWeek){const wb=tlWeekBounds(today);chartStart=wb.start;chartEnd=wb.end;}
+  else{
+    chartStart=projectStart||today;chartEnd=projectEnd||addDays(today,45);
+    tasks.forEach(t=>{const{s,e}=taskDates(t);if(s<chartStart)chartStart=s;if(e>chartEnd)chartEnd=e;});
+    if(today<chartStart)chartStart=today;
+    chartStart=addDays(chartStart,-5);chartEnd=addDays(chartEnd,12);
+    // Scrollable at least to the end of the current year.
+    const yearEnd=today.slice(0,4)+'-12-31';
+    if(yearEnd>chartEnd)chartEnd=yearEnd;
+  }
+  // When showing "this week", only render tasks that overlap the visible
+  // window (overdue ones always: they need attention).
   const visibleTasks=thisWeek
-    ? tasks.filter(t=>{
-        // Always show overdue tasks regardless of date range — they need attention
-        if(t.status==='Atrasado')return true;
-        const s=t.startDate||(projectStart||today);
-        const e=t.dueDate||(projectEnd||addDays(today,7));
-        return s<=chartEnd&&e>=chartStart;
-      })
-    : tasks;
-  // Inclusive of the last day: Sunday..Saturday is 7 columns, not 6.
-  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd)+1);
-  // "Esta semana": stretch the 7 columns to fill the whole chart area.
-  const DAY_W=thisWeek&&chartW>0?Math.max(16,Math.floor((chartW/7)*100)/100):36;
-  const ROW_H=38;
-  const HEADER_H=44;
-  const LEFT_W=200;
-
-  // - Month + week header data -
-  const months=[];
-  let cur=new Date(chartStart+'T12:00:00');
-  const endDt=new Date(chartEnd+'T12:00:00');
-  while(cur<=endDt){
-    const mStart=localDateISO(cur);
-    const label=cur.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',' ');
-    const next=new Date(cur.getFullYear(),cur.getMonth()+1,1);
-    const mEnd=next>endDt?addDays(chartEnd,1):localDateISO(next);
-    months.push({label,days:daysBetween(mStart,mEnd)});
-    cur=next;
-  }
-
-  const weekMarkers=[];
-  for(let i=0;i<totalDays;i+=7){
-    const d=addDays(chartStart,i);
-    const dt=new Date(d+'T12:00:00');
-    weekMarkers.push({offset:i*DAY_W,label:dt.getDate()+'/'+(dt.getMonth()+1)});
-  }
-
-  // Weekend columns (Sat=6, Sun=0)
-  const weekendCols=[];
-  for(let i=0;i<totalDays;i++){
-    const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
-    const dow=dt.getDay();
-    if(dow===0||dow===6)weekendCols.push(i);
-  }
-
-  const todayOffset=daysBetween(chartStart,today)*DAY_W;
-  const gridW=totalDays*DAY_W;
+    ?tasks.filter(t=>{if(t.status==='Atrasado')return true;const{s,e}=taskDates(t);return s<=chartEnd&&e>=chartStart;})
+    :tasks;
+  // "Esta semana": Sunday..Saturday split exactly the width left of the names
+  // column, so the whole week is on screen with nothing to scroll.
+  const DAY_W=thisWeek&&viewW>LEFT_W?Math.max(16,Math.floor(((viewW-LEFT_W)/7)*100)/100):36;
+  const cal=tlCalendar(chartStart,chartEnd,DAY_W),gridW=cal.gridW;
+  const todayX=daysBetween(chartStart,today)*DAY_W;
 
   // - Bar geometry -
+  // A bar is drawn clipped to the window; a clipped end shows a chevron grip
+  // instead of disappearing. The right grip used to be hidden whenever the due
+  // date ran past the visible Saturday, so in "Esta semana" most tasks could
+  // not be resized at all. A task wholly outside the window (an overdue task
+  // listed in "Esta semana") gets a marker at the edge instead of a fake bar.
   const barGeom=t=>{
-    const s=t.startDate||(projectStart||today);
-    const e=t.dueDate||(projectEnd||addDays(today,7));
-    // Clip to the visible window on BOTH ends. Only the start was clipped, so
-    // in "Esta semana" a task running past Sunday was drawn beyond the grid.
-    // A clipped end hides its resize grip: that edge is not the real date.
-    //
-    // Whether an edge counts as "clipped" (and its grip hidden) is decided
-    // using only dates the task or project actually set. A task with no
-    // due date fell back to "today + 7 days", which in the narrower "Esta
-    // semana" window is almost always past the visible Saturday — so every
-    // undated task looked clipped and its right handle silently vanished,
-    // even though there was no real date being cut off. The bar is still
-    // drawn clamped to the visible window either way; only the grip
-    // visibility now depends on a real date.
-    const hasStart=!!t.startDate||!!projectStart;
-    const hasEnd=!!t.dueDate||!!projectEnd;
-    const visStart=s<chartStart?chartStart:s,visEnd=e>chartEnd?chartEnd:e;
-    const width=Math.min(gridW,Math.max(DAY_W,(daysBetween(visStart,visEnd)+1)*DAY_W));
-    const left=Math.min(Math.max(0,daysBetween(chartStart,s))*DAY_W,Math.max(0,gridW-width));
-    // The grip is hidden only when a *real* start/due date is the one being
-    // cut off. A task with no explicit date used a fallback (today, or
-    // today+7) that isn't a date the person actually set — in "Esta semana"
-    // that fallback almost always falls outside the visible week, which
-    // previously hid the grip on every undated task even though nothing
-    // real was being clipped.
-    return{left,width,clipStart:hasStart&&s<chartStart,clipEnd:hasEnd&&e>chartEnd};
+    const{s,e}=taskDates(t);
+    if(e<chartStart||s>chartEnd)return{outside:e<chartStart?'before':'after',s,e};
+    const clipStart=s<chartStart,clipEnd=e>chartEnd;
+    const vs=clipStart?chartStart:s,ve=clipEnd?chartEnd:e;
+    return{left:daysBetween(chartStart,vs)*DAY_W,width:(daysBetween(vs,ve)+1)*DAY_W,clipStart,clipEnd,s,e,vs,ve};
   };
 
   // - Drag -
-  const startDrag=(e,taskId,type)=>{
-    e.preventDefault();e.stopPropagation();
-    const t=tasks.find(x=>x.id===taskId);if(!t)return;
-    const origStart=t.startDate||(projectStart||today);
-    const origEnd=t.dueDate||(projectEnd||addDays(today,7));
-    // Pointer events (mouse, pen AND touch); the bars carry touch-action:pan-y
-    // so a horizontal finger drag edits dates while vertical still scrolls.
-    // Only a change of whole days writes state — the old mousemove handler
-    // rewrote every task (and queued a save) on each pixel of movement.
-    dragRef.current={taskId,type,startX:e.clientX,origStart,origEnd,delta:0,moved:false};
-    const onMove=me=>{
-      if(!dragRef.current)return;
-      const dx=me.clientX-dragRef.current.startX;
-      const delta=Math.round(dx/DAY_W);
-      if(Math.abs(dx)>3)dragRef.current.moved=true;
-      if(delta===dragRef.current.delta)return;
-      dragRef.current.delta=delta;
-      const{taskId,type,origStart,origEnd}=dragRef.current;
-      let ns,ne;
-      if(type==='move'){ns=addDays(origStart,delta);ne=addDays(origEnd,delta);}
-      else if(type==='left'){ns=addDays(origStart,delta);ne=origEnd;if(ns>=ne)ns=addDays(ne,-1);}
-      else{ns=origStart;ne=addDays(origEnd,delta);if(ne<=ns)ne=addDays(ns,1);}
-      onUpdateTasks(ts=>ts.map(x=>String(x.id)===String(taskId)?{...x,startDate:ns,dueDate:ne}:x));
-    };
-    const onUp=()=>{
+  // Pointer events (mouse, pen AND touch); the bars carry touch-action:pan-y
+  // so a horizontal finger drag edits dates while vertical still scrolls.
+  // Only a change of whole days writes state. A clipped edge is dragged from
+  // where it is drawn (the window's edge) and can only be pulled inwards.
+  const startDrag=(e,t,type)=>{
+    const g=barGeom(t);if(g.outside)return;
+    tlPointerDrag(e,DAY_W,
+      delta=>{const next=tlDragDates(g,type,delta);onUpdateTasks(ts=>ts.map(x=>String(x.id)===String(t.id)?{...x,...next}:x));},
       // A drag ends with a click on the bar; remember it so that click does
       // not also toggle the edit panel.
-      dragJustMovedRef.current=!!dragRef.current?.moved;
-      dragRef.current=null;
-      window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);
-    };
-    window.addEventListener('pointermove',onMove);
-    window.addEventListener('pointerup',onUp);
-    window.addEventListener('pointercancel',onUp);
+      moved=>{dragJustMovedRef.current=moved;});
   };
 
   // - Edit -
   // Writes are functions of the current list (onUpdateTasks(ts=>...)), and the
   // edit panel saves only the fields it changed onto the task as it is now.
-  // Saving the whole draft (a copy taken when the panel opened) undid a drag
-  // of the same bar made while the panel was open, or another device's edit.
   // An undated task still gets the dates the panel showed for it.
   const editOpenRef=useRef(null);
-  const selectTask=t=>{const d={...t,startDate:t.startDate||(projectStart||today),dueDate:t.dueDate||(projectEnd||addDays(today,7)),notes:t.notes||''};setSelectedId(t.id);editOpenRef.current=d;setEditDraft(d);};
+  const selectTask=t=>{const d={...t,text:t.text||t.title||'',startDate:t.startDate||(projectStart||today),dueDate:t.dueDate||(projectEnd||addDays(today,7)),notes:t.notes||''};setSelectedId(t.id);editOpenRef.current=d;setEditDraft(d);};
+  const closeEdit=()=>{setSelectedId(null);setEditDraft(null);};
   const saveEdit=()=>{
     if(!editDraft)return;
     const draft=editDraft,patch=bhFormPatch(editOpenRef.current||{},draft);
     onUpdateTasks(ts=>ts.map(t=>String(t.id)!==String(draft.id)?t:{...t,startDate:t.startDate||draft.startDate,dueDate:t.dueDate||draft.dueDate,...patch}));
-    setSelectedId(null);setEditDraft(null);
+    closeEdit();
   };
-  const deleteTask=()=>{if(!editDraft)return;const id=editDraft.id;const removed=tasks.find(t=>String(t.id)===String(id))||editDraft;onUpdateTasks(ts=>ts.filter(t=>String(t.id)!==String(id)));if(onSyncDelete)onSyncDelete(removed);setSelectedId(null);setEditDraft(null);};
+  const deleteTask=()=>{if(!editDraft)return;const id=editDraft.id;const removed=tasks.find(t=>String(t.id)===String(id))||editDraft;onUpdateTasks(ts=>ts.filter(t=>String(t.id)!==String(id)));if(onSyncDelete)onSyncDelete(removed);closeEdit();};
   const cycleStatus=id=>{onUpdateTasks(ts=>ts.map(t=>String(t.id)===String(id)?{...t,status:PTASK_NEXT[t.status]||'Pendente'}:t));if(editDraft&&String(editDraft.id)===String(id))setEditDraft(d=>({...d,status:PTASK_NEXT[d.status]||'Pendente'}));};
   const addTask=()=>{
     if(!newTaskName.trim())return;
     const id=Date.now();
     // When "this week" view is active, default to today so the task is visible immediately.
-    const s=thisWeek ? today : (projectStart||today);
-    const e=thisWeek ? addDays(today,7) : (projectEnd||addDays(today,7));
+    const s=thisWeek?today:(projectStart||today);
+    const e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
     const newTask={id,text:newTaskName.trim(),status:'Pendente',startDate:s,dueDate:e,notes:''};
     onUpdateTasks(ts=>[...ts,newTask]);
     if(onSyncAdd)onSyncAdd(newTask);
     setNewTaskName('');
   };
 
-  // Auto-scroll to center "today" in the visible area
+  // Week: Sunday at the left edge. Otherwise: centre today in the calendar
+  // part of the view (the names column covers the first LEFT_W pixels).
   useEffect(()=>{
-    const el=scrollRef.current;
-    if(!el)return;
+    const el=scrollRef.current;if(!el)return;
     if(thisWeek){el.scrollLeft=0;return;}
-    const targetX=todayOffset-(el.clientWidth/2);
-    el.scrollLeft=Math.max(0,targetX);
-  },[todayOffset,thisWeek,expanded]);
+    el.scrollLeft=Math.max(0,todayX+DAY_W/2-(el.clientWidth-LEFT_W)/2);
+  },[todayX,thisWeek,LEFT_W,viewW>0]);
+
+  const bodyH=Math.max(1,visibleTasks.length)*ROW_H;
+  const collapsedH=HEADER_H+ROW_H*4+1;
+  const taskName=t=>t.text||t.title||'Tarefa sem nome';
+  const fmtDM=d=>d?d.slice(8,10)+'/'+d.slice(5,7):'';
 
   return(
     <div className="card" style={{padding:0,overflow:'hidden',marginBottom:12,flexShrink:0}}>
       {/* Top bar */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--surface)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,padding:'10px 16px',borderBottom:'1px solid var(--border)',background:'var(--surface)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span className="label label-section"><StaveGlyph name="clef"/>Timeline do Projeto</span>
-          <button onClick={toggleThisWeek} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+          <button onClick={toggleThisWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
             <Icon name="calendar" size={10}/> Esta semana
           </button>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <div style={{display:'flex',gap:8,alignItems:'center',flex:'1 1 220px',justifyContent:'flex-end',minWidth:0}}>
           <input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask()}
             placeholder="Nome da tarefa..."
-            style={{border:'1px solid var(--border)',borderRadius:7,padding:'5px 10px',fontSize:'.78rem',fontFamily:'Alegreya Sans,sans-serif',outline:'none',backgroundColor:'var(--bg)',color:'var(--text)',width:160,transition:'border-color .2s'}}
+            style={{border:'1px solid var(--border)',borderRadius:7,padding:'5px 10px',fontSize:'.78rem',fontFamily:'Alegreya Sans,sans-serif',outline:'none',backgroundColor:'var(--bg)',color:'var(--text)',width:160,minWidth:0,flex:'0 1 160px',transition:'border-color .2s'}}
             onFocus={e=>e.target.style.borderColor='var(--text)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
-          <button onClick={addTask} className="btn btn-dark" style={{padding:'5px 12px',fontSize:'.78rem'}}><Icon name="plus" size={12}/> Adicionar</button>
+          <button onClick={addTask} className="btn btn-dark" style={{padding:'5px 12px',fontSize:'.78rem',flexShrink:0}}><Icon name="plus" size={12}/> Adicionar</button>
         </div>
       </div>
 
-      {/* Grid */}
-      <div style={{display:'flex',position:'relative',maxHeight:expanded?2000:180,overflow:'hidden',transition:'max-height .3s ease'}}>
-        {/* Left panel */}
-        <div style={{width:LEFT_W,flexShrink:0,borderRight:'1px solid var(--border)',zIndex:2,background:'var(--surface)',overflowY:'auto'}}>
-          <div style={{height:HEADER_H,borderBottom:'1px solid var(--border)',background:'var(--bg)',display:'flex',alignItems:'flex-end',padding:'0 14px 8px',flexShrink:0}}>
-            <span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.1em',color:'var(--muted)'}}>Tarefa</span>
-          </div>
+      {/* Grid: names (sticky left) + calendar (sticky top) in one scroll area */}
+      <div ref={scrollSetter} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:expanded?'none':collapsedH,position:'relative'}}>
+        <div style={{width:LEFT_W+gridW,position:'relative'}}>
+          <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner="Tarefa"/>
+          <TlBackdrop cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} top={HEADER_H} height={bodyH} today={today}/>
           {visibleTasks.length===0&&(
-            <div style={{padding:'28px 16px',textAlign:'center',color:'var(--muted)',fontSize:'.82rem'}}>
-              <Icon name="calendar-plus" size={24} style={{display:'block',margin:'0 auto 10px',opacity:.3}}/>
-              Adicione tarefas para começar.
+            <div style={{display:'flex',height:ROW_H}}>
+              <div style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 12px',boxSizing:'border-box',color:'var(--muted)',fontSize:'.78rem'}}>
+                {thisWeek?'Nada nesta semana.':'Adicione tarefas para começar.'}
+              </div>
             </div>
           )}
-          {visibleTasks.map((t,tIdx)=>{
+          {visibleTasks.map(t=>{
             const colors=GANTT_COLORS[t.status]||GANTT_COLORS['Pendente'];
             const isSelected=selectedId===t.id;
             const realIdx=tasks.findIndex(x=>x.id===t.id);
+            const name=taskName(t);
+            const g=barGeom(t);
+            const toggleSel=()=>isSelected?closeEdit():selectTask(t);
+            const mode=g.outside?null:tlLabelMode(g.left,g.width,gridW,name,g.width-20),fits=mode==='inside';
+            const grip=(side,clipped)=><TlGrip side={side} clipped={clipped} color={colors.text} onDown={e=>startDrag(e,t,side)}/>;
             return(
-              <div key={t.id}
-                draggable
-                onDragStart={e=>{dragRowRef.current=realIdx;e.dataTransfer.effectAllowed='move';}}
-                onDragOver={e=>{e.preventDefault();dragOverRowRef.current=realIdx;}}
-                onDrop={e=>{
-                  e.preventDefault();
-                  const from=dragRowRef.current;const to=dragOverRowRef.current;
-                  if(from===null||from===to){dragRowRef.current=null;dragOverRowRef.current=null;return;}
-                  onUpdateTasks(ts=>{const reordered=[...ts];const[moved]=reordered.splice(from,1);reordered.splice(to,0,moved);return reordered;});
-                  dragRowRef.current=null;dragOverRowRef.current=null;
-                }}
-                onDragEnd={()=>{dragRowRef.current=null;dragOverRowRef.current=null;}}
-                onClick={()=>isSelected?(setSelectedId(null),setEditDraft(null)):selectTask(t)}
-                style={{height:ROW_H,display:'flex',alignItems:'center',gap:6,padding:'0 8px 0 10px',borderBottom:'1px solid var(--border)',cursor:'pointer',
-                  background:isSelected?'rgba(28,25,23,.05)':'transparent',transition:'background .15s'}}>
-                <span style={{color:'var(--border)',display:'flex',cursor:'grab',flexShrink:0,opacity:.5}} onMouseDown={e=>e.stopPropagation()}><Icon name="grip-vertical" size={10}/></span>
-                <button onClick={e=>{e.stopPropagation();cycleStatus(t.id);}} style={{width:12,height:12,borderRadius:'50%',background:colors.dot,border:'none',cursor:'pointer',flexShrink:0,padding:0,transition:'transform .15s'}}
-                  title={`Status: ${t.status}`} onMouseEnter={e=>e.currentTarget.style.transform='scale(1.4)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}/>                <span onClick={e=>{if(onTaskClick){e.stopPropagation();onTaskClick(t.id);}}} style={{fontSize:'.83rem',fontWeight:500,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
-                  textDecoration:t.status==='Concluído'?'line-through':'none',color:t.status==='Concluído'?'var(--muted)':'var(--text)',
-                  cursor:onTaskClick?'pointer':'default'}}>{t.text}</span>
+              <div key={t.id} style={{display:'flex',height:ROW_H,borderBottom:'1px solid var(--border)',position:'relative'}}>
+                {/* Name cell */}
+                <div draggable
+                  onDragStart={e=>{dragRowRef.current=realIdx;e.dataTransfer.effectAllowed='move';}}
+                  onDragOver={e=>{e.preventDefault();dragOverRowRef.current=realIdx;}}
+                  onDrop={e=>{
+                    e.preventDefault();
+                    const from=dragRowRef.current;const to=dragOverRowRef.current;
+                    if(from===null||from===to){dragRowRef.current=null;dragOverRowRef.current=null;return;}
+                    onUpdateTasks(ts=>{const reordered=[...ts];const[moved]=reordered.splice(from,1);reordered.splice(to,0,moved);return reordered;});
+                    dragRowRef.current=null;dragOverRowRef.current=null;
+                  }}
+                  onDragEnd={()=>{dragRowRef.current=null;dragOverRowRef.current=null;}}
+                  onClick={toggleSel}
+                  style={{position:'sticky',left:0,zIndex:2,width:LEFT_W,flexShrink:0,display:'flex',alignItems:'center',gap:6,padding:'0 8px 0 10px',boxSizing:'border-box',borderRight:'1px solid var(--border)',cursor:'pointer',minWidth:0,
+                    background:isSelected?'color-mix(in srgb,var(--text) 5%,var(--surface))':'var(--surface)',transition:'background .15s'}}>
+                  <span style={{color:'var(--border)',display:'flex',cursor:'grab',flexShrink:0,opacity:.5}} onMouseDown={e=>e.stopPropagation()}><Icon name="grip-vertical" size={10}/></span>
+                  <button onClick={e=>{e.stopPropagation();cycleStatus(t.id);}} style={{width:12,height:12,borderRadius:'50%',background:colors.dot,border:'none',cursor:'pointer',flexShrink:0,padding:0,transition:'transform .15s'}}
+                    title={`Status: ${t.status}`} onMouseEnter={e=>e.currentTarget.style.transform='scale(1.4)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}/>
+                  <span onClick={e=>{if(onTaskClick){e.stopPropagation();onTaskClick(t.id);}}} title={name} style={{fontSize:'.83rem',fontWeight:500,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+                    textDecoration:t.status==='Concluído'?'line-through':'none',color:t.status==='Concluído'?'var(--muted)':(t.text||t.title)?'var(--text)':'var(--muted)',fontStyle:(t.text||t.title)?'normal':'italic',
+                    cursor:onTaskClick?'pointer':'default'}}>{name}</span>
+                </div>
+                {/* Calendar cell */}
+                <div style={{position:'relative',width:gridW,flexShrink:0,overflow:'hidden',zIndex:1}}>
+                  {g.outside
+                    ?<div onClick={e=>{e.stopPropagation();toggleSel();}} title={`${name}\n${fmtShort(g.s)} → ${fmtShort(g.e)}`}
+                      style={{position:'absolute',top:(ROW_H-24)/2,height:24,...(g.outside==='before'?{left:3}:{right:3}),maxWidth:Math.max(60,gridW-6),display:'flex',alignItems:'center',gap:4,padding:'0 8px',boxSizing:'border-box',borderRadius:7,
+                        background:colors.bar,border:`1.5px dashed ${isSelected?'var(--text)':colors.border}`,color:colors.text,fontSize:'.64rem',fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',overflow:'hidden'}}>
+                      <span aria-hidden="true">{g.outside==='before'?'‹':''}</span>
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{name} · prazo {fmtDM(g.e)}</span>
+                      <span aria-hidden="true">{g.outside==='after'?'›':''}</span>
+                    </div>
+                    :<>
+                      <div
+                        onPointerDown={e=>{if(e.button===0)startDrag(e,t,'move');}}
+                        onClick={e=>{e.stopPropagation();if(dragJustMovedRef.current){dragJustMovedRef.current=false;return;}toggleSel();}}
+                        title={`${name}\n${fmtShort(g.s)} → ${fmtShort(g.e)}`}
+                        style={{
+                          position:'absolute',left:g.left+1,width:Math.max(22,g.width-2),height:28,top:(ROW_H-28)/2,boxSizing:'border-box',
+                          background:colors.bar,border:`1.5px solid ${isSelected?'var(--text)':colors.border}`,borderRadius:7,
+                          ...(g.clipStart?{borderTopLeftRadius:2,borderBottomLeftRadius:2,borderLeftStyle:'dashed'}:{}),
+                          ...(g.clipEnd?{borderTopRightRadius:2,borderBottomRightRadius:2,borderRightStyle:'dashed'}:{}),
+                          cursor:'grab',display:'flex',alignItems:'center',overflow:'hidden',
+                          boxShadow:isSelected?'0 0 0 2px var(--text)':'0 1px 4px rgba(28,25,23,.09)',
+                          userSelect:'none',touchAction:'pan-y',transition:'box-shadow .15s,border-color .15s',
+                        }}>
+                        {grip('left',g.clipStart)}
+                        <div style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'.68rem',fontWeight:600,color:colors.text,userSelect:'none'}}>{fits?name:''}</div>
+                        {grip('right',g.clipEnd)}
+                      </div>
+                      {!fits&&<TlOutsideLabel mode={mode} left={g.left} width={g.width} gridW={gridW} text={name} color={colors.text} rowH={ROW_H}/>}
+                    </>}
+                </div>
               </div>
             );
           })}
         </div>
-
-        {/* Scrollable chart */}
-        <div ref={scrollRef} style={{flex:1,overflowX:'auto',overflowY:'auto',position:'relative'}}>
-          <div style={{width:gridW,position:'relative',minWidth:'100%'}}>
-            {/* Month row */}
-            <div style={{height:HEADER_H/2,display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg)'}}>
-              {months.map((m,i)=>(
-                <div key={i} style={{width:m.days*DAY_W,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 10px',
-                  fontSize:'.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)'}}>
-                  {m.label}
-                </div>
-              ))}
-            </div>
-            {/* Day sub-header: weekday initial + day number, hairline between days */}
-            <div style={{height:HEADER_H/2,background:'var(--bg)',borderBottom:'2px solid var(--border)',position:'relative'}}>
-              {Array.from({length:totalDays},(_,d)=>{
-                const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+d);
-                const dow=dt.getDay(),wk=dow===0||dow===6;
-                return <div key={'dh'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:3,boxSizing:'border-box',
-                  borderLeft:d===0?'none':'1px solid rgba(var(--ink),.08)',fontSize:'.62rem',color:wk?'var(--muted)':'var(--text)',pointerEvents:'none'}}>
-                  <span style={{opacity:.55,fontWeight:700,fontSize:'.58rem'}}>{'DSTQQSS'[dow]}</span><span>{dt.getDate()}</span>
-                </div>;
-              })}
-            </div>
-
-            {/* Weekend columns */}
-            {weekendCols.map(d=>(
-              <div key={'we'+d} style={{position:'absolute',left:d*DAY_W,top:0,bottom:0,width:DAY_W,background:'rgba(28,25,23,.045)',pointerEvents:'none',zIndex:0}}/>
-            ))}
-
-            {/* Task rows */}
-            {visibleTasks.map((t,i)=>{
-              const{left,width,clipStart,clipEnd}=barGeom(t);
-              const colors=GANTT_COLORS[t.status]||GANTT_COLORS['Pendente'];
-              const isSelected=selectedId===t.id;
-              return(
-                <div key={t.id} style={{height:ROW_H,position:'relative',borderBottom:'1px solid var(--border)',background:i%2===0?'transparent':'rgba(var(--ink),.02)'}}>
-                  {/* Day-by-day grid lines — subtle for each day, stronger at week boundaries */}
-                  {Array.from({length:totalDays},(_,d)=>(
-                    <div key={'d'+d} style={{position:'absolute',left:d*DAY_W,top:0,bottom:0,borderLeft:d%7===0?'1px dashed var(--border)':'1px solid var(--border)',opacity:d%7===0?.55:.15,pointerEvents:'none'}}/>
-                  ))}
-                  {/* Bar */}
-                  <div
-                    onPointerDown={e=>{if(e.button===0)startDrag(e,t.id,'move');}}
-                    onClick={e=>{e.stopPropagation();if(dragJustMovedRef.current){dragJustMovedRef.current=false;return;}isSelected?(setSelectedId(null),setEditDraft(null)):selectTask(t);}}
-                    title={`${t.text}\n${fmtShort(t.startDate)} \u2192 ${fmtShort(t.dueDate)}`}
-                    style={{
-                      position:'absolute',left,width,height:28,top:(ROW_H-28)/2,
-                      background:colors.bar,border:`1.5px solid ${isSelected?'var(--text)':colors.border}`,borderRadius:7,
-                      cursor:'grab',display:'flex',alignItems:'center',
-                      boxShadow:isSelected?'0 0 0 2px var(--text)':'0 1px 4px rgba(28,25,23,.09)',
-                      userSelect:'none',touchAction:'pan-y',transition:'box-shadow .15s,border-color .15s',
-                    }}>
-                    {/* Left resize */}
-                    <div onPointerDown={e=>{if(e.button===0&&!clipStart)startDrag(e,t.id,'left');}} style={{visibility:clipStart?'hidden':'visible',width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px 0 0 6px',zIndex:1}}
-                      title="Arrastar início"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
-                    <div style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'.68rem',fontWeight:600,color:colors.text,userSelect:'none'}}>{width>60?t.text:''}</div>
-                    {/* Right resize */}
-                    <div onPointerDown={e=>{if(e.button===0&&!clipEnd)startDrag(e,t.id,'right');}} style={{visibility:clipEnd?'hidden':'visible',width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'0 6px 6px 0',zIndex:1}}
-                      title="Arrastar prazo"><span aria-hidden="true" style={{fontSize:9,color:colors.text,opacity:.8,lineHeight:1}}>⠿</span></div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Today line */}
-            {todayOffset>=0&&todayOffset<=gridW&&(
-              <div style={{position:'absolute',left:todayOffset,top:0,bottom:0,width:2,background:'var(--danger-strong)',pointerEvents:'none',zIndex:10}}>
-                <div style={{position:'absolute',top:HEADER_H-18,left:'50%',transform:'translateX(-50%)',background:'color-mix(in srgb,var(--danger-strong) 88%,black)',color:'white',
-                  fontSize:'.62rem',fontWeight:800,padding:'2px 5px',borderRadius:3,whiteSpace:'nowrap',letterSpacing:'.06em'}}>HOJE</div>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Expand/Collapse control */}
-      {visibleTasks.length>0&&(
+      {visibleTasks.length>4&&(
         <div onClick={()=>setExpanded(x=>!x)} {...keyActivate(()=>setExpanded(x=>!x),expanded?'Recolher':'Expandir')} aria-expanded={expanded}
           style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'4px 0',cursor:'pointer',
             borderTop:'1px solid var(--border)',background:'var(--surface)',transition:'background .15s',userSelect:'none'}}
@@ -7504,10 +7579,20 @@ const applyAutoLate=tasks=>{
 };
 const projectTaskMiniStatus=s=>({'Fazendo':'Em Andamento','Concluído':'Concluído','Atrasado':'Atrasado'}[s]||'Pendente');
 const projectTaskToMini=t=>({id:t.id,title:t.text||'Nova Tarefa',status:projectTaskMiniStatus(t.status),notes:t.notes||'',frames:[],innerNotes:[],createdAt:t.createdAt||new Date().toLocaleDateString('pt-BR')});
+// A timeline task with no text rendered as a blank bar. Its task card (same
+// id) usually still has the name, so the task takes it from there.
+const projectTaskNamed=(tasks,minis)=>{
+  const titles=new Map((minis||[]).filter(m=>m&&String(m.title||'').trim()).map(m=>[String(m.id),m.title]));
+  return (tasks||[]).map(t=>{
+    if(!t||String(t.text||'').trim())return t;
+    const name=titles.get(String(t.id))||String(t.title||'').trim();
+    return name?{...t,text:name}:t;
+  });
+};
 
 const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile})=>{
   const [local,setLocal]=useState(()=>{
-    const tasks=applyAutoLate(project.projectTasks);
+    const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
     const miniIds=new Set(minis.map(m=>String(m.id)));
     tasks.forEach(t=>{if(!miniIds.has(String(t.id))){minis.push(projectTaskToMini(t));miniIds.add(String(t.id));}});
@@ -7642,17 +7727,17 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // On mount: persist auto-late status changes back to parent
   useEffect(()=>{
     const original=project.projectTasks||[];
-    const updated=applyAutoLate(original);
+    const updated=projectTaskNamed(applyAutoLate(original),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
     const miniIds=new Set(minis.map(m=>String(m.id)));
     updated.forEach(t=>{if(!miniIds.has(String(t.id))){minis.push(projectTaskToMini(t));miniIds.add(String(t.id));}});
-    const changed=updated.some((t,i)=>t.status!==original[i]?.status)||minis.length!==(project.miniProjects||[]).length||!Array.isArray(project.taskTrash);
+    const changed=updated.some((t,i)=>t.status!==original[i]?.status||t.text!==original[i]?.text)||minis.length!==(project.miniProjects||[]).length||!Array.isArray(project.taskTrash);
     if(changed)onUpdate({...project,projectTasks:updated,miniProjects:minis,taskTrash:Array.isArray(project.taskTrash)?project.taskTrash:[]},project);
   },[]);// runs once on mount
   useEffect(()=>{
     // Only update local if the project changed externally (not from our own upd())
     if(projectRef.current!==project){
-      const tasks=applyAutoLate(project.projectTasks);
+      const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
       const minis=[...(project.miniProjects||[])];
       const miniIds=new Set(minis.map(m=>String(m.id)));
       tasks.forEach(t=>{if(!miniIds.has(String(t.id))){minis.push(projectTaskToMini(t));miniIds.add(String(t.id));}});
@@ -7975,7 +8060,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // mirrored onto the task cards.
   const updateTimelineTasks=next=>edit(prev=>{
     const tasks=typeof next==='function'?next(applyAutoLate(prev.projectTasks||[])):next;
-    const miniProjects=(prev.miniProjects||[]).map(m=>{const pt=tasks.find(t=>String(t.id)===String(m.id));return pt?{...m,title:pt.text,status:ptaskStatusToMini(pt.status)}:m;});
+    const miniProjects=(prev.miniProjects||[]).map(m=>{const pt=tasks.find(t=>String(t.id)===String(m.id));return pt?{...m,title:pt.text||m.title,status:ptaskStatusToMini(pt.status)}:m;});
     return{...prev,projectTasks:tasks,miniProjects};
   });
   const addTimelineTaskCard=pt=>edit(prev=>(prev.miniProjects||[]).some(m=>String(m.id)===String(pt.id))?prev
