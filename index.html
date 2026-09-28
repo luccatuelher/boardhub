@@ -5328,7 +5328,7 @@ const RankSeasonHistory=({rank,onClose})=>{
 // "Não registrar" leaves a session in the list with no record and no label;
 // clicking it opens the registration. 'deferred' is the older "Registrar
 // depois" status and reads the same way.
-const bhSessionUnregistered=row=>!!row&&(row.status==='skipped'||row.status==='deferred');
+const bhSessionUnregistered=row=>!!row&&(row.status==='skipped'||row.status==='deferred'||row.status==='abandoned');
 const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[],projects=[],showPoints=true,pomoData=null,todayExtraSecs=0})=>{
   const [histTab,setHistTab]=useState('sessions');
   const rows=[...(rank.sessions||[])].sort((a,b)=>String(b.endedAt||'').localeCompare(String(a.endedAt||'')));
@@ -5350,7 +5350,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
   const pageCount=Math.max(1,Math.ceil(dayGroups.length/daysPerPage));
   useEffect(()=>{setPage(current=>Math.min(current,pageCount-1));},[pageCount]);
   const visibleGroups=dayGroups.slice(page*daysPerPage,(page+1)*daysPerPage);
-  const statusInfo=(row,post,taskNote)=>row.taskNoteId?(taskNote?{cls:'saved',label:'Na tarefa'}:{cls:'deleted',label:'Nota apagada'}):((row.projectPostId||row.galleryPostId)&&!post)?{cls:'deleted',label:'Post apagado'}:row.status==='abandoned'?{cls:'abandoned',label:'Desistida'}:bhSessionUnregistered(row)?null:row.postDestination==='project'?{cls:'saved',label:'No projeto'}:row.status==='saved-local'?{cls:'local',label:'Neste dispositivo'}:row.status==='saved'?{cls:'saved',label:'Na galeria'}:{cls:'pending',label:'Imagem pendente'};
+  const statusInfo=(row,post,taskNote)=>row.taskNoteId?(taskNote?{cls:'saved',label:'Na tarefa'}:{cls:'deleted',label:'Nota apagada'}):((row.projectPostId||row.galleryPostId)&&!post)?{cls:'deleted',label:'Post apagado'}:bhSessionUnregistered(row)?null:row.postDestination==='project'?{cls:'saved',label:'No projeto'}:row.status==='saved-local'?{cls:'local',label:'Neste dispositivo'}:row.status==='saved'?{cls:'saved',label:'Na galeria'}:{cls:'pending',label:'Imagem pendente'};
   return <Modal title="Histórico de sessões" onClose={onClose} width={680}>
     {pomoData&&<div className="focus-hist-tabs" role="tablist">
       {[['sessions','Sessões'],['days','Por dia'],['months','Por mês']].map(([k,l])=><button key={k} type="button" role="tab" aria-selected={histTab===k} className={histTab===k?'on':''} onClick={()=>setHistTab(k)}>{l}</button>)}
