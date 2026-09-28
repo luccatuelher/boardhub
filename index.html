@@ -643,9 +643,58 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-promotion-copy{position:relative;z-index:1;display:grid;justify-items:center;margin-top:5px;color:#f6f2e8;text-shadow:0 2px 18px rgba(0,0,0,.5);animation:rankCopyIn .55s .35s ease both}
 .rank-promotion-copy span{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.22em;color:#9bd5de}
 .rank-promotion-copy strong{font:600 clamp(2rem,6vw,3.5rem) 'Cormorant Garamond',serif;line-height:1.02}
-.rank-promotion-close{position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:rgba(246,242,232,.6);font:600 .7rem 'Alegreya Sans',sans-serif;letter-spacing:.14em;text-transform:uppercase;animation:rankCopyIn .5s 1.2s ease both}
 .rank-promotion-copy em{font:700 .9rem 'Alegreya Sans',sans-serif;letter-spacing:.2em;color:#d9bd82}
 .rank-status-card{position:relative;z-index:1;width:min(430px,calc(100% - 32px));padding:26px 24px;border:1px solid rgba(255,255,255,.16);border-radius:18px;background:rgba(24,25,28,.94);color:#f6f2e8;text-align:center;box-shadow:0 28px 80px rgba(0,0,0,.45)}.rank-status-card .rank-badge{margin:0 auto 5px}.rank-status-card>span{display:block;font-size:.62rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#9bd5de}.rank-status-card h2{margin:5px 0 3px;font:600 2rem 'Cormorant Garamond',serif}.rank-status-card p{margin:0 auto 16px;max-width:340px;color:#c9c5bc;font-size:.78rem;line-height:1.5}.rank-status-card .btn{justify-content:center;min-width:150px}.rank-status-loss{display:inline-flex;align-items:center;gap:5px;margin:7px 0 13px;padding:5px 10px;border-radius:20px;background:rgba(215,126,69,.14);color:#efb07e;font-size:.74rem;font-weight:700}
+/* RANK PROMOTION — League-of-Legends-style reveal (owner request, 2026-09-28).
+   Timeline (rank): 0s dark in → rays and the OLD emblem charge (0.2–0.9s) →
+   flash + shockwave, NEW emblem lands (0.9s) → title, divisions, gold rule
+   (1.2–1.7s) → "Continuar" (1.9s). Division: the same beats, compressed,
+   without the old emblem. Everything settles; only the rays keep turning. */
+.rank-promo{position:fixed;inset:0;z-index:100000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;color:#f6f2e8;background:#04060a;animation:rpFade .35s ease both;cursor:default;user-select:none;-webkit-user-select:none;padding:24px}
+.rank-promo-vignette{position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,rgba(38,92,112,.55),rgba(9,18,26,.9) 38%,#04060a 70%)}
+.rank-promo.is-rank .rank-promo-vignette{background:radial-gradient(circle at 50% 40%,rgba(120,92,40,.5),rgba(28,40,52,.88) 36%,#04060a 70%)}
+.rank-promo-rays{position:absolute;left:50%;top:40%;width:170vmax;height:170vmax;margin:-85vmax 0 0 -85vmax;background:repeating-conic-gradient(from 0deg,rgba(255,230,170,.075) 0deg 5deg,transparent 5deg 18deg);-webkit-mask:radial-gradient(circle,#000 0,rgba(0,0,0,.6) 18%,transparent 46%);mask:radial-gradient(circle,#000 0,rgba(0,0,0,.6) 18%,transparent 46%);opacity:0;animation:rpRaysIn 1.2s .75s ease-out forwards,rpSpin 40s linear infinite}
+.rank-promo.is-division .rank-promo-rays{background:repeating-conic-gradient(from 0deg,rgba(150,220,235,.09) 0deg 4deg,transparent 4deg 20deg);animation-delay:.25s,0s}
+.rank-promo-ring{position:absolute;left:50%;top:40%;width:180px;height:180px;margin:-90px 0 0 -90px;border-radius:50%;border:2px solid rgba(240,210,140,.85);box-shadow:0 0 24px rgba(240,210,140,.6),inset 0 0 18px rgba(240,210,140,.4);opacity:0;animation:rpRing 1.1s .88s cubic-bezier(.1,.7,.3,1) forwards}
+.rank-promo-ring.r2{animation-delay:1.02s;border-color:rgba(150,220,235,.7);box-shadow:0 0 20px rgba(150,220,235,.5)}
+.rank-promo.is-division .rank-promo-ring{animation-delay:.33s}.rank-promo.is-division .rank-promo-ring.r2{animation-delay:.46s}
+.rank-promo-particles{position:absolute;inset:0;pointer-events:none}
+.rank-promo-particles i{position:absolute;left:calc(50% + var(--x)*42vw);bottom:-12px;width:var(--s);height:var(--s);border-radius:50%;background:radial-gradient(circle,#fff8e0,rgba(240,200,120,.8) 45%,transparent 70%);opacity:0;animation:rpSpark var(--t) var(--d) linear infinite}
+.rank-promo.is-division .rank-promo-particles i{background:radial-gradient(circle,#f0fcff,rgba(140,215,235,.8) 45%,transparent 70%)}
+.rank-promo-stage{position:relative;width:240px;height:240px;margin-top:-6vh;display:flex;align-items:center;justify-content:center}
+.rank-promo-old,.rank-promo-new{position:absolute;display:flex;align-items:center;justify-content:center}
+.rank-promo-old{animation:rpCharge .9s .15s ease-in both}
+.rank-promo-new{opacity:0;animation:rpLand .9s .88s cubic-bezier(.2,.9,.25,1.25) forwards,rpGlow 3.2s 1.8s ease-in-out infinite}
+.rank-promo.is-division .rank-promo-new{animation-delay:.3s,1.2s}
+.rank-promo-flash{position:absolute;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,#fff,rgba(255,236,190,.85) 25%,rgba(255,220,150,.25) 50%,transparent 70%);opacity:0;animation:rpFlash .7s .82s ease-out forwards}
+.rank-promo.is-division .rank-promo-flash{animation-delay:.28s}
+.rank-promo-copy{position:relative;display:grid;justify-items:center;gap:4px;margin-top:22px;text-align:center}
+.rank-promo-kicker{font:700 .72rem 'Alegreya Sans',sans-serif;text-transform:uppercase;letter-spacing:.3em;color:#9bd5de;opacity:0;animation:rpKicker .8s 1.15s ease-out forwards}
+.rank-promo.is-rank .rank-promo-kicker{color:#e9cf8f}
+.rank-promo-name{font:600 clamp(2.4rem,8vw,4.4rem) 'Cormorant Garamond',serif;line-height:1;background:linear-gradient(180deg,#fff7df 0%,#f0d08a 55%,#b88a3e 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 4px 22px rgba(0,0,0,.6));opacity:0;animation:rpName .9s 1.25s cubic-bezier(.2,.8,.2,1) forwards}
+.rank-promo-divs{display:flex;align-items:center;gap:12px;font:700 1rem 'Alegreya Sans',sans-serif;letter-spacing:.18em;opacity:0;animation:rpKicker .6s 1.5s ease-out forwards}
+.rank-promo-divs s{text-decoration:none;color:rgba(246,242,232,.35)}
+.rank-promo-divs b{color:#f0d08a;text-shadow:0 0 14px rgba(240,208,138,.7)}
+.rank-promo-divs span{width:26px;height:1px;background:rgba(240,208,138,.6)}
+.rank-promo-rule{width:0;height:1px;margin-top:10px;background:linear-gradient(90deg,transparent,#f0d08a,transparent);animation:rpRule .8s 1.6s ease-out forwards}
+.rank-promo.is-division .rank-promo-kicker{animation-delay:.55s}.rank-promo.is-division .rank-promo-name{animation-delay:.65s}.rank-promo.is-division .rank-promo-divs{animation-delay:.85s}.rank-promo.is-division .rank-promo-rule{animation-delay:.95s}
+.rank-promo-continue{position:relative;margin-top:30px;padding:11px 44px;border:1px solid rgba(240,208,138,.75);background:linear-gradient(180deg,rgba(40,48,58,.9),rgba(14,18,24,.95));color:#f0d08a;font:700 .78rem 'Alegreya Sans',sans-serif;letter-spacing:.24em;text-transform:uppercase;cursor:pointer;clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 50%,calc(100% - 12px) 100%,12px 100%,0 50%);opacity:0;animation:rpKicker .6s 1.9s ease-out forwards;transition:filter .15s}
+.rank-promo.is-division .rank-promo-continue{animation-delay:1.15s}
+.rank-promo-continue:hover,.rank-promo-continue:focus-visible{filter:brightness(1.3);outline:none}
+.rank-promo-preview{position:absolute;top:max(18px,env(safe-area-inset-top));left:0;right:0;text-align:center;font:600 .66rem 'Alegreya Sans',sans-serif;letter-spacing:.2em;text-transform:uppercase;color:rgba(246,242,232,.45)}
+@keyframes rpFade{from{opacity:0}to{opacity:1}}
+@keyframes rpSpin{to{transform:rotate(360deg)}}
+@keyframes rpRaysIn{to{opacity:1}}
+@keyframes rpRing{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(3.2)}}
+@keyframes rpSpark{0%{opacity:0;transform:translateY(0)}12%{opacity:.9}100%{opacity:0;transform:translateY(-78vh) translateX(calc(var(--x)*-6vw))}}
+@keyframes rpCharge{0%{opacity:0;transform:scale(.85);filter:brightness(.6)}25%{opacity:1;transform:scale(1)}70%{transform:scale(1.04) rotate(-2deg);filter:brightness(1.6) drop-shadow(0 0 18px rgba(255,220,150,.8))}85%{transform:scale(1.06) rotate(2deg)}100%{opacity:0;transform:scale(1.35);filter:brightness(4) blur(6px)}}
+@keyframes rpLand{0%{opacity:0;transform:scale(.35);filter:brightness(3) blur(8px)}55%{opacity:1;transform:scale(1.14);filter:brightness(1.4) blur(0)}100%{opacity:1;transform:scale(1);filter:brightness(1)}}
+@keyframes rpGlow{0%,100%{filter:drop-shadow(0 0 14px rgba(240,208,138,.35))}50%{filter:drop-shadow(0 0 30px rgba(240,208,138,.7))}}
+@keyframes rpFlash{0%{opacity:0;transform:scale(.2)}25%{opacity:1}100%{opacity:0;transform:scale(2.6)}}
+@keyframes rpKicker{from{opacity:0;transform:translateY(8px);letter-spacing:.6em}to{opacity:1;transform:none}}
+@keyframes rpName{0%{opacity:0;transform:scale(1.25);filter:blur(6px) drop-shadow(0 4px 22px rgba(0,0,0,.6))}100%{opacity:1;transform:none;filter:blur(0) drop-shadow(0 4px 22px rgba(0,0,0,.6))}}
+@keyframes rpRule{to{width:min(320px,70vw)}}
+@media(prefers-reduced-motion:reduce){.rank-promo *,.rank-promo{animation-duration:.01s!important;animation-delay:0s!important;animation-iteration-count:1!important}.rank-promo-rays,.rank-promo-particles,.rank-promo-ring,.rank-promo-flash,.rank-promo-old{display:none}.rank-promo-rule{width:min(320px,70vw)}}
 @keyframes rankOverlayIn{from{opacity:0}to{opacity:1}}
 @keyframes rankAura{0%{opacity:0;transform:scale(.25)}45%{opacity:1}100%{opacity:.5;transform:scale(1.12)}}
 @keyframes rankBadgeRise{0%{opacity:0;transform:translateY(24px) scale(.65) rotate(-5deg)}65%{opacity:1;transform:translateY(-5px) scale(1.06)}100%{transform:none}}
@@ -4943,6 +4992,37 @@ const _bhVoiceRig = ctx => {
   return { note, voice, roll };
 };
 
+// RANK PROMOTION JINGLE, in the Pomodoro's own voice (the Rhodes rig) and
+// key. The session cues live in D minor; a promotion resolves to D MAJOR, the
+// brightest arrival that key owns, through the idiom's cadence (ii–V–I) with
+// rootless voicings and a rolled, swung feel. Division: a short V–I lift.
+// Rank: a rising arpeggio, the full ii–V–I, a low D under a 6/9 and a bell
+// cascade on top. Follows the ♪ switch like every other sound.
+const playRankPromotionSound = (major) => {
+  if (!_pomoSoundOn) return;
+  try {
+    const ctx = _getAudioCtx();
+    if (!ctx) return;
+    const { voice, roll } = _bhVoiceRig(ctx);
+    const T = ctx.currentTime + 0.05;
+    const Em9 = [196.00, 246.94, 293.66, 369.99];          // G B D F#
+    const A13 = [196.00, 277.18, 369.99, 493.88];          // G C# F# B
+    const D69 = [369.99, 440.00, 493.88, 659.25];          // F# A B E
+    if (!major) {
+      roll(A13, T, 0.11, 1.0, 0.03, 0.9);
+      roll([146.83, ...D69], T + 0.34, 0.14, 2.8, 0.032, 1.25);
+      voice(1174.66, T + 0.66, 0.045, 1.4, 1.6);
+      voice(1479.98, T + 0.80, 0.035, 1.3, 1.6);
+      return;
+    }
+    [293.66, 369.99, 440.00, 493.88, 587.33, 659.25].forEach((f, i) => voice(f, T + i * 0.075, 0.06, 0.9, 1.1));
+    roll(Em9, T + 0.58, 0.11, 1.1, 0.03, 0.9);
+    roll(A13, T + 0.96, 0.12, 1.0, 0.03, 1.0);
+    roll([73.42, 146.83, ...D69, 880.00], T + 1.40, 0.16, 4.8, 0.04, 1.3);
+    [1174.66, 1479.98, 1760.00, 2349.32].forEach((f, i) => voice(f, T + 1.75 + i * 0.11, 0.035 - i * 0.004, 1.6, 1.8));
+  } catch (e) { bhLog('rank.promotionSound', e); }
+};
+
 const playPomoSound = (type) => {
   if (!_pomoSoundOn) return;
   try {
@@ -5476,21 +5556,45 @@ const RANK_CELEBRATED_KEY='boardhub_rank_celebrated_v1';
 const bhRankCelebratedLoad=()=>{try{const v=JSON.parse(localStorage.getItem(RANK_CELEBRATED_KEY)||'null');return v&&typeof v.seasonId==='string'?v:null;}catch{return null;}};
 const bhRankCelebratedSave=pos=>{try{localStorage.setItem(RANK_CELEBRATED_KEY,JSON.stringify({seasonId:pos.seasonId,rankIndex:pos.rankIndex,division:pos.division}));}catch(e){bhLog('rank.celebrated',e);}};
 const bhRankLevel=p=>(Number(p?.rankIndex)||0)*6+(Number(p?.division)||0);
-// Promotion moment. It stays until closed (a click anywhere, or Esc): it used
-// to vanish after 2-3s, so a session ending while the user looked away was
-// celebrated to nobody.
+// Promotion moment, League-of-Legends style: the old emblem charges and
+// breaks in a flash, the new one lands with a shockwave, the title reveals,
+// then "Continuar". It stays until closed (the button, Esc, or a tap once the
+// reveal has finished) — it used to vanish after 2-3s, so a session ending
+// while the user looked away was celebrated to nobody. Plays the jingle.
 const RankPromotionOverlay=({promotion,onDone})=>{
-  useEffect(()=>{const k=e=>{if(e.key==='Escape')onDone();};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[onDone]);
   const isRank=promotion.type==='rank';
-  return ReactDOM.createPortal(<div className={'rank-promotion '+(isRank?'rank-promotion-major':'rank-promotion-division')} onClick={onDone} role="dialog" aria-modal="true" aria-live="assertive" aria-label={(isRank?'Novo rank: ':'Nova divisão: ')+promotion.position.rankName+' '+promotion.position.divisionRoman}>
-    <div className="rank-promotion-aura"/>
-    <div className="rank-promotion-mark"><RankBadge rankIndex={promotion.position.rankIndex} size={isRank?150:118} label={promotion.position.rankName}/></div>
-    <div className="rank-promotion-copy">
-      <span>{isRank?'Novo rank':'Nova divisão'}</span>
-      <strong>{promotion.position.rankName}</strong>
-      <em>{promotion.position.divisionRoman}</em>
+  const to=promotion.position;
+  const from=promotion.from||(isRank?{rankIndex:Math.max(0,to.rankIndex-1),division:5}:{rankIndex:to.rankIndex,division:Math.max(0,to.division-1)});
+  const [ready,setReady]=useState(false);
+  const btnRef=useRef(null);
+  useEffect(()=>{
+    playRankPromotionSound(isRank);
+    const t=setTimeout(()=>{setReady(true);btnRef.current?.focus({preventScroll:true});},isRank?1900:1150);
+    return()=>clearTimeout(t);
+  },[]);//eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{const k=e=>{if(e.key==='Escape')onDone();};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[onDone]);
+  const sparks=useMemo(()=>Array.from({length:isRank?34:20},()=>({x:(Math.random()*2-1).toFixed(3),s:(3+Math.random()*5).toFixed(1)+'px',t:(2.6+Math.random()*2.8).toFixed(2)+'s',d:((isRank?.9:.3)+Math.random()*2.4).toFixed(2)+'s'})),[isRank]);
+  const fromRoman=RANK_ROMANS[from.division]||'';
+  const small=typeof window!=='undefined'&&window.innerWidth<520;
+  const newSize=small?(isRank?168:140):(isRank?228:184),oldSize=Math.round(newSize*.86);
+  return ReactDOM.createPortal(<div className={'rank-promo '+(isRank?'is-rank':'is-division')} onClick={()=>{if(ready)onDone();}} role="dialog" aria-modal="true" aria-live="assertive" aria-label={(isRank?'Novo rank: ':'Nova divisão: ')+to.rankName+' '+to.divisionRoman}>
+    <div className="rank-promo-vignette"/>
+    <div className="rank-promo-rays"/>
+    <div className="rank-promo-particles" aria-hidden="true">{sparks.map((p,i)=><i key={i} style={{'--x':p.x,'--s':p.s,'--t':p.t,'--d':p.d}}/>)}</div>
+    <div className="rank-promo-ring" aria-hidden="true"/><div className="rank-promo-ring r2" aria-hidden="true"/>
+    {promotion.preview&&<div className="rank-promo-preview">Pré-visualização</div>}
+    <div className="rank-promo-stage" aria-hidden="true">
+      {isRank&&<div className="rank-promo-old"><RankBadge rankIndex={from.rankIndex} size={oldSize}/></div>}
+      <div className="rank-promo-flash"/>
+      <div className="rank-promo-new"><RankBadge rankIndex={to.rankIndex} size={newSize}/></div>
     </div>
-    <div className="rank-promotion-close">{promotion.preview?'Pré-visualização · ':''}Toque para fechar</div>
+    <div className="rank-promo-copy">
+      <span className="rank-promo-kicker">{isRank?'Promovido':'Nova divisão'}</span>
+      <strong className="rank-promo-name">{to.rankName}</strong>
+      <div className="rank-promo-divs">{isRank?<b>{to.divisionRoman}</b>:<><s>{fromRoman}</s><span/><b>{to.divisionRoman}</b></>}</div>
+      <div className="rank-promo-rule"/>
+    </div>
+    <button ref={btnRef} type="button" className="rank-promo-continue" onClick={e=>{e.stopPropagation();onDone();}}>{promotion.preview?'Fechar':'Continuar'}</button>
   </div>,document.body);
 };
 
@@ -12851,7 +12955,7 @@ const App=()=>{
     // A real promotion that arrived while a preview was open is shown now.
     if(p&&p.preview&&rankPosRef.current){
       const seen=bhRankCelebratedLoad(),cur=rankPosRef.current;
-      if(seen&&seen.seasonId===cur.seasonId&&bhRankLevel(cur)>bhRankLevel(seen))return{type:cur.rankIndex>seen.rankIndex?'rank':'division',position:cur};
+      if(seen&&seen.seasonId===cur.seasonId&&bhRankLevel(cur)>bhRankLevel(seen))return{type:cur.rankIndex>seen.rankIndex?'rank':'division',position:cur,from:seen};
     }
     return null;
   }),[]);
@@ -13143,7 +13247,7 @@ const App=()=>{
     // celebrate, just remember where the rank stands.
     if(!seen||seen.seasonId!==current.seasonId||bhRankLevel(current)<bhRankLevel(seen)){bhRankCelebratedSave(current);return;}
     if(bhRankLevel(current)===bhRankLevel(seen))return;
-    setRankPromotion(p=>p&&p.preview?p:{type:current.rankIndex>seen.rankIndex?'rank':'division',position:current});
+    setRankPromotion(p=>p&&p.preview?p:{type:current.rankIndex>seen.rankIndex?'rank':'division',position:current,from:seen});
   },[pomoData?.rank?.points,pomoData?.rank?.seasonId,pomoData?.rank?.paused]);
 
   useEffect(()=>{ pomoSave(pomoData); },[pomoData]);
