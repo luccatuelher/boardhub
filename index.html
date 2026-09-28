@@ -6610,7 +6610,7 @@ const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone,initial
           <div key={t.id} className="task-row" style={{paddingTop:7,paddingBottom:7}}>
             <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>onToggle(t.id)}/>
             {editing&&editing.id===t.id
-              ?<input autoFocus value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onBlur={commit}
+              ?<input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onBlur={commit}
                  onKeyDown={e=>{if(e.key==='Enter')commit();if(e.key==='Escape'){e.stopPropagation();setEditing(null);}}} aria-label="Texto da atividade"
                  style={{flex:1,minWidth:0,border:'none',borderBottom:'1px solid var(--text)',outline:'none',background:'transparent',font:'inherit',fontSize:'.84rem',color:'var(--text)'}}/>
               :<span onDoubleClick={()=>setEditing({id:t.id,text:t.text||''})} style={{flex:1,minWidth:0,fontSize:'.84rem',textDecoration:t.done?'line-through':'none',color:t.done?'var(--muted)':'var(--text)',lineHeight:1.4,wordBreak:'break-word'}}>{t.text}</span>}
@@ -7013,14 +7013,16 @@ const tlPointerDrag=(e,DAY_W,onDays,onEnd)=>{
   window.addEventListener('pointerup',onUp);
   window.addEventListener('pointercancel',onUp);
 };
-// Resize grip at either end of a bar; a clipped end shows a chevron.
-const TlGrip=({side,clipped,color,onDown,unit='semana'})=>(
-  <div onPointerDown={e=>{if(e.button===0)onDown(e,side);}}
-    title={side==='left'?(clipped?'Começa antes desta '+unit+' — arraste para mudar':'Arrastar início'):(clipped?'Termina depois desta '+unit+' — arraste para mudar':'Arrastar prazo')}
+// Resize grip at either end of a bar. An end cut off by the visible window
+// (the task starts before it or ends after it) has NO grip: that edge is not
+// the task's real date, so there is nothing to drag there (owner, 2026-09-28).
+const TlGrip=({side,clipped,color,onDown})=>clipped
+  ?<div aria-hidden="true" style={{width:7,height:'100%',flexShrink:0}}/>
+  :<div onPointerDown={e=>{if(e.button===0)onDown(e,side);}}
+    title={side==='left'?'Arrastar início':'Arrastar prazo'}
     style={{width:10,height:'100%',cursor:'ew-resize',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,touchAction:'none'}}>
-    <span aria-hidden="true" style={{fontSize:clipped?11:9,fontWeight:clipped?700:400,color,opacity:.8,lineHeight:1}}>{clipped?(side==='left'?'‹':'›'):'⠿'}</span>
-  </div>
-);
+    <span aria-hidden="true" style={{fontSize:9,color,opacity:.8,lineHeight:1}}>⠿</span>
+  </div>;
 
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
@@ -7161,9 +7163,9 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
                           title={label+' · '+r.t.status+'\n'+fmtShort(r.s)+' \u2192 '+fmtShort(r.e)}
                           style={{position:'absolute',left,width:Math.max(22,width),top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:onUpdateTask?'grab':'pointer',userSelect:'none',touchAction:'pan-y',
                             ...(g.clipStart?{borderTopLeftRadius:2,borderBottomLeftRadius:2,borderLeftStyle:'dashed'}:{}),...(g.clipEnd?{borderTopRightRadius:2,borderBottomRightRadius:2,borderRightStyle:'dashed'}:{})}}>
-                          {onUpdateTask?<TlGrip side="left" clipped={g.clipStart} color={c.text} onDown={e=>startDrag(e,r,'left',g)} unit={thisWeek?'semana':'janela'}/>:<span style={{width:6,flexShrink:0}}/>}
+                          {onUpdateTask?<TlGrip side="left" clipped={g.clipStart} color={c.text} onDown={e=>startDrag(e,r,'left',g)}/>:<span style={{width:6,flexShrink:0}}/>}
                           <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fits?label:''}</span>
-                          {onUpdateTask&&<TlGrip side="right" clipped={g.clipEnd} color={c.text} onDown={e=>startDrag(e,r,'right',g)} unit={thisWeek?'semana':'janela'}/>}
+                          {onUpdateTask&&<TlGrip side="right" clipped={g.clipEnd} color={c.text} onDown={e=>startDrag(e,r,'right',g)}/>}
                         </div>
                       </>)}
                   </div>
@@ -9162,17 +9164,6 @@ const galleryMovePost=(order,postId,to)=>{
   next.splice(to.atEnd?_galleryBlockEnd(next,start):start+1,0,key);
   return next;
 };
-// Swaps a post with its neighbour inside the same block (dir -1/+1). Section
-// boundaries are not crossed: that is what the section picker is for.
-const galleryNudgePost=(order,postId,dir,isPost)=>{
-  const i=order.indexOf(String(postId));
-  if(i<0)return order;
-  let j=i+dir;
-  while(j>=0&&j<order.length&&!isGallerySectionKey(order[j])&&!isPost(order[j]))j+=dir;
-  if(j<0||j>=order.length||isGallerySectionKey(order[j]))return order;
-  const next=[...order];[next[i],next[j]]=[next[j],next[i]];
-  return next;
-};
 // Moves a section marker together with every post under it.
 const galleryMoveSection=(order,sectionId,beforeSectionId)=>{
   const start=order.indexOf(gallerySectionKey(sectionId));
@@ -9379,11 +9370,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     if(sortMode!=='manual')return;
     editManualOrder(order=>galleryMovePost(order,postId,{section:sectionId,atEnd}));
   };
-  const nudgePost=(postId,dir)=>{
-    if(sortMode!=='manual')return;
-    const ids=new Set(active.map(p=>String(p.id)));
-    editManualOrder(order=>galleryNudgePost(order,postId,dir,k=>ids.has(k)));
-  };
   const [editingSectionId,setEditingSectionId]=useState(null);
   const [sectionLabel,setSectionLabel]=useState('');
   const sectionDragRef=useRef(null);
@@ -9410,19 +9396,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     if(dir>0&&i<ids.length-1)editManualOrder(order=>galleryMoveSection(order,id,ids[i+2]??null));
   };
   // Position of the open post inside its block, for the "move" arrows.
-  const selectedPlace=useMemo(()=>{
-    if(!selected||!fullLayout)return null;
-    for(const g of fullLayout){
-      const i=g.posts.findIndex(p=>String(p.id)===String(selected.id));
-      if(i>=0)return {index:i,count:g.posts.length};
-    }
-    return null;
-  },[fullLayout,selected?.id]);
-  const selectedSectionId=useMemo(()=>{
-    if(!selected||!fullLayout)return undefined;
-    const g=fullLayout.find(g=>g.posts.some(p=>String(p.id)===String(selected.id)));
-    return g?(g.section?.id??null):undefined;
-  },[fullLayout,selected?.id]);
   // Field-level write on the stored post: writing back the whole `selected`
   // snapshot could undo an image change (upload, reorder) that landed between
   // the snapshot and this keystroke.
@@ -9669,34 +9642,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             ))}
           </div>
         </div>
-        {/* Manual position — the touch/keyboard alternative to dragging. */}
-        {sortMode==='manual'&&selectedPlace&&selectedPlace.count>1&&(
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
-            <span className="label label-field" style={{flexShrink:0}}>Posição</span>
-            <button className="gallery-chip" onClick={()=>nudgePost(selected.id,-1)} disabled={selectedPlace.index===0} aria-label="Mover para antes"><Icon name="arrow-left" size={11}/> Antes</button>
-            <span style={{fontSize:'.75rem',color:'var(--muted)',minWidth:44,textAlign:'center'}}>{selectedPlace.index+1} de {selectedPlace.count}</span>
-            <button className="gallery-chip" onClick={()=>nudgePost(selected.id,1)} disabled={selectedPlace.index===selectedPlace.count-1} aria-label="Mover para depois">Depois <Icon name="arrow-right" size={11}/></button>
-          </div>
-        )}
-        {/* Section selector — only for manual folders that have sections.
-            Also the touch-friendly way to file a post, since HTML5 drag does
-            not fire on phones. */}
-        {sortMode==='manual'&&hasSections&&selectedSectionId!==undefined&&(
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
-            <span className="label label-field" style={{flexShrink:0}}>Seção</span>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {fullLayout.map(g=>{
-                const sid=g.section?.id??null;
-                const on=selectedSectionId===sid;
-                return(
-                  <button key={sid??'__none'} onClick={()=>{if(!on)movePostToSection(selected.id,sid,true);}} aria-pressed={on}
-                    className={`gallery-chip${on?' on':''}`}>
-                    {g.section?g.section.label:'Sem seção'}
-                  </button>);
-              })}
-            </div>
-          </div>
-        )}
+        {/* Position and section are managed from the Gallery grid itself. */}
         {/* Date editor */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
@@ -9789,7 +9735,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                 onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='0'}/>
               {editingFolderId===f.id
                 ? <>
-                    <input autoFocus value={editingLabel} onChange={e=>setEditingLabel(e.target.value)}
+                    <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={editingLabel} onChange={e=>setEditingLabel(e.target.value)}
                       onBlur={()=>{if(folderRenameCancelRef.current){folderRenameCancelRef.current=false;return;}renameFolder(f.id,editingLabel);setEditingFolderId(null);}}
                       onKeyDown={e=>{if(e.key==='Enter'){renameFolder(f.id,editingLabel);setEditingFolderId(null);}if(e.key==='Escape'){e.stopPropagation();folderRenameCancelRef.current=true;setEditingFolderId(null);}}}
                       style={{background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',fontWeight:activeFolder===f.id?600:500,color:'var(--text)',width:Math.max(60,editingLabel.length*9)+'px',padding:'10px 0'}}
@@ -9936,7 +9882,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                       if(postDragRef.current!=null){movePostToSection(postDragRef.current,sid,false);postDragRef.current=null;postDragEndRef.current=Date.now();}
                     }}>
                     {editingSectionId===sid&&g.section
-                      ? <input autoFocus value={sectionLabel} onChange={e=>setSectionLabel(e.target.value)} aria-label="Nome da seção"
+                      ? <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={sectionLabel} onChange={e=>setSectionLabel(e.target.value)} aria-label="Nome da seção"
                           onFocus={e=>e.target.select()}
                           onBlur={()=>renameSection(sid,sectionLabel)}
                           onKeyDown={e=>{if(e.key==='Enter')renameSection(sid,sectionLabel);if(e.key==='Escape')setEditingSectionId(null);}}
@@ -11232,7 +11178,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
           {!(isCategory(n)||isFolder(n))&&<span style={{width:11,flexShrink:0}}/>}
           <Icon name={open&&isFolder(n)?'folder-open':meta.icon} size={11} style={{color:'var(--muted)',flexShrink:0}}/>
           {isRenaming&& !showTrash
-            ? <input autoFocus value={renaming.value} onChange={e=>setRenaming(r=>({...r,value:e.target.value}))} onBlur={commitRename}
+            ? <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={renaming.value} onChange={e=>setRenaming(r=>({...r,value:e.target.value}))} onBlur={commitRename}
                 onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commitRename();}if(e.key==='Escape')setRenaming(null);}}
                 onClick={e=>e.stopPropagation()} style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
             : <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>}
@@ -11890,7 +11836,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
             return <div key={cat.id} style={{display:'flex',alignItems:'center',gap:2,borderBottom:on?'2px solid var(--text)':'2px solid transparent',marginBottom:-1,flexShrink:0}}>
               {editingCat&&String(editingCat.id)===String(cat.id)
                 ?<>
-                  <input autoFocus value={editingCat.label} onChange={e=>setEditingCat({id:cat.id,label:e.target.value})} aria-label="Nome da categoria"
+                  <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={editingCat.label} onChange={e=>setEditingCat({id:cat.id,label:e.target.value})} aria-label="Nome da categoria"
                     onBlur={()=>{renameCategory(cat.id,editingCat.label);setEditingCat(null);}}
                     onKeyDown={e=>{if(e.key==='Enter'){renameCategory(cat.id,editingCat.label);setEditingCat(null);}if(e.key==='Escape'){e.stopPropagation();setEditingCat(null);}}}
                     style={{background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',fontWeight:600,color:'var(--text)',width:Math.max(70,editingCat.label.length*9)+'px',padding:'10px 4px'}}/>
@@ -12325,14 +12271,14 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       {/* Danger zone */}
       <div style={{borderTop:'1px solid var(--border)',paddingTop:12}}>
         <span className="label label-section" style={{display:'block',marginBottom:8,color:'var(--danger-fg)'}}>Zona Perigosa</span>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button className="btn btn-outline" onClick={onResetIdentity} style={{fontSize:'.82rem'}}>
+        <div className="danger-row" style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          <button className="btn btn-outline" onClick={onResetIdentity} style={{fontSize:'.8rem',padding:'7px 11px'}}>
             <Icon name="pencil" size={13}/> Renomear Hub
           </button>
           {/* v23.5 P1-1: emergency hatch for the bundle cache. The source hash
               already invalidates it on its own, but if the app ever opens odd
               this button returns the boot to the pure Babel path. */}
-          <button className="btn btn-outline" style={{fontSize:'.82rem'}}
+          <button className="btn btn-outline" style={{fontSize:'.8rem',padding:'7px 11px'}}
             title={'Recompila o app do zero no próximo carregamento. Origem deste boot: '+bundleSource}
             onClick={async()=>{
               if(!await bhConfirm({title:'Limpar cache do app',confirmLabel:'Limpar',
@@ -12344,19 +12290,19 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             }}>
             <Icon name="refresh-cw" size={13}/> Limpar cache do app ({bundleSource})
           </button>
-          <button className="btn btn-danger" onClick={async()=>{if(await bhConfirm({title:'Resetar tudo',danger:true,confirmLabel:'Resetar',message:'Resetar todos os dados para o estado inicial? Esta ação não pode ser desfeita.'}))onClearSave();}}>
+          <button className="btn btn-danger" style={{fontSize:'.8rem',padding:'7px 11px'}} onClick={async()=>{if(await bhConfirm({title:'Resetar tudo',danger:true,confirmLabel:'Resetar',message:'Resetar todos os dados para o estado inicial? Esta ação não pode ser desfeita.'}))onClearSave();}}>
             <Icon name="alert-triangle" size={14}/> Resetar tudo
+          </button>
+          <button className="btn btn-outline" style={{fontSize:'.8rem',padding:'7px 11px'}} aria-expanded={diagOpen}
+            onClick={()=>{setDiagOpen(o=>!o);setDiagLog(bhLogAll());}}>
+            <Icon name="stethoscope" size={13}/> Diagnóstico ({diagCount})
           </button>
         </div>
         {/* F3.3 — the failure diary, which until now only existed in the console.
             It is READ-ONLY plus copy and clear: the value is being able to hand
             the log to someone, not to act on it from here. Collapsed by default
             because in a healthy session it is empty and would just be noise. */}
-        <div style={{marginTop:14}}>
-          <button className="btn btn-outline" style={{fontSize:'.82rem'}}
-            onClick={()=>{setDiagOpen(o=>!o);setDiagLog(bhLogAll());}}>
-            <Icon name="stethoscope" size={13}/> Diagnóstico ({diagCount})
-          </button>
+        <div style={{marginTop:diagOpen?14:0}}>
           {diagOpen&&(
             <div style={{marginTop:10}}>
               {diagLog.length===0
@@ -12528,7 +12474,7 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
           </div>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',paddingTop:4,borderTop:'1px solid var(--border)'}}>
-          <button className="btn btn-danger" onClick={onDelete}><Icon name="trash-2" size={14}/> Excluir</button>
+          <button className="btn btn-danger" onClick={onDelete} title="Mover para a lixeira"><Icon name="trash-2" size={14}/> Lixeira</button>
           <div style={{display:'flex',gap:8}}>
             <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
             <button className="btn btn-dark" onClick={()=>onSave(bhFormPatch(initialRef.current,form))}><Icon name="check" size={14}/> Salvar</button>
@@ -12611,11 +12557,22 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     setSelected(null);
   };
 
-  const del=async()=>{
-    if(!await bhConfirm({message:'Excluir mentor permanentemente?',danger:true,confirmLabel:'Excluir'}))return;
-    setMentors(p=>p.filter(m=>m.id!==selected.id));
+  // Deleting moves the mentor to the trash (restorable; purged after 30 days
+  // like every other trash). Only the trash's own button deletes for good.
+  const [trash,setTrash]=useState(false);
+  const trashed=mentors.filter(m=>m&&m.deleted);
+  const del=()=>{
+    const id=selected.id;
+    setMentors(p=>p.map(m=>String(m.id)===String(id)?{...m,deleted:true,deletedAt:new Date().toISOString()}:m));
     setSelected(null);
   };
+  const restore=id=>setMentors(p=>{
+    // A restored main mentor keeps its star only while there are fewer than 3.
+    const mains=p.filter(m=>!m.deleted&&m.main).length;
+    return p.map(m=>String(m.id)===String(id)?{...m,deleted:false,deletedAt:null,...(m.main&&mains>=3?{main:false}:{})}:m);
+  });
+  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'}))setMentors(p=>p.filter(m=>String(m.id)!==String(id)));};
+  useEffect(()=>{if(trash&&trashed.length===0)setTrash(false);},[trash,trashed.length]);
 
   const selectedFresh=selected?mentors.find(m=>m.id===selected.id)||null:null;
 
@@ -12627,9 +12584,34 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
           <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="q12"/>Mentores</h1>
           {!isMobile&&<p style={{color:'var(--muted)',fontSize:'.85rem',margin:0}}>Referencias, influencias e guias de estudo.</p>}
         </div>
-        <button className="btn btn-dark" onClick={add}><Icon name="user-plus" size={14}/> Adicionar</button>
+        <div style={{display:'flex',gap:8}}>
+          {(trashed.length>0||trash)&&<button onClick={()=>setTrash(t=>!t)} className={`btn ${trash?'btn-danger':'btn-outline'}`}>
+            <Icon name="trash-2" size={13}/>{trash?'Sair':'Lixeira'}{!trash&&` (${trashed.length})`}
+          </button>}
+          {!trash&&<button className="btn btn-dark" onClick={add}><Icon name="user-plus" size={14}/> Adicionar</button>}
+        </div>
       </div>
-      {mentors.filter(m=>!m.deleted).length>0&&(
+      {trash&&<>
+        <TrashBanner label="Mentores" onExit={()=>setTrash(false)}/>
+        <div className="card" style={{overflow:'hidden',borderRadius:12}}>
+          {trashed.map(m=>(
+            <div key={m.id} className="compact-row" style={{cursor:'default'}}>
+              {m.photo
+                ?<Img src={m.photo} style={{width:40,height:40,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                :<div style={{width:40,height:40,borderRadius:'50%',background:'var(--bg)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Cormorant Garamond,serif',fontSize:'1.1rem',fontWeight:500}}>{(m.name||'?').charAt(0)}</div>}
+              <div className="compact-row-info">
+                <div className="compact-row-title">{m.name||'Sem nome'}</div>
+                <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
+              </div>
+              <div style={{display:'flex',gap:5,flexShrink:0}}>
+                <button onClick={()=>restore(m.id)} className="btn btn-outline" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Restaurar" aria-label={'Restaurar '+(m.name||'mentor')}><Icon name="refresh-cw" size={11}/></button>
+                <button onClick={()=>hardDelete(m.id)} className="btn btn-danger" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Excluir permanentemente" aria-label={'Excluir permanentemente '+(m.name||'mentor')}><Icon name="trash-2" size={11}/></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>}
+      {!trash&&mentors.filter(m=>!m.deleted).length>0&&(
         <div style={{position:'relative',marginBottom:16}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)}
@@ -12641,7 +12623,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
         </div>
       )}
       {/* Year tabs */}
-      {years.length>0&&(
+      {!trash&&years.length>0&&(
         <div style={{display:'flex',borderBottom:'1px solid var(--border)',marginBottom:20,gap:0,overflowX:'auto'}}>
           <button onClick={()=>setActiveYear('all')} className="tab-btn"
             style={{color:activeYear==='all'?'var(--text)':'var(--muted)',borderBottom:activeYear==='all'?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>
@@ -12655,13 +12637,13 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
           ))}
         </div>
       )}
-      {visible.length===0&&(
+      {!trash&&visible.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)'}}>
           <Icon name="book-open" size={36} style={{marginBottom:12,opacity:.3}}/>
           <p style={{fontSize:'.9rem',margin:0}}>{search?'Nenhum mentor encontrado.':'Adicione seu primeiro mentor acima.'}</p>
         </div>
       )}
-      {isMobile?(
+      {!trash&&(isMobile?(
         <div className="card" style={{overflow:'hidden',borderRadius:12}}>
           {visible.map(m=>(
             <div key={m.id} draggable className="compact-row drag-item"
@@ -12725,7 +12707,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
           );
         })}
         </div>
-      )}
+      ))}
     </div>
   );
 });
