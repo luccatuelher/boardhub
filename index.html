@@ -4992,69 +4992,63 @@ const _bhVoiceRig = (ctx, out = ctx.destination) => {
   return { note, voice, roll };
 };
 
-// RANK PROMOTION JINGLE, in the Pomodoro's own voice (the Rhodes rig).
-// Chosen by the owner (2026-09-28) from three candidates after "too upbeat /
-// too high" and then "too low": the MIDDLE register (fundamentals D3..A4, well
-// below the 2-4 kHz band that reads as shrill), a short RISING motif — the
-// contour games use for "achieved" — landing on a sustained A over D major.
-// The final chord lands with the new emblem (0.9s rank, 0.3s division).
-// Follows the ♪ switch.
-const _RP = {D3:146.83,G3:196.00,A3:220.00,Cs4:277.18,D4:293.66,E4:329.63,Fs4:369.99,A4:440.00};
-const playRankPromotionSound = (major) => {
-  if (!_pomoSoundOn) return;
-  try {
-    const ctx = _getAudioCtx();
-    if (!ctx) return;
-    const { voice, roll } = _bhVoiceRig(ctx);
-    const T = ctx.currentTime + 0.05, n = _RP;
-    if (!major) {
-      voice(n.D4, T, 0.08, 1.2, 0.7);
-      voice(n.Fs4, T + 0.16, 0.085, 1.3, 0.7);
-      roll([n.D3, n.A3, n.D4, n.Fs4], T + 0.32, 0.11, 3.0, 0.035, 0.6);
-      voice(n.A4, T + 0.34, 0.10, 3.2, 0.7);
-      return;
-    }
-    roll([n.D3, n.G3, n.A3, n.D4], T, 0.085, 1.3, 0.04, 0.5);         // A sus: the lift
-    voice(n.A3, T + 0.30, 0.08, 1.1, 0.7);                              // rising motif
-    voice(n.D4, T + 0.46, 0.085, 1.2, 0.7);
-    voice(n.Fs4, T + 0.62, 0.09, 1.3, 0.7);
-    roll([n.D3, n.A3, n.Cs4, n.E4, n.Fs4], T + 0.90, 0.13, 4.0, 0.045, 0.6); // D add9
-    voice(n.A4, T + 0.92, 0.11, 4.3, 0.7);                               // sustained A
-  } catch (e) { bhLog('rank.promotionSound', e); }
-};
-// After the fanfare, a quiet loop keeps playing until the overlay closes:
-// slow arpeggios over D - Bm7 - Gmaj7 - Asus (I-vi-IV-V, the calm-theme
-// cycle), same voice and register, faded in and faded out on close. A small
-// look-ahead scheduler keeps it seamless. Returns the stop function.
-const startRankPromotionLoop = () => {
+// RANK PROMOTION MUSIC, in the Pomodoro's own voice (the Rhodes rig). One
+// piece for divisions and ranks alike (owner, 2026-09-28): it plays from the
+// first instant until the overlay closes, and the fanfare is PART of it.
+// The owner chose the middle register (D3..A4, below the shrill 2-4 kHz band)
+// and the rising motif; then asked for the loop to run from the start, in
+// harmony, and more upbeat. So everything sits on one 96 bpm grid:
+//   pickup — the motif as eighths (A3 D4 F#4 for a rank, over an A sus lift;
+//            D4 F#4 as sixteenths for a division), then
+//   bar 1  — lands on the downbeat with D add9 and a sustained A4, in time
+//            with the new emblem (0.94s rank, 0.31s division), and
+//   loop   — D - Bm7 - Gmaj7 - A7 (I-vi-IV-V): eighth-note arpeggios, bass on
+//            1 and 3, short rolled stabs on 2 and 4.
+// A look-ahead scheduler keeps it seamless; the returned function fades it
+// out. Follows the ♪ switch.
+const startRankPromotionMusic = (major, dest) => {
   if (!_pomoSoundOn) return () => {};
   try {
     const ctx = _getAudioCtx();
     if (!ctx) return () => {};
     const out = ctx.createGain();
-    out.gain.value = 0; out.connect(ctx.destination);
+    out.gain.value = 1; out.connect(dest || ctx.destination);
     const { voice, roll } = _bhVoiceRig(ctx, out);
-    const beat = 60 / 72, bar = beat * 4;
+    const beat = 60 / 96, e8 = beat / 2, bar = beat * 4;
+    const T = ctx.currentTime + 0.05;
+    // Pickup, then the landing downbeat L.
+    let L;
+    if (major) {
+      roll([146.83, 196.00, 220.00, 293.66], T, 0.075, 1.3, 0.035, 0.5);      // A sus lift
+      [220.00, 293.66, 369.99].forEach((f, k) => voice(f, T + k * e8, 0.085, 0.9, 0.7));
+      L = T + 3 * e8;
+    } else {
+      [293.66, 369.99].forEach((f, k) => voice(f, T + k * (e8 / 2), 0.085, 0.8, 0.7));
+      L = T + e8;
+    }
+    roll([146.83, 220.00, 277.18, 329.63, 369.99], L, 0.12, 3.2, 0.03, 0.6);   // D add9
+    voice(440.00, L + 0.01, 0.10, 3.4, 0.7);                                    // sustained A
     const PROG = [
-      { pad: [146.83, 220.00, 277.18, 329.63], arp: [369.99, 440.00, 329.63, 369.99] }, // Dmaj9
-      { pad: [123.47, 185.00, 220.00, 293.66], arp: [293.66, 369.99, 440.00, 369.99] }, // Bm7
-      { pad: [ 98.00, 146.83, 185.00, 246.94], arp: [246.94, 293.66, 369.99, 293.66] }, // Gmaj7
-      { pad: [110.00, 146.83, 164.81, 196.00], arp: [329.63, 392.00, 440.00, 392.00] }, // A sus
+      { tones: [293.66, 369.99, 440.00, 329.63], bass: [73.42, 110.00], stab: [220.00, 277.18, 369.99] },  // D
+      { tones: [246.94, 293.66, 369.99, 440.00], bass: [61.74, 92.50],  stab: [220.00, 293.66, 369.99] },  // Bm7
+      { tones: [196.00, 246.94, 293.66, 369.99], bass: [98.00, 146.83], stab: [246.94, 293.66, 369.99] },  // Gmaj7
+      { tones: [220.00, 277.18, 329.63, 392.00], bass: [110.00, 82.41], stab: [196.00, 277.18, 329.63] },  // A7
     ];
-    let next = ctx.currentTime + 0.1, i = 0, stopped = false;
-    out.gain.setValueAtTime(0, next);
-    out.gain.linearRampToValueAtTime(1, next + 3);
+    const PATTERN = [0, 1, 2, 1, 3, 1, 2, 1];
+    let next = L, i = 0, stopped = false;
     const schedule = () => {
       if (stopped) return;
-      while (next < ctx.currentTime + 1.5) {
-        const c = PROG[i % PROG.length];
-        roll(c.pad, next, 0.032, bar * 1.15, 0.06, 0.3);
-        c.arp.forEach((f, k) => voice(f, next + k * beat, 0.026, beat * 2.4, 0.4));
+      while (next < ctx.currentTime + 1.2) {
+        const c = PROG[i % PROG.length], first = i === 0;
+        PATTERN.forEach((k, j) => voice(c.tones[k], next + j * e8, first ? 0.02 : 0.03, e8 * 2.6, 0.45));
+        voice(c.bass[0] * 2, next, 0.055, beat * 1.6, 0.2);
+        voice(c.bass[1] * 2, next + 2 * beat, 0.05, beat * 1.6, 0.2);
+        [1, 3].forEach(q => roll(c.stab, next + q * beat, 0.022, 0.45, 0.012, 0.3));
         next += bar; i++;
       }
     };
     schedule();
-    const id = setInterval(schedule, 400);
+    const id = setInterval(schedule, 300);
     return () => {
       if (stopped) return;
       stopped = true; clearInterval(id);
@@ -5062,9 +5056,9 @@ const startRankPromotionLoop = () => {
       out.gain.cancelScheduledValues(t);
       out.gain.setValueAtTime(out.gain.value, t);
       out.gain.linearRampToValueAtTime(0, t + 0.8);
-      setTimeout(() => { try { out.disconnect(); } catch (e) {/*silent-ok: already disconnected*/} }, 1300);
+      setTimeout(() => { try { out.disconnect(); } catch (err) {/*silent-ok: already disconnected*/} }, 1300);
     };
-  } catch (e) { bhLog('rank.promotionLoop', e); return () => {}; }
+  } catch (err) { bhLog('rank.promotionMusic', err); return () => {}; }
 };
 
 const playPomoSound = (type) => {
@@ -5612,15 +5606,13 @@ const RankPromotionOverlay=({promotion,onDone})=>{
   const [ready,setReady]=useState(false);
   const btnRef=useRef(null);
   useEffect(()=>{
-    playRankPromotionSound(isRank);
+    // The music (fanfare + loop, one piece) runs until the overlay closes or
+    // the page is hidden.
+    const stopMusic=startRankPromotionMusic(isRank);
     const t=setTimeout(()=>{setReady(true);btnRef.current?.focus({preventScroll:true});},isRank?1900:1150);
-    // The loop starts as the fanfare settles and stops when the overlay closes
-    // (or the page is hidden).
-    let stopLoop=null;
-    const tl=setTimeout(()=>{stopLoop=startRankPromotionLoop();},isRank?2600:1500);
-    const onHide=()=>{if(document.visibilityState==='hidden'&&stopLoop){stopLoop();}};
+    const onHide=()=>{if(document.visibilityState==='hidden')stopMusic();};
     document.addEventListener('visibilitychange',onHide);
-    return()=>{clearTimeout(t);clearTimeout(tl);document.removeEventListener('visibilitychange',onHide);if(stopLoop)stopLoop();};
+    return()=>{clearTimeout(t);document.removeEventListener('visibilitychange',onHide);stopMusic();};
   },[]);//eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{const k=e=>{if(e.key==='Escape')onDone();};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[onDone]);
   const sparks=useMemo(()=>Array.from({length:isRank?34:20},()=>({x:(Math.random()*2-1).toFixed(3),s:(3+Math.random()*5).toFixed(1)+'px',t:(2.6+Math.random()*2.8).toFixed(2)+'s',d:((isRank?.9:.3)+Math.random()*2.4).toFixed(2)+'s'})),[isRank]);
