@@ -694,11 +694,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes rpKicker{from{opacity:0;transform:translateY(8px);letter-spacing:.6em}to{opacity:1;transform:none}}
 @keyframes rpName{0%{opacity:0;transform:scale(1.25);filter:blur(6px) drop-shadow(0 4px 22px rgba(0,0,0,.6))}100%{opacity:1;transform:none;filter:blur(0) drop-shadow(0 4px 22px rgba(0,0,0,.6))}}
 @keyframes rpRule{to{width:min(320px,70vw)}}
-/* Reduced motion: the owner wants the reveal itself to play (a static final
-   frame read as "the animation does not work"), so only the continuous and
-   flashing parts go: spinning rays, looping sparks, the glow pulse and the
-   white flash. The staged entrance stays. */
-@media(prefers-reduced-motion:reduce){.rank-promo-rays{animation:rpRaysIn 1.2s .75s ease-out forwards}.rank-promo.is-division .rank-promo-rays{animation-delay:.25s}.rank-promo-particles,.rank-promo-flash{display:none}.rank-promo-new{animation:rpLand .9s .88s cubic-bezier(.2,.9,.25,1.25) forwards}.rank-promo.is-division .rank-promo-new{animation-delay:.3s}}
+/* No reduced-motion variant: the owner wants the reveal identical everywhere. */
 @keyframes rankOverlayIn{from{opacity:0}to{opacity:1}}
 @keyframes rankAura{0%{opacity:0;transform:scale(.25)}45%{opacity:1}100%{opacity:.5;transform:scale(1.12)}}
 @keyframes rankBadgeRise{0%{opacity:0;transform:translateY(24px) scale(.65) rotate(-5deg)}65%{opacity:1;transform:translateY(-5px) scale(1.06)}100%{transform:none}}
