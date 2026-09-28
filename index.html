@@ -636,6 +636,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-promotion-copy{position:relative;z-index:1;display:grid;justify-items:center;margin-top:5px;color:#f6f2e8;text-shadow:0 2px 18px rgba(0,0,0,.5);animation:rankCopyIn .55s .35s ease both}
 .rank-promotion-copy span{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.22em;color:#9bd5de}
 .rank-promotion-copy strong{font:600 clamp(2rem,6vw,3.5rem) 'Cormorant Garamond',serif;line-height:1.02}
+.rank-promotion-close{position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:rgba(246,242,232,.6);font:600 .7rem 'Alegreya Sans',sans-serif;letter-spacing:.14em;text-transform:uppercase;animation:rankCopyIn .5s 1.2s ease both}
 .rank-promotion-copy em{font:700 .9rem 'Alegreya Sans',sans-serif;letter-spacing:.2em;color:#d9bd82}
 .rank-status-card{position:relative;z-index:1;width:min(430px,calc(100% - 32px));padding:26px 24px;border:1px solid rgba(255,255,255,.16);border-radius:18px;background:rgba(24,25,28,.94);color:#f6f2e8;text-align:center;box-shadow:0 28px 80px rgba(0,0,0,.45)}.rank-status-card .rank-badge{margin:0 auto 5px}.rank-status-card>span{display:block;font-size:.62rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#9bd5de}.rank-status-card h2{margin:5px 0 3px;font:600 2rem 'Cormorant Garamond',serif}.rank-status-card p{margin:0 auto 16px;max-width:340px;color:#c9c5bc;font-size:.78rem;line-height:1.5}.rank-status-card .btn{justify-content:center;min-width:150px}.rank-status-loss{display:inline-flex;align-items:center;gap:5px;margin:7px 0 13px;padding:5px 10px;border-radius:20px;background:rgba(215,126,69,.14);color:#efb07e;font-size:.74rem;font-weight:700}
 @keyframes rankOverlayIn{from{opacity:0}to{opacity:1}}
@@ -5333,7 +5334,9 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   const projectedDrop=projectedLoss>0&&(projectedPosition.rankIndex<pos.rankIndex||projectedPosition.division<pos.division);
   return <>
     <section className="rank-profile-panel" aria-label={'Perfil ranqueado: '+pos.rankName+' '+pos.divisionRoman}>
-      <div className="rank-panel-emblem"><RankBadge rankIndex={pos.rankIndex} size={isMobile?112:isSmall?148:168} label={pos.rankName+' '+pos.divisionRoman}/></div>
+      <div className="rank-panel-emblem" role="button" tabIndex={0} title="Ver a animação de subida" style={{cursor:'pointer'}}
+        onClick={()=>window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}))}
+        onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}));}}}><RankBadge rankIndex={pos.rankIndex} size={isMobile?112:isSmall?148:168} label={pos.rankName+' '+pos.divisionRoman}/></div>
       <div className="rank-panel-main">
         <div className="rank-profile-kicker">Perfil ranqueado · Temporada {season.roman}</div>
         <div className="rank-panel-title"><span>{pos.rankName}</span><strong>{pos.divisionRoman}</strong></div>
@@ -5540,10 +5543,21 @@ const RankStatusOverlay=({notice,onDone})=>{
     </div>
   </div>,document.body);
 };
+// The last rank position celebrated ON THIS DEVICE. A promotion is shown
+// whenever the current position passes it (earned here, on another device, or
+// while this one was closed) and is marked seen only when its overlay is
+// closed, so it is never spent on a hidden screen.
+const RANK_CELEBRATED_KEY='boardhub_rank_celebrated_v1';
+const bhRankCelebratedLoad=()=>{try{const v=JSON.parse(localStorage.getItem(RANK_CELEBRATED_KEY)||'null');return v&&typeof v.seasonId==='string'?v:null;}catch{return null;}};
+const bhRankCelebratedSave=pos=>{try{localStorage.setItem(RANK_CELEBRATED_KEY,JSON.stringify({seasonId:pos.seasonId,rankIndex:pos.rankIndex,division:pos.division}));}catch(e){bhLog('rank.celebrated',e);}};
+const bhRankLevel=p=>(Number(p?.rankIndex)||0)*6+(Number(p?.division)||0);
+// Promotion moment. It stays until closed (a click anywhere, or Esc): it used
+// to vanish after 2-3s, so a session ending while the user looked away was
+// celebrated to nobody.
 const RankPromotionOverlay=({promotion,onDone})=>{
-  useEffect(()=>{const id=setTimeout(onDone,promotion.type==='rank'?3100:2200);return()=>clearTimeout(id);},[promotion,onDone]);
+  useEffect(()=>{const k=e=>{if(e.key==='Escape')onDone();};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[onDone]);
   const isRank=promotion.type==='rank';
-  return ReactDOM.createPortal(<div className={'rank-promotion '+(isRank?'rank-promotion-major':'rank-promotion-division')} onClick={onDone} role="status" aria-live="assertive">
+  return ReactDOM.createPortal(<div className={'rank-promotion '+(isRank?'rank-promotion-major':'rank-promotion-division')} onClick={onDone} role="dialog" aria-modal="true" aria-live="assertive" aria-label={(isRank?'Novo rank: ':'Nova divisão: ')+promotion.position.rankName+' '+promotion.position.divisionRoman}>
     <div className="rank-promotion-aura"/>
     <div className="rank-promotion-mark"><RankBadge rankIndex={promotion.position.rankIndex} size={isRank?150:118} label={promotion.position.rankName}/></div>
     <div className="rank-promotion-copy">
@@ -5551,6 +5565,7 @@ const RankPromotionOverlay=({promotion,onDone})=>{
       <strong>{promotion.position.rankName}</strong>
       <em>{promotion.position.divisionRoman}</em>
     </div>
+    <div className="rank-promotion-close">{promotion.preview?'Pré-visualização · ':''}Toque para fechar</div>
   </div>,document.body);
 };
 
@@ -12161,6 +12176,11 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             </div>
             <BhSwitch checked={ranksEnabled} onChange={onSetRanksEnabled} label="Ranks ativados" style={{flexShrink:0}}/>
           </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:10,alignItems:'center'}}>
+            <span style={{fontSize:'.72rem',color:'var(--muted)'}}>Ver animação:</span>
+            <button type="button" className="btn btn-outline" style={{padding:'4px 10px',fontSize:'.74rem'}} onClick={()=>window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'division'}}))}>Nova divisão</button>
+            <button type="button" className="btn btn-outline" style={{padding:'4px 10px',fontSize:'.74rem'}} onClick={()=>window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}))}>Novo rank</button>
+          </div>
         </div>);
       })()}
 
@@ -12833,13 +12853,25 @@ const App=()=>{
   },[pomoData?.rank?.sessions]);
   // Recovery is now an explicit user operation.
   const [rankPromotion,setRankPromotion]=useState(null);
-  const dismissRankPromotion=useCallback(()=>setRankPromotion(null),[]);
+  const rankPosRef=useRef(null);
+  const dismissRankPromotion=useCallback(()=>setRankPromotion(p=>{
+    if(p&&!p.preview&&rankPosRef.current)bhRankCelebratedSave(rankPosRef.current);
+    return null;
+  }),[]);
   const _remoteApplyId=useRef(0);
-  const rankRemoteSeenRef=useRef(0);
-  const previousRankRef=useRef((()=>{
-    const rank=rankNormalize(pomoData?.rank);
-    return {seasonId:rank.seasonId,...rankPosition(rank.points)};
-  })());
+  // Shown only while the page is actually on screen.
+  const [pageVisible,setPageVisible]=useState(()=>typeof document==='undefined'||document.visibilityState!=='hidden');
+  useEffect(()=>{const v=()=>setPageVisible(document.visibilityState!=='hidden');document.addEventListener('visibilitychange',v);return()=>document.removeEventListener('visibilitychange',v);},[]);
+  // "Ver animação" (rank panel emblem, Sincronizar > Ranks) replays the
+  // moment for the current position without marking anything.
+  useEffect(()=>{
+    const onPreview=e=>{
+      const rank=rankNormalize(_latestState.current?.pomoData?.rank);
+      setRankPromotion({type:e?.detail?.type==='rank'?'rank':'division',position:{seasonId:rank.seasonId,...rankPosition(rank.points)},preview:true});
+    };
+    window.addEventListener('bh-rank-preview',onPreview);
+    return()=>window.removeEventListener('bh-rank-preview',onPreview);
+  },[]);
   const pendingSession=useMemo(()=>{
     const rank=rankNormalize(pomoData?.rank);
     return (rank.sessions||[]).find(s=>s&&s.status==='pending')||null;
@@ -13106,16 +13138,16 @@ const App=()=>{
   // update quietly, while an earned boundary gets exactly one promotion moment.
   useEffect(()=>{
     const rank=rankNormalize(pomoData?.rank);
+    if(rankIsPaused(rank))return;
     const current={seasonId:rank.seasonId,...rankPosition(rank.points)};
-    const previous=previousRankRef.current;
-    const wasRemote=_remoteApplyId.current!==rankRemoteSeenRef.current;
-    rankRemoteSeenRef.current=_remoteApplyId.current;
-    if(!wasRemote&&previous&&current.seasonId===previous.seasonId&&current.points>previous.points){
-      if(current.rankIndex>previous.rankIndex)setRankPromotion({type:'rank',position:current});
-      else if(current.division>previous.division)setRankPromotion({type:'division',position:current});
-    }
-    previousRankRef.current=current;
-  },[pomoData?.rank?.points,pomoData?.rank?.seasonId]);
+    rankPosRef.current=current;
+    const seen=bhRankCelebratedLoad();
+    // First run on this device, a new season, or a drop (decay): nothing to
+    // celebrate, just remember where the rank stands.
+    if(!seen||seen.seasonId!==current.seasonId||bhRankLevel(current)<bhRankLevel(seen)){bhRankCelebratedSave(current);return;}
+    if(bhRankLevel(current)===bhRankLevel(seen))return;
+    setRankPromotion(p=>p&&p.preview?p:{type:current.rankIndex>seen.rankIndex?'rank':'division',position:current});
+  },[pomoData?.rank?.points,pomoData?.rank?.seasonId,pomoData?.rank?.paused]);
 
   useEffect(()=>{ pomoSave(pomoData); },[pomoData]);
 
@@ -14091,7 +14123,7 @@ const App=()=>{
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
       {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} lastTaskId={pendingLastTaskId} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
       {ranksEnabled&&pendingRankNotice&&!pendingSession&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
-      {ranksEnabled&&rankPromotion&&!pendingSession&&!pendingRankNotice&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
+      {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
         ?<SidebarMobile activeView={view} setView={navigate} resetView={resetView} setForceMobile={setForceMobile} hubName={identity?.hubName} onOpenCmd={()=>setShowCmdPalette(true)} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
         :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
