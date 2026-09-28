@@ -473,6 +473,11 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    the number fixed here broke once already: the geometry changed, the CSS was
    left behind, and the rod started rotating around a point that no longer
    existed. */
+/* The metronome was drawn at 76px and hard to read at a glance; it is the
+   card's main element now (owner request, 2026-09-28). The drawing scales
+   with the box — the pivot and drag math are in SVG units / relative to it. */
+.pomo-metronome{width:120px;height:120px;}
+@media (max-width:640px){.pomo-metronome{width:100px;height:100px;}}
 .bh-pendulum{transform-box:view-box;transform-origin:38px var(--pivot,34px);animation:bhPendulum var(--beat,.5s) cubic-bezier(.42,0,.58,1) infinite alternate;}
 /* There is NO prefers-reduced-motion suppression here, and that is deliberate —
    but the REASON changed on 2026-08-03 and the old one no longer applies.
@@ -1397,7 +1402,7 @@ const bhLocalSupersededDecision=({localSig,remoteSig,localAt,now,localHasData,lo
 const bhPushSettled=(pushedGen,currentGen)=>pushedGen===currentGen;
 const bhCounts=s=>({
   projects:(s.projects||[]).filter(p=>!p.deleted).length,
-  clients:(s.clients||[]).filter(c=>!c.deleted).length,
+  clients:(s.clients||[]).filter(c=>c&&!c.deleted&&c.kind!=='category').length,
   notes:(s.notes||[]).filter(n=>!n.deleted).length,
   tasks:(s.tasks||[]).length,
   posts:(s.galleryPosts||[]).filter(p=>p&&!p.deleted).length,
@@ -3998,7 +4003,7 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       return own.concat(entries);
     }),
     ...(mentors||[]).filter(m=>!m.deleted).map(m=>({title:m.name,icon:'graduation-cap',meta:m.area,action:()=>bhOpenItem('mentors',m.id,onNavigate),type:'Mentor',haystack:bhSearchText(m.name,m.area)})),
-    ...(clients||[]).filter(c=>!c.deleted).map(c=>({title:c.name,icon:'users',meta:c.company,action:()=>bhOpenItem('clients',c.id,onNavigate),type:'Cliente',haystack:bhSearchText(c.name,c.company)})),
+    ...(clients||[]).filter(c=>c&&!c.deleted&&c.kind!=='category').map(c=>({title:c.name,icon:'users',meta:c.company,action:()=>bhOpenItem('clients',c.id,onNavigate),type:'Contato',haystack:bhSearchText(c.name,c.company)})),
     ...(galleryPosts||[]).filter(g=>!g.deleted).map(g=>({title:g.title,icon:'image',meta:bhSearchPreview(g.content).slice(0,50),action:()=>onSelectGalleryPost?.(g),type:isProjectScopedPost(g)?'Projeto':'Galeria',haystack:bhSearchText(g.title,g.content)})),
   ],[projects,notes,mentors,clients,galleryPosts,onNavigate,onSelectProject,onSelectNote,onSelectGalleryPost,onOpenProjectItem]);
   const results=useMemo(()=>{
@@ -4011,7 +4016,7 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       {title:'Anotações',icon:'notebook-pen',action:()=>onNavigate('ideas'),type:'Navegar'},
       {title:'Mentores',icon:'graduation-cap',action:()=>onNavigate('mentors'),type:'Navegar'},
       {title:'Social Media',icon:'share-2',action:()=>onNavigate('social'),type:'Navegar'},
-      {title:'Clientes',icon:'users',action:()=>onNavigate('clients'),type:'Navegar'},
+      {title:'Contatos',icon:'users',action:()=>onNavigate('clients'),type:'Navegar'},
       {title:'Sincronizar',icon:'refresh-cw',action:()=>onNavigate('sync'),type:'Navegar'},
     ];
     if(!q){
@@ -4084,7 +4089,7 @@ const NAV_ITEMS=[
   {id:'ideas',    icon:'notebook-pen',       label:'Anotações'},
   {id:'mentors',  icon:'graduation-cap',  label:'Mentores'},
   {id:'social',   icon:'share-2',         label:'Social'},
-  {id:'clients',  icon:'users',           label:'Clientes'},
+  {id:'clients',  icon:'users',           label:'Contatos'},
   {id:'sync',     icon:'refresh-cw',      label:'Sincronizar'},
 ];
 
@@ -4267,7 +4272,7 @@ const TAB_ITEMS=[
 const MORE_ITEMS=[
   {id:'mentors',  icon:'graduation-cap',  label:'Mentores'},
   {id:'social',   icon:'share-2',         label:'Social Media'},
-  {id:'clients',  icon:'users',           label:'Clientes'},
+  {id:'clients',  icon:'users',           label:'Contatos'},
   {id:'sync',     icon:'refresh-cw',      label:'Sincronizar'},
 ];
 
@@ -6070,9 +6075,9 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects} showPoints={!rankIsPaused(pomoData?.rank)}/>}
 
       {!showStats&&(
-        <div className="card" style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:14}}>
-          <div ref={circleRef}
-            style={{position:'relative',width:76,height:76,flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
+        <div className="card" style={{padding:'8px 12px 8px 8px',display:'flex',alignItems:'center',gap:10}}>
+          <div ref={circleRef} className="pomo-metronome"
+            style={{position:'relative',flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
             title={!isActive?'Arraste para cima/baixo para ajustar de 1 a 60 min':'Pause o timer para ajustar a duração'}
             onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
@@ -6082,7 +6087,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                 stroke-dashoffset — only travelling the pyramid's outline instead
                 of the circumference. pathLength="100" normalises the perimeter,
                 so the percentage arithmetic does not need to know the geometry. */}
-            <svg width="76" height="76" viewBox="0 0 76 76" style={{position:'absolute',top:0,left:0}}>
+            <svg width="100%" height="100%" viewBox="0 0 76 76" style={{position:'absolute',top:0,left:0}}>
               {/* Body: fixed outline. Time is NO LONGER drawn on top of the
                   outline — it becomes the bar in the base, easier to read at a
                   glance than a stroke travelling around a polygon. */}
@@ -9377,7 +9382,10 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                 <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
                   <div style={{width:32,height:32,borderRadius:'50%',background:'rgba(0,0,0,.45)',display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}>
                     <Icon name="play" size={14} style={{color:'white',marginLeft:2}}/></div></div></>
-              :<Img src={src} className={trash?'':'img-zoom'} alt={post.title||''} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}
+              // While a cover loads the box stays plain black: the alt text (the post's
+              // title) was drawn inside it first, and the placeholder was grey.
+              // The title is already right below the image.
+              :<Img src={src} className={trash?'':'img-zoom'} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
         </div>
         <div style={{padding:'12px 14px'}}>
           <div style={{fontWeight:600,fontSize:'.82rem',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title||'Sem título'}</div>
@@ -11408,7 +11416,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
 });
 
 // - CLIENT DETAIL -
-const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelectProject})=>{
+const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelectProject,categories=[]})=>{
   const [form,setForm]=useState({name:'',company:'',email:'',role:'',status:'Lead',notes:'',photo:'',...client});
   // Every other editor in BoardHub saves as you go; here "Voltar" silently
   // threw away edits unless "Salvar" was pressed first. Leaving now keeps them.
@@ -11461,6 +11469,9 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
             {/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email||'')&&<a className="btn btn-outline" href={'mailto:'+form.email} title="Escrever email" aria-label={'Escrever email para '+form.email} style={{padding:'0 10px'}}><Icon name="mail" size={14}/></a>}</div></Field>
           <Field label="Status"><select className="input-box" value={form.status||'Lead'} onChange={e=>set('status',e.target.value)} style={{cursor:'pointer'}}><option>Ativo</option><option>Lead</option><option>Inativo</option><option>Arquivado</option></select></Field>
         </div>
+        {categories.length>0&&<div style={{marginBottom:16}}><Field label="Categoria"><select className="input-box" value={form.categoryId==null?'':String(form.categoryId)} onChange={e=>set('categoryId',e.target.value||null)} style={{cursor:'pointer'}}>
+          <option value="">Sem categoria</option>{categories.map(c=><option key={c.id} value={String(c.id)}>{c.name||'Sem nome'}</option>)}
+        </select></Field></div>}
         <Field label="Notas & Histórico"><textarea className="input-box" rows={4} value={form.notes||''} onChange={e=>set('notes',e.target.value)} placeholder="Preferências, histórico de projetos..." style={{resize:'vertical',lineHeight:1.7,minHeight:100}}/></Field>
       </div>
       {linked.length>0&&(
@@ -11486,7 +11497,28 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
 };
 
 // - CLIENTS -
-const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,onClientRenamed})=>{
+// CONTACTS (the tab was "Clientes"). Categories live in the same synced list
+// as records {kind:'category'}, so they travel with sync and backups without a
+// new document field; contacts point at one with categoryId.
+const bhIsContactCategory=c=>!!c&&c.kind==='category';
+const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSelectProject,onClientRenamed})=>{
+  const clients=useMemo(()=>(allClients||[]).filter(c=>c&&!bhIsContactCategory(c)),[allClients]);
+  const categories=useMemo(()=>(allClients||[]).filter(c=>bhIsContactCategory(c)&&!c.deleted),[allClients]);
+  const CAT_KEY='boardhub_contacts_category';
+  const [activeCat,setActiveCatRaw]=useState(()=>{try{return localStorage.getItem(CAT_KEY)||'all';}catch{return'all';}});
+  const setActiveCat=v=>{setActiveCatRaw(v);try{localStorage.setItem(CAT_KEY,String(v));}catch(e){bhLog('contacts.category',e);}};
+  const catId=activeCat!=='all'&&categories.some(c=>String(c.id)===String(activeCat))?String(activeCat):'all';
+  const [editingCat,setEditingCat]=useState(null); // {id,label}
+  const addCategory=()=>{const n={id:'ccat-'+Date.now(),kind:'category',name:'Nova categoria',deleted:false};setClients(p=>[...p,n]);setActiveCat(n.id);setEditingCat({id:n.id,label:n.name});};
+  const renameCategory=(id,label)=>{const v=String(label||'').trim();if(v)setClients(p=>p.map(c=>String(c.id)===String(id)?{...c,name:v}:c));};
+  const deleteCategory=async id=>{
+    const cat=categories.find(c=>String(c.id)===String(id));if(!cat)return;
+    const n=clients.filter(c=>!c.deleted&&String(c.categoryId)===String(id)).length;
+    if(!await bhConfirm({title:'Excluir categoria',message:'Excluir a categoria "'+cat.name+'"?'+(n?'\n\nOs '+n+' contato(s) dela continuam em "Todos".':''),danger:true,confirmLabel:'Excluir'}))return;
+    setClients(p=>p.filter(c=>String(c.id)!==String(id)).map(c=>String(c.categoryId)===String(id)?{...c,categoryId:null}:c));
+    setEditingCat(null);setActiveCat('all');
+  };
+  const catCounts=useMemo(()=>{const m=new Map();clients.forEach(c=>{if(!c.deleted&&c.categoryId!=null)m.set(String(c.categoryId),(m.get(String(c.categoryId))||0)+1);});return m;},[clients]);
   const [selected,setSelected]=useState(null);
   const [trash,setTrash]=useState(false);
   // Opened from the command palette (bhOpenItem).
@@ -11515,28 +11547,33 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,
   const softDelete=()=>{setClients(p=>p.map(c=>c.id===selected.id?{...c,deleted:true,deletedAt:new Date().toISOString()}:c));setSelected(null);};
   const restore=id=>setClients(p=>p.map(c=>c.id===id?{...c,deleted:false,deletedAt:null}:c));
   const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setClients(p=>p.filter(c=>c.id!==id));}}
-  const add=()=>{const n={id:Date.now(),name:'Novo Cliente',company:'',email:'',role:'',status:'Lead',notes:'',photo:'',deleted:false};setClients(p=>[n,...p]);setSelected(n);};
+  const add=()=>{const n={id:Date.now(),name:'Novo Contato',company:'',email:'',role:'',status:'Lead',notes:'',photo:'',categoryId:catId==='all'?null:catId,deleted:false};setClients(p=>[n,...p]);setSelected(n);};
   const [clientSort,setClientSort]=useState(()=>{try{return localStorage.getItem('boardhub_clients_sort')||'manual';}catch{return 'manual';}});
   const changeClientSort=v=>{setClientSort(v);try{localStorage.setItem('boardhub_clients_sort',v);}catch(e){bhLog('clients.sort',e);}};
   const CLIENT_STATUS_ORDER=['Ativo','Lead','Inativo','Arquivado'];
   const visible=useMemo(()=>{
-    const list=clients.filter(c=>trash?c.deleted:!c.deleted);
+    const list=clients.filter(c=>trash?c.deleted:(!c.deleted&&(catId==='all'||String(c.categoryId)===catId)));
     if(trash||clientSort==='manual')return list;
     const byName=(a,b)=>String(a.name||'').localeCompare(String(b.name||''),'pt-BR',{sensitivity:'base'});
     if(clientSort==='name')return [...list].sort(byName);
     if(clientSort==='company')return [...list].sort((a,b)=>String(a.company||'~').localeCompare(String(b.company||'~'),'pt-BR',{sensitivity:'base'})||byName(a,b));
     if(clientSort==='status')return [...list].sort((a,b)=>{const i=x=>{const k=CLIENT_STATUS_ORDER.indexOf(x.status);return k<0?99:k;};return i(a)-i(b)||byName(a,b);});
     return list;
-  },[clients,trash,clientSort]);
+  },[clients,trash,clientSort,catId]);
   const clientDrag=!trash&&clientSort==='manual';
   const dragIdxRef=useRef(null);
+  // By id: the visible list can be one category, so its indexes are not the
+  // stored list's.
   const reorderClients=(from,to)=>{
     if(from===to)return;
+    const fromId=visible[from]?.id,toId=visible[to]?.id;if(fromId==null||toId==null)return;
     setClients(prev=>{
-      const live=prev.filter(c=>!c.deleted);
-      const dead=prev.filter(c=>c.deleted);
-      const next=[...live];const[m]=next.splice(from,1);next.splice(to,0,m);
-      return[...next,...dead];
+      const next=[...prev];
+      const fi=next.findIndex(c=>String(c.id)===String(fromId));if(fi<0)return prev;
+      const[m]=next.splice(fi,1);
+      const ti=next.findIndex(c=>String(c.id)===String(toId));if(ti<0)return prev;
+      next.splice(from<to?ti+1:ti,0,m);
+      return next;
     });
   };
   const dragProps=(idx)=>({
@@ -11548,27 +11585,57 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,
     onDragLeave:e=>{e.currentTarget.classList.remove('drag-over');},
     onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(dragIdxRef.current!=null&&dragIdxRef.current!==idx){reorderClients(dragIdxRef.current,idx);dragIdxRef.current=null;}},
   });
-  if(selected&&!trash)return <ClientDetail key={selected.id} client={selected} onBack={()=>setSelected(null)} onSave={save} onDelete={softDelete} isMobile={isMobile} projects={projects} onSelectProject={onSelectProject}/>;
+  if(selected&&!trash)return <ClientDetail key={selected.id} client={selected} onBack={()=>setSelected(null)} onSave={save} onDelete={softDelete} isMobile={isMobile} projects={projects} onSelectProject={onSelectProject} categories={categories}/>;
   return(
     <div className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',overflowY:isMobile?'visible':'auto'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap'}}>
-        <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em'}}><StaveTitleNotes fig="q9"/>Clientes</h1>
+        <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em'}}><StaveTitleNotes fig="q9"/>Contatos</h1>
         <div style={{display:'flex',gap:8}}>
           <button onClick={()=>setTrash(!trash)} className={`btn ${trash?'btn-danger':'btn-outline'}`}>
             <Icon name="trash-2" size={13}/>{trash?'Sair':'Lixeira'}{!trash&&clients.filter(c=>c.deleted).length>0&&` (${clients.filter(c=>c.deleted).length})`}
           </button>
-          {!trash&&<select value={clientSort} onChange={e=>changeClientSort(e.target.value)} aria-label="Ordenar clientes" className="gallery-sort-select">
+          {!trash&&<select value={clientSort} onChange={e=>changeClientSort(e.target.value)} aria-label="Ordenar contatos" className="gallery-sort-select">
             <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="company">Empresa</option><option value="status">Status</option>
           </select>}
           {!trash&&!isMobile&&<button className="btn btn-dark" onClick={add}><Icon name="user-plus" size={14}/> Adicionar</button>}
         </div>
       </div>
-      {isMobile&&!trash&&<button className="fab" onClick={add} title="Novo cliente" aria-label="Novo cliente"><Icon name="plus" size={24}/></button>}
-      {trash&&<TrashBanner label="Clientes" onExit={()=>setTrash(false)}/>}
+      {isMobile&&!trash&&<button className="fab" onClick={add} title="Novo contato" aria-label="Novo contato"><Icon name="plus" size={24}/></button>}
+      {trash&&<TrashBanner label="Contatos" onExit={()=>setTrash(false)}/>}
+      {!trash&&(
+        // Category tabs, same pattern as the Gallery's folders: "+" creates
+        // one, the pencil on the active tab renames or deletes it.
+        <div className="contact-cat-tabs" style={{display:'flex',alignItems:'center',gap:2,borderBottom:'1px solid var(--border)',marginBottom:isMobile?10:14,overflowX:'auto',scrollbarWidth:'none'}}>
+          <button className="tab-btn" onClick={()=>setActiveCat('all')} style={{color:catId==='all'?'var(--text)':'var(--muted)',borderBottom:catId==='all'?'2px solid var(--text)':'2px solid transparent',marginBottom:-1,padding:'10px 8px',whiteSpace:'nowrap'}}>
+            Todos<span className="gallery-tab-count">{clients.filter(c=>!c.deleted).length}</span>
+          </button>
+          {categories.map(cat=>{
+            const on=catId===String(cat.id);
+            return <div key={cat.id} style={{display:'flex',alignItems:'center',gap:2,borderBottom:on?'2px solid var(--text)':'2px solid transparent',marginBottom:-1,flexShrink:0}}>
+              {editingCat&&String(editingCat.id)===String(cat.id)
+                ?<>
+                  <input autoFocus value={editingCat.label} onChange={e=>setEditingCat({id:cat.id,label:e.target.value})} aria-label="Nome da categoria"
+                    onBlur={()=>{renameCategory(cat.id,editingCat.label);setEditingCat(null);}}
+                    onKeyDown={e=>{if(e.key==='Enter'){renameCategory(cat.id,editingCat.label);setEditingCat(null);}if(e.key==='Escape'){e.stopPropagation();setEditingCat(null);}}}
+                    style={{background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',fontWeight:600,color:'var(--text)',width:Math.max(70,editingCat.label.length*9)+'px',padding:'10px 4px'}}/>
+                  <button onMouseDown={e=>{e.preventDefault();deleteCategory(cat.id);}} title="Excluir categoria" aria-label="Excluir categoria"
+                    style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger-fg)',padding:'4px 5px',borderRadius:5,lineHeight:0}}><Icon name="trash-2" size={13}/></button>
+                </>
+                :<button className="tab-btn" onClick={()=>setActiveCat(cat.id)} onDoubleClick={()=>setEditingCat({id:cat.id,label:cat.name||''})}
+                  style={{color:on?'var(--text)':'var(--muted)',borderBottom:'none',margin:0,padding:'10px 6px',whiteSpace:'nowrap'}}>
+                  {cat.name||'Sem nome'}{catCounts.get(String(cat.id))?<span className="gallery-tab-count">{catCounts.get(String(cat.id))}</span>:null}
+                </button>}
+              {on&&!(editingCat&&String(editingCat.id)===String(cat.id))&&<button type="button" className="gallery-folder-edit" onClick={()=>setEditingCat({id:cat.id,label:cat.name||''})} title="Renomear ou excluir categoria" aria-label={'Editar categoria '+(cat.name||'')}><Icon name="pencil" size={11}/></button>}
+            </div>;
+          })}
+          <button onClick={addCategory} className="tab-btn" title="Nova categoria" aria-label="Nova categoria"
+            style={{color:'var(--muted)',borderBottom:'2px solid transparent',marginBottom:-1,padding:'10px 10px',whiteSpace:'nowrap',opacity:.6}}><Icon name="plus" size={13}/></button>
+        </div>
+      )}
       {isMobile&&!trash?(
         <div className="card" style={{overflow:'hidden',borderRadius:12}}>
           {visible.map((c,idx)=>(
-            <div key={c.id} {...(clientDrag?dragProps(idx):{})} className={`compact-row${trash?'':' drag-item'}`} onClick={()=>setSelected(c)} {...keyActivate(()=>setSelected(c),'Abrir cliente '+(c.name||''))}>
+            <div key={c.id} {...(clientDrag?dragProps(idx):{})} className={`compact-row${trash?'':' drag-item'}`} onClick={()=>setSelected(c)} {...keyActivate(()=>setSelected(c),'Abrir contato '+(c.name||''))}>
               {!trash&&<span className="drag-handle" style={{color:'var(--muted)',marginRight:2,lineHeight:0,flexShrink:0}}><Icon name="grip-vertical" size={12}/></span>}
               {c.photo?<Img src={c.photo} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
                 :<div style={{width:44,height:44,borderRadius:'50%',backgroundColor:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Cormorant Garamond,serif',fontSize:'1.1rem',fontWeight:500,flexShrink:0}}>{c.name.charAt(0)}</div>}
@@ -11579,13 +11646,13 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,
               <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
             </div>
           ))}
-          {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum cliente.</div>}
+          {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum contato{catId==='all'?'':' nesta categoria'}.</div>}
         </div>
       ):(
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(3,1fr)',gap:14}}>
         {visible.map((c,idx)=>(
           <div key={c.id} {...(clientDrag?dragProps(idx):{})} className={`card drag-item`} style={{padding:22,cursor:trash?'default':'pointer',position:'relative'}} onClick={()=>!trash&&setSelected(c)}
-            {...keyActivate(()=>setSelected(c),'Abrir cliente '+(c.name||''),!trash)}>
+            {...keyActivate(()=>setSelected(c),'Abrir contato '+(c.name||''),!trash)}>
             {!trash&&<span className="drag-handle" style={{position:'absolute',top:8,right:8,color:'var(--muted)',lineHeight:0,zIndex:1}}><Icon name="grip-vertical" size={13}/></span>}
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
               {c.photo?<Img src={c.photo} style={{width:40,height:40,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
@@ -11609,7 +11676,7 @@ const Clients=React.memo(({clients,setClients,isMobile,projects,onSelectProject,
             </div>
           </div>
         ))}
-        {visible.length===0&&<div style={{gridColumn:'1/-1',textAlign:'center',padding:48,color:'var(--muted)'}}>{trash?'Lixeira vazia.':'Nenhum cliente.'}</div>}
+        {visible.length===0&&<div style={{gridColumn:'1/-1',textAlign:'center',padding:48,color:'var(--muted)'}}>{trash?'Lixeira vazia.':'Nenhum contato'+(catId==='all'?'':' nesta categoria')+'.'}</div>}
         </div>
       )}
     </div>
@@ -11645,7 +11712,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
     const dt=new Date(entry.at).toLocaleString('pt-BR');
     const c=entry.counts||{};
     if(!await bhConfirm({title:'Restaurar backup',confirmLabel:'Restaurar',
-      message:`Restaurar o backup de ${dt}?\n(${c.projects??'?'} projetos · ${c.notes??'?'} notas · ${c.clients??'?'} clientes)\n\nSeus dados atuais serão salvos no histórico antes — dá pra desfazer.`}))return;
+      message:`Restaurar o backup de ${dt}?\n(${c.projects??'?'} projetos · ${c.notes??'?'} notas · ${c.clients??'?'} contatos)\n\nSeus dados atuais serão salvos no histórico antes — dá pra desfazer.`}))return;
     // F1: the state comes from the IDB now. If the read fails, ABORT before
     // touching the current state — restoring a snapshot that did not load would
     // be trading good data for nothing.
@@ -11655,10 +11722,10 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
     setLoading(true);
     try{
       const incomingWins=await bhConfirm({title:'Conteúdo em conflito',confirmLabel:'Usar versões do backup',cancelLabel:'Manter versões atuais',dismissValue:null,
-        message:'Usar o backup nos registros repetidos? Isso pode reverter edições recentes. Manter versões atuais acrescenta só itens ausentes. O progresso de foco atual será preservado.'});
+        message:'Usar o backup nos registros repetidos? Isso pode reverter edições recentes. Manter versões atuais acrescenta só itens ausentes. No foco nada volta para trás: tempo e sessões são somados, e os pontos de rank do backup voltam se forem maiores (mesma temporada).'});
       if(incomingWins===null)return; // dialog closed: restore nothing
       if(!await onImport(full.state,{incomingWins}))throw new Error('Backup sem seções reconhecidas.');
-      showStatus('ok','✓ Backup mesclado. Progresso de foco atual preservado.');refreshHistory();
+      showStatus('ok','✓ Backup mesclado. Foco e pontos de rank: fica o maior valor.');refreshHistory();
     }catch(e){showStatus('err',e.message||'Falha ao restaurar.');}
     finally{setLoading(false);}
   };
@@ -11760,7 +11827,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
 
   const counts=[
     {label:'Projetos',value:(appState.projects||[]).filter(p=>!p.deleted).length},
-    {label:'Clientes',value:(appState.clients||[]).filter(c=>!c.deleted).length},
+    {label:'Contatos',value:(appState.clients||[]).filter(c=>c&&!c.deleted&&c.kind!=='category').length},
     {label:'Mentores',value:(appState.mentors||[]).filter(m=>!m.deleted).length},
     {label:'Notas',value:(appState.notes||[]).filter(n=>!n.deleted).length},
     {label:'Atividades',value:(appState.tasks||[]).length},
@@ -11917,7 +11984,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
                       </span>
                     </div>
                     <div style={{fontSize:'.7rem',color:'var(--muted)'}}>
-                      {c.projects??0} projetos · {c.notes??0} notas · {c.clients??0} clientes · {c.tasks??0} tarefas
+                      {c.projects??0} projetos · {c.notes??0} notas · {c.clients??0} contatos · {c.tasks??0} tarefas
                       <br/>{c.posts??'—'} posts · {c.sessions??'—'} sessões · {c.points??'—'} pts · {c.localMedia??'—'} mídias locais
                     </div>
                   </div>
