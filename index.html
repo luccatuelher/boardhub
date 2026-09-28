@@ -476,6 +476,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 /* The metronome was drawn at 76px and hard to read at a glance; it is the
    card's main element now (owner request, 2026-09-28). The drawing scales
    with the box — the pivot and drag math are in SVG units / relative to it. */
+.pomo-type-input{position:absolute;left:14%;width:72%;top:60%;height:19%;box-sizing:border-box;text-align:center;font:600 1.02rem/1 'Cormorant Garamond',serif;color:var(--text);background:var(--surface);border:1px solid var(--text);border-radius:5px;outline:none;padding:0 2px;z-index:2;}
 .pomo-metronome{width:104px;height:104px;}
 @media (max-width:640px){.pomo-metronome{width:92px;height:92px;}}
 .bh-pendulum{transform-box:view-box;transform-origin:38px var(--pivot,34px);animation:bhPendulum var(--beat,.5s) cubic-bezier(.42,0,.58,1) infinite alternate;}
@@ -6224,6 +6225,29 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       timeLeftRef.current = fs;
     }
   };
+  // TYPING THE DURATION. Dragging snaps to 5 minutes; the pencil button next to
+  // the timer opens a field in the metronome's reading where any value from 1
+  // to MAX_FOCUS_MINS can be typed (Enter or leaving the field applies it,
+  // Escape cancels). Same rules as dragging: not while a session is running.
+  const [typedMins, setTypedMins] = useState(null);
+  const typeInputRef = useRef(null);
+  const openTypeMins = () => {
+    if (isActiveRef.current || sessionMetaRef.current) return;
+    setTypedMins(String(focusMinsRef.current));
+  };
+  const commitTypedMins = () => {
+    const raw = typedMins;
+    setTypedMins(null);
+    if (raw == null || isActiveRef.current || sessionMetaRef.current) return;
+    const n = Math.round(Number(String(raw).replace(',', '.')));
+    if (!Number.isFinite(n) || n < 1) return;
+    const mins = Math.min(MAX_FOCUS_MINS, n);
+    if (modeRef.current !== 'focus') { setMode('focus'); modeRef.current = 'focus'; }
+    setFocusMins(mins); focusMinsRef.current = mins;
+    const fs = mins * 60;
+    setTimeLeft(fs); timeLeftRef.current = fs;
+    persist(false, fs, 'focus', mins);
+  };
   const handlePointerUp = (e) => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
@@ -6357,7 +6381,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
 
               <text x="38" y={MET_TEXT_Y} textAnchor="middle"
                 style={{fontFamily:'Cormorant Garamond,serif',fontSize:'12px',fontWeight:500,letterSpacing:'-0.02em',fill:'var(--text)'}}>
-                {isDragging?`${focusMins} min`:timeStr}
+                {typedMins!=null?'':isDragging?`${focusMins} min`:timeStr}
               </text>
 
               {/* A bar that EMPTIES, OUTSIDE the body — the pyramid's outline is
@@ -6378,6 +6402,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                   style={{transition:isDragging?'none':'x .5s cubic-bezier(.4,0,.2,1),width .5s cubic-bezier(.4,0,.2,1),fill .4s'}}/>;
               })()}
             </svg>
+            {typedMins!=null&&<input ref={typeInputRef} autoFocus onFocus={e=>e.target.select()} className="pomo-type-input" inputMode="numeric" aria-label="Duração em minutos" value={typedMins}
+              onChange={e=>setTypedMins(e.target.value.replace(/[^0-9.,]/g,'').slice(0,4))}
+              onPointerDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}
+              onBlur={commitTypedMins}
+              onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commitTypedMins();}else if(e.key==='Escape'){e.stopPropagation();setTypedMins(null);}}}/>}
           </div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:5}}>
@@ -6388,6 +6417,9 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
               <button className="btn btn-ghost bh-touch-target" onClick={reset} title="Reiniciar" style={{padding:5}}>
                 <Icon name="rotate-ccw" size={13}/>
               </button>
+              {!isActive&&<button className="btn btn-ghost bh-touch-target" onMouseDown={e=>e.preventDefault()} onClick={openTypeMins} title="Digitar a duração (1 a 120 min)" aria-label="Digitar a duração em minutos" style={{padding:5}}>
+                <Icon name="pencil" size={13}/>
+              </button>}
               <button className="btn btn-ghost bh-touch-target"
                 onClick={()=>{const v=!soundOn;setSoundOn(v);setPomoSoundOn(v);}}
                 aria-pressed={soundOn}
