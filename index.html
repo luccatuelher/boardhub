@@ -6742,12 +6742,12 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
   }
   const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
   const x=d=>daysBetween(start,d)*DAY_W;
-  const months=[],weekends=[],dayNums=[];
+  const months=[],weekends=[],dayNums=[],dayInit=[];
   for(let i=0;i<totalDays;i++){
     const d=new Date(start+'T12:00:00');d.setDate(d.getDate()+i);
     if(i===0||d.getDate()===1){if(months.length)months[months.length-1].width=i*DAY_W-months[months.length-1].left;months.push({left:i*DAY_W,width:0,label:d.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.','')});}
     if(d.getDay()===0||d.getDay()===6)weekends.push(i);
-    dayNums.push(d.getDate());
+    dayNums.push(d.getDate());dayInit.push('DSTQQSS'[d.getDay()]);
   }
   if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
   const scrollRef=useRef(null);
@@ -6779,12 +6779,13 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
                 {/* Each month is a band; its label sticks to the left edge while the
                     month is in view, so opening on today still names it. */}
                 {months.map(m=><div key={m.left} style={{position:'absolute',left:m.left,width:m.width,top:4,height:14,borderLeft:'1px solid var(--border)',boxSizing:'border-box'}}><span style={{position:'sticky',left:LEFT_W,display:'inline-block',paddingLeft:4,fontSize:'.64rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)',whiteSpace:'nowrap'}}>{m.label}</span></div>)}
-                {dayNums.map((n,i)=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,bottom:5,textAlign:'center',fontSize:'.6rem',color:weekends.includes(i)?'var(--muted)':'var(--text)'}}>{n}</div>)}
+                {dayNums.map((n,i)=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:20,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',gap:3,boxSizing:'border-box',borderLeft:i===0?'none':'1px solid rgba(var(--ink),.08)',fontSize:'.6rem',color:weekends.includes(i)?'var(--muted)':'var(--text)'}}><span style={{opacity:.55,fontWeight:700,fontSize:'.56rem'}}>{dayInit[i]}</span><span>{n}</span></div>)}
               </div>
             </div>
             {/* Weekend shading and the today line, under the bars */}
             <div aria-hidden="true" style={{position:'absolute',left:LEFT_W,top:HEADER_H,width:gridW,height:bodyH,pointerEvents:'none'}}>
               {weekends.map(i=><div key={i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>)}
+              {dayNums.map((n,i)=>i===0?null:<div key={'dl'+i} style={{position:'absolute',left:i*DAY_W,top:0,bottom:0,width:0,borderLeft:'1px solid rgba(var(--ink),.07)'}}/>)}
               <div style={{position:'absolute',left:x(today)+DAY_W/2,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.8}}/>
             </div>
             {visibleRows.map(r=>{
@@ -7376,19 +7377,15 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                 </div>
               ))}
             </div>
-            {/* Week sub-header */}
+            {/* Day sub-header: weekday initial + day number, hairline between days */}
             <div style={{height:HEADER_H/2,background:'var(--bg)',borderBottom:'2px solid var(--border)',position:'relative'}}>
-              {weekMarkers.map((mk,i)=>(
-                <div key={i} style={{position:'absolute',left:mk.offset,height:'100%',display:'flex',alignItems:'center',paddingLeft:5,
-                  fontSize:'.62rem',color:'var(--muted)',borderLeft:'1px solid var(--border)'}}>
-                  {mk.label}
-                </div>
-              ))}
-              {weekendCols.map(d=>{
+              {Array.from({length:totalDays},(_,d)=>{
                 const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+d);
-                const lbl=dt.getDay()===0?'Dom':'Sáb';
-                return <div key={'wl'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
-                  fontSize:'.62rem',fontWeight:700,color:'var(--muted)',pointerEvents:'none',letterSpacing:'.03em'}}>{lbl}</div>;
+                const dow=dt.getDay(),wk=dow===0||dow===6;
+                return <div key={'dh'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:3,boxSizing:'border-box',
+                  borderLeft:d===0?'none':'1px solid rgba(var(--ink),.08)',fontSize:'.62rem',color:wk?'var(--muted)':'var(--text)',pointerEvents:'none'}}>
+                  <span style={{opacity:.55,fontWeight:700,fontSize:'.58rem'}}>{'DSTQQSS'[dow]}</span><span>{dt.getDate()}</span>
+                </div>;
               })}
             </div>
 
