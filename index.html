@@ -1100,44 +1100,6 @@ const repairProjectFocusPostScopes=(posts,sessions)=>{
   });
   return changed?repaired:posts;
 };
-const missingProjectPostLinks=(posts,sessions)=>{
-  const liveIds=new Set((Array.isArray(posts)?posts:[]).filter(post=>post&&!post.deleted).map(post=>String(post.id)));
-  const links=new Map();
-  (Array.isArray(sessions)?sessions:[]).forEach(session=>{
-    if(!session||session.targetType!=='project'||session.postDestination==='gallery')return;
-    const postId=session.projectPostId||(session.postDestination!=='gallery'?session.galleryPostId:null);
-    const projectId=String(session.targetKey||'').replace(/^project:/,'');
-    if(postId!=null&&String(postId)!==''&&projectId&&!liveIds.has(String(postId)))links.set(String(postId),projectId);
-  });
-  return links;
-};
-const recoverMissingProjectPosts=async(posts,sessions)=>{
-  const links=missingProjectPostLinks(posts,sessions);
-  if(!links.size)return{posts,recovered:0,missing:0,checked:true,restored:[]};
-  const states=[];
-  let checked=false;
-  try{
-    if(!_bhReady)await bhHistoryInit();
-    if(_bhReady){(await bhHistoryFull()).forEach(entry=>{if(entry?.state)states.push(entry.state);});checked=true;}
-  }catch(e){bhLog('projectPosts.recover.history',e,'project post recovery could not read rotating backups');}
-  try{bhLsBackupStates().forEach(state=>states.push(state));checked=true;}
-  catch(e){bhLog('projectPosts.recover.emergency',e,'project post recovery could not read emergency backups');}
-  const found=new Map();
-  for(const state of states){
-    for(const post of (Array.isArray(state?.galleryPosts)?state.galleryPosts:[])){
-      const id=String(post?.id??'');
-      if(!id||found.has(id)||!links.has(id))continue;
-      const projectId=links.get(id),targetKey='project:'+projectId;
-      const keys=Array.from(new Set([post.sourceTargetKey,...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[]),targetKey].filter(Boolean).map(String)));
-      found.set(id,{...post,deleted:false,deletedAt:null,storageScope:'project',projectId,folder:null,sourceTargetKey:targetKey,sourceTargetKeys:keys});
-    }
-    if(found.size===links.size)break;
-  }
-  if(!found.size)return{posts,recovered:0,missing:links.size,checked,restored:[]};
-  const current=Array.isArray(posts)?posts:[],foundIds=new Set(found.keys());
-  const merged=current.filter(post=>!foundIds.has(String(post?.id))).concat([...found.values()]);
-  return{posts:merged,recovered:found.size,missing:links.size,checked,restored:[...found.values()]};
-};
 const normalizeFocusPostCopy=post=>{
   if(!post||(post.sourceSessionId==null&&!Array.isArray(post.sourceSessionIds)))return post;
   const before=String(post.content||'');
@@ -2318,50 +2280,6 @@ const warmSources=(srcs,limit=24,{full=false,priority='low'}={})=>{
 };
 const warmObj=(o,limit=24)=>{try{warmSources(_collectMediaRefs(o),limit);}catch{/*silent-ok: best-effort prefetch*/}};
 
-// Boot warm: fill the thumbnail cache during idle so navigating to a post finds
-// its images ALREADY in memory — the resolver then returns a URL synchronously
-// on the first render (no placeholder frame, no fade). That "already there"
-// property is what made the old build feel instant; it now costs thumbnails
-// instead of originals. Second pass generates any thumbnail that doesn't exist
-// yet (images uploaded before generation moved to upload time), throttled and
-// bounded so an old library migrates in the background without janking.
-const MIGRATE_CAP=150;
-const warmThumbCache=()=>{
-  if(!persisted)return;
-  const keys=[];const seen=new Set();
-  const collect=o=>{
-    if(Array.isArray(o))o.forEach(collect);
-    else if(o&&typeof o==='object')Object.values(o).forEach(collect);
-    else if(typeof o==='string'&&o.startsWith('idb://')){const k=o.slice(6);if(!seen.has(k)){seen.add(k);keys.push(k);}}
-  };
-  collect(persisted);
-  if(!keys.length)return;
-  const missing=[];
-  let i=0;
-  // OPT-3: chain the steps on setTimeout(0) (a macrotask) rather than
-  // requestIdleCallback. Idle callbacks get deferred indefinitely under a busy
-  // boot (Babel transpile + Firestore auth + the sync listener), so the warmer
-  // could sit unrun for seconds. A 0ms macrotask still yields the event loop
-  // between batches — React commits, Firestore callbacks and input all interleave
-  // — but the warmer is no longer at the back of an "only when totally idle" queue.
-  const readStep=()=>{
-    if(i>=keys.length||_thumbOrder.size>=THUMB_CAP){setTimeout(()=>genStep(0),0);return;}
-    const slice=keys.slice(i,i+40);i+=40;
-    Promise.all(slice.map(k=>{
-      if(_thumbCache[k])return null;
-      return idbGetBatched('thumb_'+k).then(tb=>{
-        if(tb){if(!_thumbCache[k]){_thumbCache[k]=URL.createObjectURL(tb);_touchThumb(k);}}
-        else missing.push(k);
-      }).catch(()=>{});
-    })).then(()=>setTimeout(readStep,0));
-  };
-  const genStep=j=>{
-    if(j>=missing.length||j>=MIGRATE_CAP)return;
-    Promise.all(missing.slice(j,j+3).map(k=>{try{return getThumbUrl(k,true);}catch{return null;}}))
-      .then(()=>setTimeout(()=>genStep(j+3),0));
-  };
-  setTimeout(readStep,0);
-};
 
 // --- THUMBNAIL LAYER ---------------------------------------------------------
 // Grid/cover surfaces display a downscaled variant instead of the full image:
@@ -2922,11 +2840,6 @@ const bhSyncPlan=(base,local)=>{
 };
 const BH_INLINE_MEDIA_RE=/data:(?:image|video)\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi;
 const _inlineCloudCache=new Map();
-const inlineMediaKey=value=>{
-  let h=5381;
-  for(let i=0;i<value.length;i++)h=((h<<5)+h+value.charCodeAt(i))|0;
-  return value.length+':'+h+':'+value.slice(0,24)+':'+value.slice(-24);
-};
 const inlineMediaFile=value=>{
   const comma=value.indexOf(','),header=value.slice(0,comma),b64=value.slice(comma+1);
   const mime=(header.match(/^data:([^;]+);base64$/i)||[])[1];
@@ -4011,7 +3924,12 @@ const Modal=({title,onClose,children,width=480})=>{
 // change. Image payloads and markup are excluded; neither is useful to search,
 // and lowercasing them again on every keystroke was disproportionately costly.
 // Accent-folded lowercase: "referencias" finds "Referências", "acao" finds "ação".
-const bhFold=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
+// toLowerCase, not toLocaleLowerCase('pt-BR'): identical for Portuguese (only
+// tr/az/lt have special casing) and several times faster; search folds every
+// indexed title on each keystroke.
+const bhFold=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const _bhFoldCache=new WeakMap();
+const bhFoldTitle=item=>{let v=_bhFoldCache.get(item);if(v===undefined){v=bhFold(item.title);_bhFoldCache.set(item,v);}return v;};
 const bhSearchText=(...parts)=>bhFold(parts.map(part=>String(part||''))
   .join(' ')
   .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g,' ')
@@ -4097,7 +4015,7 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
     const hits=[];
     for(const item of searchIndex){
       if(!tokens.every(t=>item.haystack.includes(t)))continue;
-      hits.push({item,score:bhFold(item.title).includes(fq)?0:1});
+      hits.push({item,score:bhFoldTitle(item).includes(fq)?0:1});
     }
     hits.sort((a,b)=>a.score-b.score);
     items.push(...hits.map(h=>h.item));
@@ -7029,7 +6947,9 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const VIEW_H=320,OVERSCAN=8;
   const [scrollTop,setScrollTop]=useState(0);
   const onScroll=e=>{const t=e.currentTarget.scrollTop;if(Math.abs(t-scrollTop)>=ROW_H)setScrollTop(t);};
-  const firstRow=Math.max(0,Math.floor(scrollTop/ROW_H)-OVERSCAN);
+  // Clamped to the list: when it shrinks (the week filter, a task done) while
+  // scrolled down, the stored offset pointed past the end and showed a gap.
+  const firstRow=Math.max(0,Math.min(Math.floor(scrollTop/ROW_H)-OVERSCAN,visibleRows.length-Math.ceil(VIEW_H/ROW_H)-OVERSCAN));
   const lastRow=Math.min(visibleRows.length,Math.ceil((scrollTop+VIEW_H)/ROW_H)+OVERSCAN);
   // Task bars are edited in place, like in the project's own timeline: drag
   // the bar to move it, its grips to change start/due. A plain click still
@@ -11055,7 +10975,6 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     // itemById(d.id) which can be stale when parentId was changed by a previous drop.
     const isSiblingFolder=d=>d&&d.kind==='item'&&d.itemType==='project'&&d.id!==n.id&&(d.parentId??null)===(parentOf(n)??null);
     const target={kind:isCategory(n)?'category':isFolder(n)?'folder':'item',id:n.id};
-    const draggable=n.type!=='note'||true;
     const selectedNote=selected?.kind==='note'&&selected.id===n.id;
     const isRenaming=renaming?.id===n.id;
     return <div key={n.id} style={{marginBottom:2}}>
@@ -12856,6 +12775,11 @@ const App=()=>{
   const rankPosRef=useRef(null);
   const dismissRankPromotion=useCallback(()=>setRankPromotion(p=>{
     if(p&&!p.preview&&rankPosRef.current)bhRankCelebratedSave(rankPosRef.current);
+    // A real promotion that arrived while a preview was open is shown now.
+    if(p&&p.preview&&rankPosRef.current){
+      const seen=bhRankCelebratedLoad(),cur=rankPosRef.current;
+      if(seen&&seen.seasonId===cur.seasonId&&bhRankLevel(cur)>bhRankLevel(seen))return{type:cur.rankIndex>seen.rankIndex?'rank':'division',position:cur};
+    }
     return null;
   }),[]);
   const _remoteApplyId=useRef(0);
