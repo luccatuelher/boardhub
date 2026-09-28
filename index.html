@@ -602,9 +602,9 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-profile-panel{display:grid;grid-template-columns:minmax(205px,28%) 1fr;grid-template-rows:1fr auto;grid-template-areas:'emblem main' 'emblem footer';min-height:194px;margin-bottom:12px;border:1px solid var(--border-2);border-radius:15px;background:var(--surface);overflow:hidden;box-shadow:0 6px 20px rgba(20,16,10,.045);flex-shrink:0}
 .rank-panel-emblem{grid-area:emblem;position:relative;display:flex;align-items:center;justify-content:center;padding:12px;border-right:1px solid var(--border);background:radial-gradient(circle at 50% 48%,rgba(39,137,155,.12),transparent 61%),linear-gradient(145deg,rgba(var(--ink),.035),transparent)}
 .rank-panel-main{grid-area:main;display:flex;flex-direction:column;justify-content:center;padding:17px 20px 12px;min-width:0}
-.rank-panel-title{display:flex;align-items:center;gap:11px;margin:2px 0 10px;font-family:'Cormorant Garamond',serif;line-height:1}
+.rank-panel-title{display:flex;align-items:baseline;gap:11px;margin:2px 0 10px;font-family:'Cormorant Garamond',serif;line-height:1}
 .rank-panel-title span{font-size:clamp(1.7rem,3vw,2.25rem);font-weight:600;letter-spacing:-.02em;line-height:1}
-.rank-panel-title strong{display:inline-flex;align-items:center;justify-content:center;min-width:26px;font:700 1.2rem/1 'Alegreya Sans',sans-serif;color:var(--muted);letter-spacing:.1em}
+.rank-panel-title strong{display:inline-block;text-align:center;min-width:26px;font:600 1.45rem/1 'Cormorant Garamond',serif;color:var(--muted);letter-spacing:.06em}
 .rank-decay-hint{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 8px;border:1px solid rgba(173,104,34,.18);border-radius:7px;background:rgba(190,119,45,.07);color:#965c24;font-size:.66rem;line-height:1.25}.rank-decay-hint strong{font-weight:700}:root[data-theme="notturno"] .rank-decay-hint{color:#e1ad72;background:rgba(190,119,45,.1);border-color:rgba(225,173,114,.18)}
 .rank-panel-footer{grid-area:footer;display:grid;grid-template-columns:minmax(145px,1fr) minmax(130px,.8fr) auto;align-items:center;gap:18px;padding:11px 20px;border-top:1px solid var(--border);background:rgba(var(--ink),.018)}
 .rank-panel-metric{display:flex;flex-direction:column;gap:1px;min-width:0}.rank-panel-metric>span{font-size:.58rem;font-weight:700;letter-spacing:.075em;text-transform:uppercase;color:var(--muted)}.rank-panel-metric>strong{font:600 1rem 'Cormorant Garamond',serif;color:var(--text)}
@@ -694,7 +694,11 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes rpKicker{from{opacity:0;transform:translateY(8px);letter-spacing:.6em}to{opacity:1;transform:none}}
 @keyframes rpName{0%{opacity:0;transform:scale(1.25);filter:blur(6px) drop-shadow(0 4px 22px rgba(0,0,0,.6))}100%{opacity:1;transform:none;filter:blur(0) drop-shadow(0 4px 22px rgba(0,0,0,.6))}}
 @keyframes rpRule{to{width:min(320px,70vw)}}
-@media(prefers-reduced-motion:reduce){.rank-promo *,.rank-promo{animation-duration:.01s!important;animation-delay:0s!important;animation-iteration-count:1!important}.rank-promo-rays,.rank-promo-particles,.rank-promo-ring,.rank-promo-flash,.rank-promo-old{display:none}.rank-promo-rule{width:min(320px,70vw)}}
+/* Reduced motion: the owner wants the reveal itself to play (a static final
+   frame read as "the animation does not work"), so only the continuous and
+   flashing parts go: spinning rays, looping sparks, the glow pulse and the
+   white flash. The staged entrance stays. */
+@media(prefers-reduced-motion:reduce){.rank-promo-rays{animation:rpRaysIn 1.2s .75s ease-out forwards}.rank-promo.is-division .rank-promo-rays{animation-delay:.25s}.rank-promo-particles,.rank-promo-flash{display:none}.rank-promo-new{animation:rpLand .9s .88s cubic-bezier(.2,.9,.25,1.25) forwards}.rank-promo.is-division .rank-promo-new{animation-delay:.3s}}
 @keyframes rankOverlayIn{from{opacity:0}to{opacity:1}}
 @keyframes rankAura{0%{opacity:0;transform:scale(.25)}45%{opacity:1}100%{opacity:.5;transform:scale(1.12)}}
 @keyframes rankBadgeRise{0%{opacity:0;transform:translateY(24px) scale(.65) rotate(-5deg)}65%{opacity:1;transform:translateY(-5px) scale(1.06)}100%{transform:none}}
@@ -715,7 +719,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .rank-profile-kicker{font-size:.52rem}
   .rank-panel-title{gap:8px;margin:0 0 5px}
   .rank-panel-title span{font-size:1.55rem}
-  .rank-panel-title strong{font-size:.96rem}
+  .rank-panel-title strong{font-size:1.2rem}
   .rank-profile-meta{margin-top:2px;font-size:.56rem}
   .rank-decay-hint{margin-top:3px;padding:3px 6px;font-size:.56rem}
   .rank-panel-footer{grid-template-columns:minmax(125px,1fr) minmax(108px,.7fr) auto;gap:10px;padding:6px 14px}
@@ -737,7 +741,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .dashboard-header p{font-size:.72rem!important;line-height:1.2}
   .rank-profile-panel{grid-template-columns:150px minmax(0,1fr);grid-template-rows:auto auto;min-height:170px!important;height:auto!important;margin-bottom:7px;overflow:visible}
   .rank-panel-main{min-height:0}.rank-decay-hint{white-space:normal;margin-top:5px;padding:4px 7px}
-  .rank-panel-title span{font-size:1.8rem}.rank-panel-title strong{font-size:1.25rem}
+  .rank-panel-title span{font-size:1.8rem}.rank-panel-title strong{font-size:1.5rem}
   .rank-panel-footer{grid-template-columns:minmax(0,1fr) minmax(0,.8fr) auto;gap:8px}
   .rank-panel-actions{flex-wrap:wrap;justify-content:flex-end}.rank-panel-actions .btn{padding:4px 7px;font-size:.65rem}
   .dashboard-project-pane,.dashboard-activity-pane{flex-shrink:1!important}
@@ -765,7 +769,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .dashboard-header{margin-bottom:18px!important}.dashboard-header h1{font-size:3.15rem!important}.dashboard-header p{font-size:1rem!important}
   .rank-profile-panel{grid-template-columns:260px 1fr;min-height:230px!important;height:auto!important}
   .rank-panel-emblem .rank-badge{width:204px!important;height:204px!important}
-  .rank-panel-main{padding:24px 30px 18px}.rank-panel-footer{padding:16px 30px}.rank-panel-title span{font-size:2.65rem}.rank-panel-title strong{font-size:1.65rem}
+  .rank-panel-main{padding:24px 30px 18px}.rank-panel-footer{padding:16px 30px}.rank-panel-title span{font-size:2.65rem}.rank-panel-title strong{font-size:1.95rem}
   .dashboard-main-grid{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr)!important;gap:24px!important}
   .dashboard-activity-pane{flex-basis:clamp(330px,28vh,430px)!important;height:clamp(330px,28vh,430px)!important;min-height:330px!important}
   .dashboard-project-pane{flex:0 1 auto!important;height:auto!important;max-height:clamp(330px,28vh,430px)!important;min-height:0!important}
