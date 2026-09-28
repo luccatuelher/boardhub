@@ -128,7 +128,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
 color-scheme:dark;}
 *,*::before,*::after{box-sizing:border-box;}
 /* Selection color */
-::selection{background:rgba(var(--ink),.12);color:var(--text);}
+::selection{background:rgba(59,130,246,.42);color:inherit;}
 /* Smooth scroll for scrollable containers */
 html{scroll-behavior:smooth;}
 /* Offscreen rendering optimization - scoped to view containers only (not overlays/modals) */
@@ -568,6 +568,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .note-image-cell{display:flex;flex-direction:column;gap:8px;min-width:0;}
 .note-cell-text{display:block;outline:none;min-height:1.4em;line-height:1.55;word-break:break-word;cursor:text;color:var(--text);}
 .note-cell-text:empty::before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
+.note-drop-bar{position:absolute;z-index:6;background:#3b82f6;border-radius:3px;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 0 14px rgba(59,130,246,.85);pointer-events:none;}
 .note-cap-btn{position:absolute;z-index:4;padding:3px 9px 3px 7px;border-radius:999px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font:700 .7rem 'Alegreya Sans',sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:inline-flex;align-items:center;gap:4px;}
 .note-cap-btn:hover{background:var(--text);color:var(--bg);}
 /* Font sizes: classes (not inline styles) so they survive the sanitizer. */
@@ -10058,6 +10059,43 @@ const _makeNoteCellText=html=>{
   if(html)t.innerHTML=html;
   return t;
 };
+// Selected text dragged over/onto a grid image (not onto the cell's own text).
+const _noteTextDropTarget=(e,root)=>{
+  const types=[...(e.dataTransfer?.types||[])];
+  if(types.includes('Files')||!(types.includes('text/plain')||types.includes('text/html')))return null;
+  const t=e.target;
+  if(!t?.closest||t.closest('.note-cell-text'))return null;
+  const img=t.closest('img');
+  return img&&img.closest('.note-image-cell')&&root?.contains(img)?img:null;
+};
+// The dragged text as inline HTML. If it is the editor's own selection, its
+// formatting is kept (blocks become line breaks) and the original is removed,
+// so the text MOVES; from anywhere else it comes in as plain text.
+const _noteDraggedTextHTML=(dt,root)=>{
+  const plain=dt.getData('text/plain')||'';
+  const esc=v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\r?\n/g,'<br>');
+  const sel=window.getSelection();
+  if(sel&&sel.rangeCount&&!sel.isCollapsed&&root?.contains(sel.anchorNode)&&sel.toString().trim()===plain.trim()){
+    const range=sel.getRangeAt(0).cloneRange();
+    const tmp=document.createElement('div');tmp.appendChild(range.cloneContents());
+    tmp.querySelectorAll('ul,ol').forEach(l=>l.replaceWith(...l.childNodes));
+    tmp.querySelectorAll('p,div,h1,h2,h3,blockquote,li').forEach(b=>{b.parentNode.insertBefore(document.createElement('br'),b.nextSibling);b.replaceWith(...b.childNodes);});
+    while(tmp.lastChild&&tmp.lastChild.nodeName==='BR')tmp.lastChild.remove();
+    tmp.querySelectorAll('img,video,.note-image-grid').forEach(x=>x.remove());
+    const html=sanitizeHTML(tmp.innerHTML);
+    if(html.replace(/<br>/g,'').trim()){
+      // The block the selection starts in, taken BEFORE deleting: deleteContents
+      // collapses the range up to a common ancestor, not into that block.
+      const at=range.startContainer.nodeType===1?range.startContainer:range.startContainer.parentElement;
+      const blk=at&&at!==root?at.closest('p,div,h1,h2,h3,blockquote'):null;
+      range.deleteContents();
+      // A paragraph emptied by the move goes too, instead of leaving a blank line.
+      if(blk&&blk!==root&&root.contains(blk)&&!blk.textContent.trim()&&!blk.querySelector('img,video,.note-image-grid'))blk.remove();
+      return html;
+    }
+  }
+  return plain.trim()?esc(plain.replace(/\s+$/,'')):'';
+};
 const _flattenNoteCells=root=>{
   if(!root)return;
   root.querySelectorAll('.note-image-cell').forEach(cell=>{
@@ -10472,12 +10510,14 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   // Legacy inline media remains renderable. Migration happens on an actual
   // content save or explicit sync, never merely because a note was opened.
 
+  const [dropBar,setDropBar]=useState(null);
   const clearDragTarget=useCallback(()=>{
     const mark=dragTargetRef.current;
     if(mark?.el){
       mark.el.classList.remove('note-grid-drop','note-image-drop-before','note-image-drop-after');
     }
     dragTargetRef.current=null;
+    setDropBar(null);
   },[]);
 
   const markDragTarget=useCallback((el,kind,side=null)=>{
@@ -10486,8 +10526,17 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     clearDragTarget();
     if(!el)return;
     if(kind==='grid')el.classList.add('note-grid-drop');
-    else el.classList.add(side==='before'?'note-image-drop-before':'note-image-drop-after');
+    else if(kind==='image')el.classList.add(side==='before'?'note-image-drop-before':'note-image-drop-after');
     dragTargetRef.current={el,kind,side};
+    // The bar that shows where it will land: a vertical bar on the image's
+    // left/right edge for an image, a horizontal one over the image's top edge
+    // for text dropped into its cell.
+    const wrap=wrapRef.current;
+    if(wrap&&kind!=='grid'){
+      const r=el.getBoundingClientRect(),w=wrap.getBoundingClientRect();
+      if(kind==='text')setDropBar({left:r.left-w.left,top:r.top-w.top-3,width:r.width,height:5});
+      else setDropBar({left:(side==='before'?r.left:r.right)-w.left-2,top:r.top-w.top,width:5,height:r.height});
+    }
   },[clearDragTarget]);
 
   const openNoteImage=useCallback(img=>{
@@ -10647,6 +10696,10 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const handleDragOver=e=>{
     const source=dragImgRef.current;
     if(!source){
+      // Selected text dragged over a grid image: it can land above that image.
+      const cellImg=_noteTextDropTarget(e,ref.current);
+      if(cellImg){e.preventDefault();e.dataTransfer.dropEffect='move';markDragTarget(cellImg,'text');return;}
+      if(dragTargetRef.current?.kind==='text')clearDragTarget();
       const hasFiles=[...(e.dataTransfer?.types||[])].includes('Files');
       if(hasFiles||[...(e.dataTransfer?.items||[])].some(i=>i.type?.startsWith('image/')))e.preventDefault();
       return;
@@ -10667,6 +10720,22 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
 
   const handleDrop=e=>{
     const source=dragImgRef.current;
+    if(!source){
+      const cellImg=_noteTextDropTarget(e,ref.current);
+      if(cellImg){
+        e.preventDefault();
+        const cell=cellImg.closest('.note-image-cell');
+        const html=_noteDraggedTextHTML(e.dataTransfer,ref.current);
+        clearDragTarget();
+        if(cell&&html){
+          let t=cell.querySelector('.note-cell-text');
+          if(!t){t=_makeNoteCellText('');cell.insertBefore(t,cellImg);}
+          if(t.textContent.trim())t.insertAdjacentHTML('beforeend','<br>'+html);else t.innerHTML=html;
+          emit();
+        }
+        return;
+      }
+    }
     if(source){
       e.preventDefault();
       // Dissolve the cells so the images are plain children of their rows while
@@ -10862,6 +10931,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     <>
     {noteLightboxPortal}
     <div ref={wrapRef} onPointerLeave={e=>{if(e.pointerType==='mouse'&&!resizingRef.current){setResizeEl(null);setCapImg(null);}}} style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',position:'relative'}}>
+      {dropBar&&<div className="note-drop-bar" aria-hidden="true" style={dropBar}/>}
       {capBox&&<button type="button" className="note-cap-btn" style={capBox} title="Adicionar texto acima desta imagem" onMouseDown={e=>e.preventDefault()} onClick={()=>addCellText(capImg)}>＋ Texto</button>}
       {resizeBox&&<div className="note-resize-frame" style={resizeBox}>
         {resizeLive!=null&&<span className="note-resize-label">{resizeLive}%</span>}
