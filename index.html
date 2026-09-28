@@ -4630,31 +4630,7 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   [...(incoming.rank.history||[]),...(current.rank.history||[])].forEach(row=>{if(row?.seasonId)historyBySeason.set(String(row.seasonId),row);});
   const acknowledged=new Set([...current.rank.notices,...incoming.rank.notices].filter(n=>n.dismissed).map(n=>String(n.id)));
   const notices=bhMergeRecords(current.rank.notices,incoming.rank.notices).map(n=>acknowledged.has(String(n.id))?{...n,dismissed:true}:n);
-  let rank={...current.rank,sessions,notices};
-  // RANK POINTS. The comment above promises "the strongest same-season
-  // counters", but the code kept only the CURRENT points: once a season had
-  // rolled over (or a sync had zeroed them) a restored backup could never
-  // bring the points back, and the zero was re-saved into every new backup.
-  const inc=incoming.rank,cur=current.rank;
-  const incOrd=rankSeasonOrdinal(inc.seasonId),curOrd=rankSeasonOrdinal(cur.seasonId);
-  if(!rankIsPaused(cur)&&Number.isFinite(incOrd)&&Number.isFinite(curOrd)){
-    if(incOrd===curOrd&&inc.points>cur.points){
-      // Same season: take the backup's points together with ITS decay ledger, so
-      // pomoRankMaintain re-applies decay only for the days after the backup.
-      rank={...rank,points:inc.points,startedOn:inc.startedOn,decayApplied:{...(inc.decayApplied||{})}};
-    }else if(incOrd<curOrd){
-      // The backup belongs to a season that has since closed: its points are
-      // that season's result. File it in the season history (never lowering an
-      // existing row) instead of overwriting the current season.
-      const closed=rankApplyDecayThrough(inc,days,rankSeasonEnd(inc.seasonId));
-      const existing=[...(cur.history||[]),...(inc.history||[])].find(h=>h&&String(h.seasonId)===String(inc.seasonId));
-      if(!existing||Number(existing.points||0)<closed.points){
-        const fin=rankPosition(closed.points);
-        historyBySeason.set(String(inc.seasonId),{seasonId:inc.seasonId,rankIndex:fin.rankIndex,rankName:fin.rankName,division:fin.division,divisionRoman:fin.divisionRoman,points:closed.points,endedAt:rankSeasonEnd(inc.seasonId),restoredFromBackup:true});
-      }
-    }
-  }
-  rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
+  const rank={...current.rank,sessions,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))),notices};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
 };
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -6708,36 +6684,14 @@ const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Ca
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
 const ProjectsTimeline=({projects,onOpen,isMobile})=>{
-const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
-  const BASE_DAY_W=36;
-  const ROW_H=38;
-  const HEADER_H=44;
-  const LEFT_W=200;
-  // "Esta semana" estica até preencher a área visível do scroll. A largura
-  // disponível já exclui o painel de tarefas (que aqui é irmão, não sticky).
-  const DAY_W=thisWeek&&containerW>0?Math.max(BASE_DAY_W,containerW/(totalDays+1)):BASE_DAY_W;
+  const DAY_W=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
   const today=localDateISO();
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
   // same convention as the per-project timeline.
   const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
-    const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
-  const scrollRef=useRef(null);
-  const [containerW,setContainerW]=useState(0);
-  useEffect(()=>{
-    const el=scrollRef.current;
-    if(!el)return;
-    const update=()=>setContainerW(el.clientWidth);
-    update();
-    if(typeof ResizeObserver!=='undefined'){
-      const ro=new ResizeObserver(update);
-      ro.observe(el);
-      return()=>ro.disconnect();
-    }
-    window.addEventListener('resize',update);
-    return()=>window.removeEventListener('resize',update);
-  },[open]);
+  const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
   const weekBounds=useMemo(()=>{
     const d=new Date(today+'T12:00:00');
     const day=d.getDay(); // 0=Sun...6=Sat
@@ -6778,13 +6732,7 @@ const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
     const yearEnd=today.slice(0,4)+'-12-31';
     if(yearEnd>end)end=yearEnd;
   }
-    const totalDays=daysBetween(start,end)+1;
-  // "Esta semana" (7 dias) estica até preencher a área visível do scroll.
-  // Outros intervalos mantêm a densidade fixa e rolam horizontalmente.
-  const DAY_W=thisWeek&&containerW>LEFT_W?Math.max(BASE_DAY_W,(containerW-LEFT_W)/totalDays):BASE_DAY_W;
-  const todayOffset=daysBetween(chartStart,today)*DAY_W;
-  const gridW=thisWeek?(totalDays+1)*DAY_W:totalDays*DAY_W;
-  const x=d=>daysBetween(start,d)*DAY_W;
+  const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
   const x=d=>daysBetween(start,d)*DAY_W;
   const months=[],weekends=[],dayNums=[];
   for(let i=0;i<totalDays;i++){
@@ -6794,25 +6742,9 @@ const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
     dayNums.push(d.getDate());
   }
   if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
-    const scrollRef=useRef(null);
-  const [containerW,setContainerW]=useState(0);
-   useEffect(()=>{
-    const el=scrollRef.current;
-    if(!el)return;
-    if(thisWeek){el.scrollLeft=0;return;}
-    const targetX=todayOffset-(el.clientWidth/2);
-    el.scrollLeft=Math.max(0,targetX);
-  },[todayOffset,thisWeek,expanded,containerW]);
-    window.addEventListener('resize',update);
-    return()=>window.removeEventListener('resize',update);
-  },[]);
+  const scrollRef=useRef(null);
   // Open on today rather than on the earliest date in the data.
-   // Open on today rather than on the earliest date in the data.
-  useEffect(()=>{
-    if(!open||!scrollRef.current)return;
-    if(thisWeek){scrollRef.current.scrollLeft=0;return;}
-    scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);
-  },[open,start,thisWeek,containerW]);
+  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);},[open,start]);
   const bodyH=visibleRows.length*ROW_H;
   return(
     <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
@@ -7215,9 +7147,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         return s<=chartEnd&&e>=chartStart;
       })
     : tasks;
-  // Inclusive: Sunday..Saturday is 7 columns. The old value (6) left the last day
-  // outside the grid and the month bands one day short.
-  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd)+1);
+  const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
   const DAY_W=36;
   const ROW_H=38;
   const HEADER_H=44;
@@ -7231,25 +7161,27 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const mStart=localDateISO(cur);
     const label=cur.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'}).replace('.',' ');
     const next=new Date(cur.getFullYear(),cur.getMonth()+1,1);
-    const lastMonth=next>endDt;
-    const mDays=lastMonth?daysBetween(mStart,chartEnd)+1:daysBetween(mStart,localDateISO(next));
-    // Narrow band (a week that straddles two months): drop the year so the
-    // label never wraps or gets cut.
-    const shortLabel=cur.toLocaleDateString('pt-BR',{month:'short'}).replace('.','');
-    months.push({label:mDays*DAY_W<100?shortLabel:label,days:mDays});
+    const mEnd=next>endDt?chartEnd:localDateISO(next);
+    months.push({label,days:daysBetween(mStart,mEnd)});
     cur=next;
+  }
+
+  const weekMarkers=[];
+  for(let i=0;i<=totalDays;i+=7){
+    const d=addDays(chartStart,i);
+    const dt=new Date(d+'T12:00:00');
+    weekMarkers.push({offset:i*DAY_W,label:dt.getDate()+'/'+(dt.getMonth()+1)});
   }
 
   // Weekend columns (Sat=6, Sun=0)
   const weekendCols=[];
-  for(let i=0;i<totalDays;i++){
+  for(let i=0;i<=totalDays;i++){
     const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
     const dow=dt.getDay();
     if(dow===0||dow===6)weekendCols.push(i);
   }
 
-  const todayIdx=daysBetween(chartStart,today);
-  const todayOffset=todayIdx*DAY_W;
+  const todayOffset=daysBetween(chartStart,today)*DAY_W;
   const gridW=totalDays*DAY_W;
 
   // - Bar geometry -
@@ -7423,7 +7355,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             {/* Month row */}
             <div style={{height:HEADER_H/2,display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg)'}}>
               {months.map((m,i)=>(
-                <div key={i} style={{width:m.days*DAY_W,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 8px',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',
+                <div key={i} style={{width:m.days*DAY_W,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',alignItems:'center',padding:'0 10px',
                   fontSize:'.68rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)'}}>
                   {m.label}
                 </div>
@@ -7431,17 +7363,17 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             </div>
             {/* Week sub-header */}
             <div style={{height:HEADER_H/2,background:'var(--bg)',borderBottom:'2px solid var(--border)',position:'relative'}}>
-              {Array.from({length:totalDays},(_,i)=>{
-                const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+i);
-                const dow=dt.getDay(),isWknd=dow===0||dow===6,isToday=i===todayIdx;
-                // One label per day: weekdays show the date, weekends the day
-                // name. Nothing else is drawn in this row, so labels cannot overlap.
-                return <div key={'dl'+i} style={{position:'absolute',left:i*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
-                  borderLeft:dow===0?'1px solid var(--border)':'none',boxSizing:'border-box',pointerEvents:'none'}}>
-                  <span style={{fontSize:'.62rem',fontWeight:isWknd||isToday?700:400,letterSpacing:isWknd?'.03em':0,
-                    color:isToday?'#fff':'var(--muted)',background:isToday?'var(--danger-strong)':'transparent',
-                    borderRadius:9,padding:isToday?'1px 6px':0,lineHeight:1.3}}>{isWknd&&!isToday?(dow===0?'Dom':'Sáb'):dt.getDate()}</span>
-                </div>;
+              {weekMarkers.map((mk,i)=>(
+                <div key={i} style={{position:'absolute',left:mk.offset,height:'100%',display:'flex',alignItems:'center',paddingLeft:5,
+                  fontSize:'.62rem',color:'var(--muted)',borderLeft:'1px solid var(--border)'}}>
+                  {mk.label}
+                </div>
+              ))}
+              {weekendCols.map(d=>{
+                const dt=new Date(chartStart+'T12:00:00');dt.setDate(dt.getDate()+d);
+                const lbl=dt.getDay()===0?'Dom':'Sáb';
+                return <div key={'wl'+d} style={{position:'absolute',left:d*DAY_W,width:DAY_W,height:'100%',display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:'.62rem',fontWeight:700,color:'var(--muted)',pointerEvents:'none',letterSpacing:'.03em'}}>{lbl}</div>;
               })}
             </div>
 
@@ -7485,9 +7417,12 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
               );
             })}
 
-            {/* Today line — centred on today's column; the date pill is in the header */}
-            {todayIdx>=0&&todayIdx<totalDays&&(
-              <div style={{position:'absolute',left:todayOffset+DAY_W/2-1,top:HEADER_H,bottom:0,width:2,background:'var(--danger-strong)',opacity:.85,pointerEvents:'none',zIndex:10}}/>
+            {/* Today line */}
+            {todayOffset>=0&&todayOffset<=gridW&&(
+              <div style={{position:'absolute',left:todayOffset,top:0,bottom:0,width:2,background:'var(--danger-strong)',pointerEvents:'none',zIndex:10}}>
+                <div style={{position:'absolute',top:HEADER_H-18,left:'50%',transform:'translateX(-50%)',background:'color-mix(in srgb,var(--danger-strong) 88%,black)',color:'white',
+                  fontSize:'.62rem',fontWeight:800,padding:'2px 5px',borderRadius:3,whiteSpace:'nowrap',letterSpacing:'.06em'}}>HOJE</div>
+              </div>
             )}
           </div>
         </div>
