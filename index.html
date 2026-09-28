@@ -1158,8 +1158,26 @@ const normalizeFocusPostCopy=post=>{
 // own `images` (an older build, a write that was not routed) are shown after
 // the task's, so nothing becomes invisible.
 const bhUniqStrings=list=>{const seen=new Set();return (Array.isArray(list)?list:[]).filter(x=>typeof x==='string'&&x!==''&&!seen.has(x)&&!!seen.add(x));};
+// Rich-text fields (task notes, the project's notes, research notes) hold
+// HTML since they use the Anotações editor. Older values are plain text:
+// shown as-is, line breaks kept.
+const bhTextToHTML=value=>{
+  const t=String(value||'');
+  if(!t)return'';
+  if(/<\/?(p|div|br|img|video|h[1-6]|ul|ol|li|blockquote|b|i|u|s|strong|em|span|strike)\b/i.test(t))return t;
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+};
+// The media a rich-text field shows inline, in order.
+const bhHtmlMediaSrcs=html=>{
+  const out=[],re=/<(?:img|video)\b[^>]*?\ssrc\s*=\s*["']([^"']+)["']/gi;
+  let m;const t=String(html||'');
+  while((m=re.exec(t)))out.push(m[1].replace(/&amp;/g,'&'));
+  return out;
+};
 const bhTaskGalleryImages=mini=>bhUniqStrings([
   ...(Array.isArray(mini?.frames)?mini.frames:[]),
+  // Images pasted into the task's own notes (they sit in the text now).
+  ...bhHtmlMediaSrcs(mini?.notes),
   ...(Array.isArray(mini?.innerNotes)?mini.innerNotes:[]).filter(n=>n&&!n.hideInGallery).flatMap(n=>Array.isArray(n.images)?n.images:[]),
 ]);
 // postId -> the task that feeds it. A live task wins over one in the task
@@ -7839,6 +7857,23 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     });
   };
   const upd=(field,value)=>edit(prev=>({...prev,[field]:typeof value==='function'?value(prev[field]):value}));
+  // The project's notes, a task's notes and a research note use the
+  // Anotações editor (images pasted into the text, grids, drag, lightbox).
+  // Its save callbacks must keep their identity: the editor flushes on a
+  // changed callback, and a new one each render saved on every render.
+  const editRef=useRef(edit);editRef.current=edit;
+  const saveOverviewNotes=useCallback(html=>editRef.current(prev=>prev.notes===html?prev:{...prev,notes:html}),[]);
+  const saveTaskNotes=useCallback((html,miniId)=>editRef.current(prev=>{
+    const ms=prev.miniProjects||[],i=ms.findIndex(m=>String(m.id)===String(miniId));
+    if(i<0||ms[i].notes===html)return prev;
+    return{...prev,miniProjects:ms.map((m,k)=>k===i?{...m,notes:html}:m)};
+  }),[]);
+  const saveResearchContent=useCallback((html,noteId)=>editRef.current(prev=>{
+    const rn=prev.researchNotes||[],i=rn.findIndex(n=>String(n.id)===String(noteId));
+    if(i<0||rn[i].content===html)return prev;
+    return{...prev,researchNotes:rn.map((n,k)=>k===i?{...n,content:html}:n)};
+  }),[]);
+  const overviewEditorApi=useRef(null),taskEditorApi=useRef(null),researchEditorApi=useRef(null);
   // Flush pending updates to parent after React commits the state
   useEffect(()=>{
     if(_pendingUpdate.current){
@@ -7877,7 +7912,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // Takes the files and resets the input first, so picking the same file
   // again after a failure still fires onChange.
   const inputFiles=e=>{const files=Array.from(e.target.files||[]);e.target.value='';return files;};
-  const handleResearchImgUpload=(noteId,e)=>addResearchImages(noteId,inputFiles(e));
   // Shared by the file picker, drag-and-drop and Ctrl+V.
   const addResearchImages=(noteId,rawFiles)=>noteId==null?undefined:addUploadedImages(rawFiles,
     (prev,urls)=>({...prev,researchNotes:(prev.researchNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n)}),
@@ -7895,13 +7929,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const updateResearch=(field,val)=>mapResearch(activeResearchId,n=>({...n,[field]:val}));
   const deleteResearch=id=>{upd('researchNotes',rn=>(rn||[]).filter(n=>String(n.id)!==String(id)));setActiveResearchId((local.researchNotes||[]).find(n=>String(n.id)!==String(id))?.id||null);};
   const researchImgRef=useRef();
-  const researchTextareaRef=useRef();
-  useEffect(()=>{
-    if(researchTextareaRef.current){
-      researchTextareaRef.current.style.height='auto';
-      researchTextareaRef.current.style.height=researchTextareaRef.current.scrollHeight+'px';
-    }
-  },[activeResearchId,activeResearch?.content]);
   const linkedMentors=useMemo(()=>{
     const ids=new Set((local.mentors||[]).map(String));
     return globalMentors.filter(m=>!m.deleted&&ids.has(String(m.id)));
@@ -8135,7 +8162,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const addTimelineTaskCard=pt=>edit(prev=>(prev.miniProjects||[]).some(m=>String(m.id)===String(pt.id))?prev
     :{...prev,miniProjects:[...(prev.miniProjects||[]),{id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')}]});
   const miniImgRef=useRef();
-  const handleMiniImgs=e=>addMiniFrames(activeMiniId,inputFiles(e));
+  const handleMiniImgs=e=>intoTask(inputFiles(e));
   const addMiniFrames=(miniId,rawFiles)=>miniId==null?undefined:addUploadedImages(rawFiles,
     (prev,urls)=>({...prev,miniProjects:(prev.miniProjects||[]).map(m=>String(m.id)===String(miniId)?{...m,frames:[...(m.frames||[]),...urls]}:m)}),
     'task.frames.upload','Não foi possível adicionar os frames. Tente novamente.');
@@ -8143,19 +8170,25 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // paste goes to whichever one is on screen: the focus post while it is being
   // edited, else the open task's frames or the open research note. Plain-text
   // paste into the title/notes fields is left alone.
-  const miniDrop=useFileDrop(files=>addMiniFrames(activeMiniId,files),tab==='Tarefas'&&!!activeMini&&!activeInnerNoteId);
-  const researchDrop=useFileDrop(files=>addResearchImages(activeResearchId,files),tab==='Pesquisa'&&!!activeResearch);
+  // Pasted or dropped images go into the open editor's text, as in
+  // Anotações (the frames / image lists stay for what they already hold).
+  const intoTask=files=>taskEditorApi.current?taskEditorApi.current.insertFiles(files):addMiniFrames(activeMiniId,files);
+  const intoResearch=files=>researchEditorApi.current?researchEditorApi.current.insertFiles(files):addResearchImages(activeResearchId,files);
+  const miniDrop=useFileDrop(intoTask,tab==='Tarefas'&&!!activeMini&&!activeInnerNoteId);
+  const researchDrop=useFileDrop(intoResearch,tab==='Pesquisa'&&!!activeResearch);
   const popupDrop=useFileDrop(addGalleryPopupFiles,!!galleryPopup&&galleryPopupEditing);
   const pasteTargetRef=useRef(null);
   pasteTargetRef.current=galleryPopup
     ?(galleryPopupEditing?addGalleryPopupFiles:null)
-    :tab==='Tarefas'&&activeMini&&!activeInnerNoteId?(files=>addMiniFrames(activeMini.id,files))
-    :tab==='Pesquisa'&&activeResearch?(files=>addResearchImages(activeResearch.id,files))
+    :tab==='Tarefas'&&activeMini&&!activeInnerNoteId?intoTask
+    :tab==='Pesquisa'&&activeResearch?intoResearch
+    :tab==='Visão Geral'?(files=>overviewEditorApi.current?.insertFiles(files))
     :null;
   useEffect(()=>{
     const onPaste=e=>{
       const target=pasteTargetRef.current;
-      if(!target)return;
+      // A paste inside an editor was already handled (and prevented) there.
+      if(!target||e.defaultPrevented)return;
       const files=bhImageFiles(e.clipboardData?.files);
       if(!files.length||document.querySelector('[role=dialog],.lightbox'))return;
       e.preventDefault();
@@ -8293,8 +8326,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
               <span className="label label-section" style={{display:'block',marginBottom:14}}><StaveGlyph name="eighth"/>Notas & Direção de Arte</span>
-              <textarea style={{background:'transparent',outline:'none',resize:'vertical',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.9rem',lineHeight:1.8,color:'var(--text)',minHeight:120,height:'auto',border:'none',width:'100%'}}
-                value={local.notes} onChange={e=>upd('notes',e.target.value)} placeholder="Notas de direção, referências, intenções narrativas..."/>
+              <div className="pd-rich" style={{display:'flex',flexDirection:'column',minHeight:160}}>
+                <RichEditor key={'overview-'+local.id} noteId={'project-'+local.id} initialHTML={bhTextToHTML(local.notes)} onSave={saveOverviewNotes} apiRef={overviewEditorApi}
+                  placeholder="Notas de direção, referências, intenções narrativas..."/>
+              </div>
             </div>
             {/* Assigned gallery */}
             <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
@@ -8464,7 +8499,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:600,fontSize:'.9rem',marginBottom:2}}>{m.name} <span style={{fontWeight:400,color:'var(--muted)',fontSize:'.78rem'}}>· {m.area}</span></div>
                     {m.medium&&<div style={{fontSize:'.75rem',color:'var(--muted)',marginBottom:4}}>{m.medium}</div>}
-                    {m.notes&&<div style={{fontSize:'.82rem',color:'var(--muted)',lineHeight:1.6}}>{m.notes}</div>}
+                    {m.notes&&noteTextPreview(m.notes)&&<div style={{fontSize:'.82rem',color:'var(--muted)',lineHeight:1.6,overflow:'hidden',textOverflow:'ellipsis',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{noteTextPreview(m.notes)}</div>}
                     {m.links&&(()=>{const hrefs=String(m.links).split(/[\s,]+/).map(safeHref).filter(Boolean);return hrefs.length?<div style={{display:'flex',flexDirection:'column',gap:2,marginTop:4}}>{hrefs.map(h=><a key={h} href={h} target="_blank" rel="noopener noreferrer" style={{fontSize:'.75rem',color:'var(--text)',textDecoration:'underline',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{linkLabel(h)}</a>)}</div>:null;})()}
                   </div>
                 </div>
@@ -8571,7 +8606,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           {/* Right: editor panel */}
           {(!isMobile||activeMiniId)&&(
           <div className="card" {...miniDrop.props} style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320,position:'relative'}}>
-            {miniDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar frames</span></div>}
+            {miniDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar imagens</span></div>}
             {isMobile&&(
               <button onClick={()=>setActiveMiniId(null)} className="btn btn-ghost" style={{alignSelf:'flex-start',padding:'4px 8px',fontSize:'.78rem',marginBottom:10}}>
                 <Icon name="arrow-left" size={13}/> Voltar às tarefas
@@ -8628,9 +8663,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       {linkablePosts.length>0&&<optgroup label={'Vincular a um post de “'+projectGalleryFolder.label+'”'}>{linkablePosts.map(p=><option key={p.id} value={String(p.id)}>{p.title||'Sem título'}</option>)}</optgroup>}
                     </select></div></div>;
                 })()}
-                <textarea value={activeMini.notes} onChange={e=>updateMini('notes',e.target.value)}
-                  placeholder="Notas, intenções, referências para esta tarefa..."
-                  style={{resize:'vertical',background:'transparent',border:'none',outline:'none',fontSize:'.9rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',minHeight:80,marginBottom:16}}/>
+                <div className="pd-rich" style={{display:'flex',flexDirection:'column',minHeight:140,marginBottom:16}}>
+                  <RichEditor key={'task-'+activeMini.id} noteId={'task-'+activeMini.id} initialHTML={bhTextToHTML(activeMini.notes)} onSave={saveTaskNotes} saveTarget={activeMini.id} apiRef={taskEditorApi}
+                    placeholder="Notas, intenções, referências para esta tarefa... Cole imagens aqui."/>
+                </div>
                 {(activeMini.innerNotes||[]).length>0&&(()=>{
                   /* Sessions and notes: open, order, and whether each shows in the post. */
                   const linked=activeMini.galleryPostId!=null&&activeMini.galleryPostId!=='';
@@ -8664,7 +8700,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   </div>;
                 })()}
                 <button className="btn btn-outline" style={{alignSelf:'flex-start',padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>miniImgRef.current.click()}>
-                  <Icon name="image-plus" size={13}/> Adicionar frames
+                  <Icon name="image-plus" size={13}/> Adicionar imagens
                 </button>
               </>
             )}
@@ -8768,7 +8804,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
             )}
             {activeResearch?(
               <>
-                <input ref={researchImgRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>handleResearchImgUpload(activeResearchId,e)}/>
+                <input ref={researchImgRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>intoResearch(inputFiles(e))}/>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,paddingBottom:12,borderBottom:'1px solid var(--border)'}}>
                   <input value={activeResearch.title} onChange={e=>updateResearch('title',e.target.value)}
                     style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.6rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:1,minWidth:0}}
@@ -8784,9 +8820,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     style={{flex:1,background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.83rem',color:'var(--text)'}}/>
                   {safeHref(activeResearch.url)&&<a href={safeHref(activeResearch.url)} target="_blank" rel="noopener noreferrer" title="Abrir link" aria-label="Abrir link de referência" style={{flexShrink:0,color:'var(--muted)'}} className="text-link"><Icon name="external-link" size={13}/></a>}
                 </div>
-                <textarea ref={researchTextareaRef} value={activeResearch.content} onChange={e=>{updateResearch('content',e.target.value);}} onInput={e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px'}}
-                  placeholder="Notas, análises, referências..."
-                  style={{resize:'none',background:'transparent',border:'none',outline:'none',fontSize:'.9rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',minHeight:120,overflow:'hidden',marginBottom:16,width:'100%'}}/>
+                <div className="pd-rich" style={{display:'flex',flexDirection:'column',minHeight:160,marginBottom:16}}>
+                  <RichEditor key={'research-'+activeResearch.id} noteId={'research-'+activeResearch.id} initialHTML={bhTextToHTML(activeResearch.content)} onSave={saveResearchContent} saveTarget={activeResearch.id} apiRef={researchEditorApi}
+                    placeholder="Notas, análises, referências... Cole imagens aqui."/>
+                </div>
                 {/* Images - 3 column grid */}
                 {(activeResearch.images||[]).length>0&&(
                   <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(auto-fill,minmax(160px,1fr))',gap:isMobile?8:10,marginBottom:14}}>
@@ -10037,7 +10074,7 @@ const _noteCaretRangeFromPoint=(x,y)=>{
   return range;
 };
 
-const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
+const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeholder})=>{
   const ref=useRef(null);
   const saveTimer=useRef(null);
   const lastId=useRef(null);
@@ -10457,6 +10494,24 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
     const rect=ref.current?.getBoundingClientRect();
     if(!rect||e.clientX<=rect.left||e.clientX>=rect.right||e.clientY<=rect.top||e.clientY>=rect.bottom)clearDragTarget();
   };
+  // Lets a page route a paste or a file drop made OUTSIDE the editor into it
+  // (at the caret, or at the end when the caret is elsewhere), the same way a
+  // paste inside it works.
+  useEffect(()=>{
+    if(!apiRef)return;
+    const api={insertFiles:files=>{
+      const el=ref.current;if(!el||!files||!files.length)return;
+      const sel=window.getSelection();
+      if(!sel||!sel.rangeCount||!el.contains(sel.anchorNode)){
+        el.focus();
+        const r=document.createRange();r.selectNodeContents(el);r.collapse(false);
+        sel.removeAllRanges();sel.addRange(r);
+      }
+      [...files].forEach(insertImageFile);
+    }};
+    apiRef.current=api;
+    return()=>{if(apiRef.current===api)apiRef.current=null;};
+  },[apiRef,insertImageFile]);
   const handlePaste=e=>{
     const items=e.clipboardData?.items||[];
     const images=bhImageFiles([...items].filter(i=>i.kind==='file').map(i=>i.getAsFile()).filter(Boolean),true);
@@ -10545,7 +10600,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget})=>{
         </label>
       </div>
       <div ref={ref} className="rich-editor" contentEditable suppressContentEditableWarning
-        data-placeholder="Comece a escrever..."
+        data-placeholder={placeholder||"Comece a escrever..."}
         onScroll={e=>{scrollTopRef.current=e.currentTarget.scrollTop;}}
         onInput={emit} onKeyDown={handleKeyDown} onKeyUp={updateFmt} onMouseUp={e=>{if(e.target.tagName!=='IMG')updateFmt();}} onSelect={updateFmt}
         onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
