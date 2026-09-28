@@ -6708,14 +6708,36 @@ const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Ca
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
 const ProjectsTimeline=({projects,onOpen,isMobile})=>{
-  const DAY_W=28,ROW_H=30,HEADER_H=40,LEFT_W=isMobile?140:210;
+const totalDays=Math.max(1,daysBetween(chartStart,chartEnd));
+  const BASE_DAY_W=36;
+  const ROW_H=38;
+  const HEADER_H=44;
+  const LEFT_W=200;
+  // "Esta semana" estica até preencher a área visível do scroll. A largura
+  // disponível já exclui o painel de tarefas (que aqui é irmão, não sticky).
+  const DAY_W=thisWeek&&containerW>0?Math.max(BASE_DAY_W,containerW/(totalDays+1)):BASE_DAY_W;
   const today=localDateISO();
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
   // same convention as the per-project timeline.
   const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
-  const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
+    const toggleWeek=()=>setThisWeek(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_WEEK_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.week',e);}return n;});
+  const scrollRef=useRef(null);
+  const [containerW,setContainerW]=useState(0);
+  useEffect(()=>{
+    const el=scrollRef.current;
+    if(!el)return;
+    const update=()=>setContainerW(el.clientWidth);
+    update();
+    if(typeof ResizeObserver!=='undefined'){
+      const ro=new ResizeObserver(update);
+      ro.observe(el);
+      return()=>ro.disconnect();
+    }
+    window.addEventListener('resize',update);
+    return()=>window.removeEventListener('resize',update);
+  },[open]);
   const weekBounds=useMemo(()=>{
     const d=new Date(today+'T12:00:00');
     const day=d.getDay(); // 0=Sun...6=Sat
@@ -6756,7 +6778,13 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     const yearEnd=today.slice(0,4)+'-12-31';
     if(yearEnd>end)end=yearEnd;
   }
-  const totalDays=daysBetween(start,end)+1,gridW=totalDays*DAY_W;
+    const totalDays=daysBetween(start,end)+1;
+  // "Esta semana" (7 dias) estica até preencher a área visível do scroll.
+  // Outros intervalos mantêm a densidade fixa e rolam horizontalmente.
+  const DAY_W=thisWeek&&containerW>LEFT_W?Math.max(BASE_DAY_W,(containerW-LEFT_W)/totalDays):BASE_DAY_W;
+  const todayOffset=daysBetween(chartStart,today)*DAY_W;
+  const gridW=thisWeek?(totalDays+1)*DAY_W:totalDays*DAY_W;
+  const x=d=>daysBetween(start,d)*DAY_W;
   const x=d=>daysBetween(start,d)*DAY_W;
   const months=[],weekends=[],dayNums=[];
   for(let i=0;i<totalDays;i++){
@@ -6766,9 +6794,25 @@ const ProjectsTimeline=({projects,onOpen,isMobile})=>{
     dayNums.push(d.getDate());
   }
   if(months.length)months[months.length-1].width=gridW-months[months.length-1].left;
-  const scrollRef=useRef(null);
+    const scrollRef=useRef(null);
+  const [containerW,setContainerW]=useState(0);
+   useEffect(()=>{
+    const el=scrollRef.current;
+    if(!el)return;
+    if(thisWeek){el.scrollLeft=0;return;}
+    const targetX=todayOffset-(el.clientWidth/2);
+    el.scrollLeft=Math.max(0,targetX);
+  },[todayOffset,thisWeek,expanded,containerW]);
+    window.addEventListener('resize',update);
+    return()=>window.removeEventListener('resize',update);
+  },[]);
   // Open on today rather than on the earliest date in the data.
-  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);},[open,start]);
+   // Open on today rather than on the earliest date in the data.
+  useEffect(()=>{
+    if(!open||!scrollRef.current)return;
+    if(thisWeek){scrollRef.current.scrollLeft=0;return;}
+    scrollRef.current.scrollLeft=Math.max(0,x(today)-3*DAY_W);
+  },[open,start,thisWeek,containerW]);
   const bodyH=visibleRows.length*ROW_H;
   return(
     <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
