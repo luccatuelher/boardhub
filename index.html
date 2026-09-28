@@ -6951,9 +6951,21 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const pendingCount=rows.filter(r=>r.kind==='task').length;
   // When "Esta semana" is on, only rows overlapping the current week are
   // shown; otherwise every project/task row from the full data set is used.
+  // A project's header row stays whenever any of its tasks is in the week.
+  // It used to be filtered on the project's own dates, so a project whose
+  // start/deadline missed the week lost its header and its tasks read as if
+  // they belonged to the project listed above them.
   const visibleRows=useMemo(()=>{
     if(!thisWeek)return rows;
-    return rows.filter(r=>!r.s||!r.e||(r.s<=weekBounds.end&&r.e>=weekBounds.start));
+    const inWeek=r=>!r.s||!r.e||(r.s<=weekBounds.end&&r.e>=weekBounds.start);
+    const out=[];let header=null,headerShown=false;
+    rows.forEach(r=>{
+      if(r.kind==='project'){header=r;headerShown=false;if(inWeek(r)){out.push(r);headerShown=true;}return;}
+      if(!inWeek(r))return;
+      if(header&&!headerShown){out.push(header);headerShown=true;}
+      out.push(r);
+    });
+    return out;
   },[rows,thisWeek,weekBounds]);
   // "Esta semana": the 7 day columns split exactly the visible width next to
   // the label column (the scroll area's clientWidth, which already leaves out
@@ -7015,7 +7027,10 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
               const isP=r.kind==='project',c=isP?null:(GANTT_COLORS[r.t.status]||GANTT_COLORS['Pendente']);
               // Clip to the visible window so bars of tasks running past the week never spill out of the grid.
               const cs=r.s&&r.s<start?start:r.s,ce=r.e&&r.e>end?end:r.e;
-              const left=r.s?x(cs):null,width=r.s?Math.max(1,daysBetween(cs,ce)+1)*DAY_W:0;
+              // Nothing is drawn for a range wholly outside the window (a project that
+              // ended before this week showed as a one-day bar on Sunday).
+              const outside=!!r.s&&!!r.e&&(r.e<start||r.s>end);
+              const left=r.s&&!outside?x(cs):null,width=r.s&&!outside?Math.max(1,daysBetween(cs,ce)+1)*DAY_W:0;
               const label=isP?(r.p.title||'Projeto sem nome'):(r.t.text||r.t.title||'Tarefa sem nome');
               const fits=!isP&&tlLabelFits(width-(onUpdateTask?20:12));
               const g=isP?null:{s:r.s,e:r.e,vs:cs,ve:ce,clipStart:r.s<start,clipEnd:r.e>end};
