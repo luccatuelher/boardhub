@@ -476,8 +476,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 /* The metronome was drawn at 76px and hard to read at a glance; it is the
    card's main element now (owner request, 2026-09-28). The drawing scales
    with the box — the pivot and drag math are in SVG units / relative to it. */
-.pomo-metronome{width:120px;height:120px;}
-@media (max-width:640px){.pomo-metronome{width:100px;height:100px;}}
+.pomo-metronome{width:104px;height:104px;}
+@media (max-width:640px){.pomo-metronome{width:92px;height:92px;}}
 .bh-pendulum{transform-box:view-box;transform-origin:38px var(--pivot,34px);animation:bhPendulum var(--beat,.5s) cubic-bezier(.42,0,.58,1) infinite alternate;}
 /* There is NO prefers-reduced-motion suppression here, and that is deliberate —
    but the REASON changed on 2026-08-03 and the old one no longer applies.
@@ -5724,7 +5724,7 @@ const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
 
 const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], onSessionComplete, onResumeSession, onOpenPost, galleryPosts=[] }) => {
   const BREAK_SECS = 5 * 60;
-  const MAX_FOCUS_MINS = 60;
+  const MAX_FOCUS_MINS = 120; // sessions up to 2 hours (owner request, 2026-09-28)
 
   const _initRef=useRef(null);
   if(!_initRef.current)_initRef.current=(()=>{
@@ -6210,7 +6210,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         <div className="card" style={{padding:'8px 12px 8px 8px',display:'flex',alignItems:'center',gap:10}}>
           <div ref={circleRef} className="pomo-metronome"
             style={{position:'relative',flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
-            title={!isActive?'Arraste para cima/baixo para ajustar de 1 a 60 min':'Pause o timer para ajustar a duração'}
+            title={!isActive?'Arraste para cima/baixo para ajustar de 1 a 120 min':'Pause o timer para ajustar a duração'}
             onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
             {/* M2.1 — the dial became an abstract metronome: truncated pyramid,
