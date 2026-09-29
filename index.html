@@ -7159,6 +7159,22 @@ const tlDragDates=(g,type,delta)=>{
   else{ne=g.clipEnd?(delta<0?addDays(g.ve,delta):g.e):addDays(g.e,delta);if(ne<ns)ne=ns;}
   return{startDate:ns,dueDate:ne};
 };
+// A task's status follows its dates when a bar is dragged. Where its dates sit
+// against today is its "phase": due date passed = late, today inside = under
+// way, starting after today = upcoming. Done stays done. A drag that leaves the
+// task late makes it "Atrasado"; one that changes its phase gives it the
+// status of the new phase (under way = "Fazendo", upcoming = "Pendente"); a
+// task marked "Atrasado" that is no longer overdue also leaves it. A drag that
+// crosses nothing keeps the status the user chose. Always computed from the
+// status and dates at the START of the drag, so dragging back restores it.
+const tlPhase=(start,due,today)=>due<today?'late':start>today?'upcoming':'current';
+const tlStatusAfterDrag=(status,before,after,today)=>{
+  if(status==='Concluído')return status;
+  const was=tlPhase(before.s,before.e,today),now=tlPhase(after.s,after.e,today);
+  if(now==='late')return 'Atrasado';
+  if(now===was&&status!=='Atrasado')return status;
+  return now==='current'?'Fazendo':'Pendente';
+};
 // Pointer drag in whole days (mouse, pen and touch). onDays(delta) runs only
 // when the day count changes; onEnd(moved) tells a real drag from a click.
 const tlPointerDrag=(e,DAY_W,onDays,onEnd)=>{
@@ -7305,7 +7321,10 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const justMovedRef=useRef(false);
   const startDrag=(e,r,type,g)=>{
     if(!onUpdateTask)return;
-    tlPointerDrag(e,DAY_W,delta=>onUpdateTask(r.p.id,r.t.id,tlDragDates(g,type,delta)),moved=>{justMovedRef.current=moved;});
+    tlPointerDrag(e,DAY_W,delta=>{
+      const next=tlDragDates(g,type,delta);
+      onUpdateTask(r.p.id,r.t.id,{...next,status:tlStatusAfterDrag(r.t.status,{s:g.s,e:g.e},{s:next.startDate,e:next.dueDate},today)});
+    },moved=>{justMovedRef.current=moved;});
   };
   return(
     <div className="card" style={{padding:0,overflow:'hidden',marginBottom:isMobile?12:16}}>
@@ -7401,8 +7420,11 @@ const bhDuplicateProject=p0=>{
 };
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts})=>{
   // Dates edited on the Projects-page timeline go straight into the project.
+  // A patch that carries a status (a drag that changed the task's phase) is
+  // mirrored onto the task's card, as the project's own timeline does.
   const updateTimelineTask=useCallback((projectId,taskId,patch)=>setProjects(prev=>prev.map(p=>String(p.id)!==String(projectId)?p
-    :{...p,projectTasks:(p.projectTasks||[]).map(t=>String(t.id)===String(taskId)?{...t,...patch}:t)})),[setProjects]);
+    :{...p,projectTasks:(p.projectTasks||[]).map(t=>String(t.id)===String(taskId)?{...t,...patch}:t),
+      ...(patch.status!==undefined?{miniProjects:(p.miniProjects||[]).map(m=>String(m.id)===String(taskId)?{...m,status:projectTaskMiniStatus(patch.status)}:m)}:{})})),[setProjects]);
   const [filterType,setFilterType]=useState('all');
   const [onlyActive,setOnlyActive]=useState(false);
   const [trash,setTrash]=useState(false);
@@ -7762,7 +7784,11 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const startDrag=(e,t,type)=>{
     const g=barGeom(t);if(g.outside)return;
     tlPointerDrag(e,DAY_W,
-      delta=>{const next=tlDragDates(g,type,delta);onUpdateTasks(ts=>ts.map(x=>String(x.id)===String(t.id)?{...x,...next}:x));},
+      delta=>{
+        const next=tlDragDates(g,type,delta);
+        const status=tlStatusAfterDrag(t.status,{s:g.s,e:g.e},{s:next.startDate,e:next.dueDate},today);
+        onUpdateTasks(ts=>ts.map(x=>String(x.id)===String(t.id)?{...x,...next,status}:x));
+      },
       // A drag ends with a click on the bar; remember it so that click does
       // not also toggle the edit panel.
       moved=>{dragJustMovedRef.current=moved;});
