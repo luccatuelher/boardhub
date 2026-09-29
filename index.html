@@ -9649,6 +9649,17 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     return m;
   },[galleryOnlyPosts,homeOf]);
   const hasSections=!!fullLayout&&fullLayout.length>1;
+  // Sections are a grouping of their own, independent of the sort: a post's
+  // section is where it sits in manualOrder (see galleryManualLayout), whatever
+  // mode the folder is shown in. Date modes show it on the card; Manual lays
+  // the folder out by it.
+  const folderSections=useMemo(()=>normalizeGallerySections(activeFolderData?.sections),[activeFolderData]);
+  const postSection=useMemo(()=>{
+    const m=new Map();
+    if(trash||!activeFolderData||!folderSections.length)return m;
+    galleryManualLayout(activeFolderData,active).forEach(g=>{if(g.section)g.posts.forEach(p=>m.set(String(p.id),g.section));});
+    return m;
+  },[active,activeFolderData,folderSections,trash]);
   // Persist placement for posts that are not in manualOrder yet, so the next
   // drag works on a complete list (and a sync peer sees the same layout).
   useEffect(()=>{
@@ -9680,8 +9691,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     editManualOrder(order=>galleryMovePost(order,fromId,{beforeId:toId}));
   };
   const movePostToSection=(postId,sectionId,atEnd=true)=>{
-    if(sortMode!=='manual')return;
     editManualOrder(order=>galleryMovePost(order,postId,{section:sectionId,atEnd}));
+  };
+  // sectionId null = "Sem seção". Works in every sort mode.
+  const setPostSection=(postId,sectionId)=>{
+    if(trash||String(postSection.get(String(postId))?.id??'')===String(sectionId??''))return;
+    movePostToSection(postId,sectionId??null,true);
   };
   const [editingSectionId,setEditingSectionId]=useState(null);
   const [sectionLabel,setSectionLabel]=useState('');
@@ -9840,7 +9855,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       onDragOver:e=>{if(postDragRef.current==null||String(postDragRef.current)===String(post.id))return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drag-over-left');},
       onDragLeave:e=>e.currentTarget.classList.remove('drag-over-left'),
       onDrop:e=>{e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('drag-over-left');const from=postDragRef.current;if(from!=null&&String(from)!==String(post.id))reorderGalleryPosts(from,post.id);postDragRef.current=null;postDragEndRef.current=Date.now();},
-    }:{};
+    }:(!trash&&folderSections.length?{
+      draggable:true,
+      onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;e.currentTarget.style.opacity='.45';},
+      onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;postDragEndRef.current=Date.now();clearGalleryDragMarks();},
+    }:{});
+    const sec=!manual&&!trash?postSection.get(String(post.id)):null;
     return(
       <div key={post.id} className={`card${manual?' drag-item':''}`} {...dragProps}
         style={{overflow:'hidden',cursor:trash?'default':manual?'grab':'pointer',position:'relative'}}
@@ -9864,6 +9884,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         </div>
         <div style={{padding:'12px 14px'}}>
           <div style={{fontWeight:600,fontSize:'.82rem',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title||'Sem título'}</div>
+          {sec&&<div title={'Seção: '+sec.label} style={{fontSize:'.66rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--session-accent,var(--muted))',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sec.label}</div>}
           <div style={{fontSize:'.72rem',color:'var(--muted)',marginBottom:trash?8:0}}>{formatPostDate(post.date)}</div>
           {trash&&(
             <div style={{display:'flex',gap:5}}>
@@ -9955,7 +9976,19 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             ))}
           </div>
         </div>
-        {/* Position and section are managed from the Gallery grid itself. */}
+        {/* The section (any sort mode). Position stays a matter of the Gallery grid. */}
+        {!trash&&folderSections.length>0&&String(selected.folder)===String(activeFolder)&&(()=>{
+          const cur=postSection.get(String(selected.id));
+          return <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
+            <span className="label label-field" style={{flexShrink:0}}>Seção</span>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {[{id:null,label:'Sem seção'},...folderSections].map(sec=>{
+                const on=(cur?String(cur.id):'')===String(sec.id??'');
+                return <button key={sec.id??'none'} onClick={()=>setPostSection(selected.id,sec.id)} aria-pressed={on} className={`gallery-chip${on?' on':''}`}>{sec.label}</button>;
+              })}
+            </div>
+          </div>;
+        })()}
         {/* Date editor */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
@@ -10115,10 +10148,38 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             {sortMode==='manual'
               ? <button className="btn btn-outline" onClick={addSection} style={{padding:'5px 10px',fontSize:'.72rem',marginLeft:6}} title="Adicionar uma seção ao fim da pasta">
                   <Icon name="plus" size={11}/> Seção</button>
-              : <select value={sortOrder} onChange={e=>changeSortOrder(e.target.value)} aria-label="Ordem dos posts" className="gallery-sort-select">
+              : <><select value={sortOrder} onChange={e=>changeSortOrder(e.target.value)} aria-label="Ordem dos posts" className="gallery-sort-select">
                   {GALLERY_SORT_ORDERS.map(([o,label])=><option key={o} value={o}>{label}</option>)}
-                </select>}
+                </select>
+                <button className="btn btn-outline" onClick={addSection} style={{padding:'5px 10px',fontSize:'.72rem'}} title="Adicionar uma seção a esta pasta">
+                  <Icon name="plus" size={11}/> Seção</button></>}
           </div>
+          {sortMode!=='manual'&&folderSections.length>0&&<div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',flexBasis:'100%'}} aria-label="Seções desta pasta">
+            <span className="gallery-sortbar-label">Seções</span>
+            {[{id:null,label:'Sem seção'},...folderSections].map(sec=>{
+              const count=[...postSection.values()].filter(x=>sec.id!=null&&x.id===sec.id).length;
+              const editing=sec.id!=null&&editingSectionId===sec.id;
+              const dropProps={
+                onDragOver:e=>{if(postDragRef.current==null)return;e.preventDefault();e.currentTarget.classList.add('drag-over');},
+                onDragLeave:e=>e.currentTarget.classList.remove('drag-over'),
+                onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(postDragRef.current!=null){setPostSection(postDragRef.current,sec.id);postDragRef.current=null;postDragEndRef.current=Date.now();}},
+              };
+              return editing
+                ?<input key={sec.id} autoFocus value={sectionLabel} onChange={e=>setSectionLabel(e.target.value)} aria-label="Nome da seção"
+                    onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}}
+                    onBlur={()=>renameSection(sec.id,sectionLabel)}
+                    onKeyDown={e=>{if(e.key==='Enter')renameSection(sec.id,sectionLabel);if(e.key==='Escape')setEditingSectionId(null);}}
+                    className="gallery-section-input"/>
+                :<span key={sec.id??'none'} className="gallery-chip" {...dropProps} style={{display:'inline-flex',alignItems:'center',gap:5}}>
+                    {sec.label}{sec.id!=null&&<span className="gallery-section-count">{count}</span>}
+                    {sec.id!=null&&<>
+                      <button type="button" onClick={()=>{setEditingSectionId(sec.id);setSectionLabel(sec.label);}} title="Renomear seção" aria-label={'Renomear seção '+sec.label} style={{background:'none',border:'none',cursor:'pointer',padding:0,lineHeight:0,color:'inherit'}}><Icon name="pencil" size={11}/></button>
+                      <button type="button" onClick={()=>removeSection(sec.id)} title="Remover seção (os posts continuam na pasta)" aria-label={'Remover seção '+sec.label} style={{background:'none',border:'none',cursor:'pointer',padding:0,lineHeight:0,color:'inherit'}}><Icon name="x" size={11}/></button>
+                    </>}
+                  </span>;
+            })}
+            <span style={{fontSize:'.7rem',color:'var(--muted)'}}>{isMobile?'Abra um post para escolher a seção.':'Arraste um post até uma seção, ou escolha a seção ao abrir o post.'}</span>
+          </div>}
           {sortMode==='manual'&&<span style={{fontSize:'.7rem',color:'var(--muted)',flexBasis:'100%'}}>
             {isMobile
               ?'Abra um post para mudar a posição ou a seção dele. Use as setas no título de uma seção para mover o bloco inteiro.'
