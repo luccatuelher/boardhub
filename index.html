@@ -6198,9 +6198,26 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     // was too fine to land on a round value by finger.
     return Math.max(5, Math.min(MAX_FOCUS_MINS, Math.round(t * MAX_FOCUS_MINS / 5) * 5));
   };
+  // A press on the reading (the time in the base) is not a drag yet: it only
+  // becomes one once the pointer moves, so a double click/tap there can open
+  // the typed duration without first snapping the time to where it landed.
+  const readingPressRef = useRef(null);
+  const lastReadingTapRef = useRef(0);
+  const onReading = (e) => {
+    const r = circleRef.current?.getBoundingClientRect();
+    if (!r) return false;
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    return x > 0.12 && x < 0.88 && y > 0.5 && y < 0.8;
+  };
   const handlePointerDown = (e) => {
     if (isActiveRef.current||sessionMetaRef.current) return;
     e.preventDefault();
+    if (onReading(e)) {
+      readingPressRef.current = { x: e.clientX, y: e.clientY };
+      try { circleRef.current?.setPointerCapture(e.pointerId); } catch {}
+      return;
+    }
+    readingPressRef.current = null;
 
     // Editing the metronome weight always prepares a focus session. The old
     // guard blocked dragging whenever mode==='break', so a paused break made the
@@ -6224,6 +6241,14 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     }
   };
   const handlePointerMove = (e) => {
+    const press = readingPressRef.current;
+    if (press && !draggingRef.current) {
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) return;
+      readingPressRef.current = null;
+      if (modeRef.current !== 'focus') { setMode('focus'); modeRef.current = 'focus'; }
+      draggingRef.current = true;
+      setIsDragging(true);
+    }
     if (!draggingRef.current) return;
     e.preventDefault();
     const mins = getDragMins(e);
@@ -6235,8 +6260,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       timeLeftRef.current = fs;
     }
   };
-  // TYPING THE DURATION. Dragging snaps to 5 minutes; the pencil button next to
-  // the timer opens a field in the metronome's reading where any value from 1
+  // TYPING THE DURATION. Dragging snaps to 5 minutes; a double click/tap on
+  // the time opens a field in the metronome's reading where any value from 1
   // to MAX_FOCUS_MINS can be typed (Enter or leaving the field applies it,
   // Escape cancels). Same rules as dragging: not while a session is running.
   const [typedMins, setTypedMins] = useState(null);
@@ -6259,6 +6284,15 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     persist(false, fs, 'focus', mins);
   };
   const handlePointerUp = (e) => {
+    if (readingPressRef.current) {
+      readingPressRef.current = null;
+      try { circleRef.current?.releasePointerCapture(e.pointerId); } catch {}
+      if (e.type !== 'pointerup') return;
+      const now = performance.now();
+      if (now - lastReadingTapRef.current < 400) { lastReadingTapRef.current = 0; openTypeMins(); }
+      else lastReadingTapRef.current = now;
+      return;
+    }
     if (!draggingRef.current) return;
     draggingRef.current = false;
     setIsDragging(false);
@@ -6361,7 +6395,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         <div className="card" style={{padding:'8px 12px 8px 8px',display:'flex',alignItems:'center',gap:10}}>
           <div ref={circleRef} className="pomo-metronome"
             style={{position:'relative',flexShrink:0,cursor:!isActive?'ns-resize':'default',touchAction:'none',userSelect:'none'}}
-            title={!isActive?'Arraste para cima/baixo para ajustar de 5 a 120 min, de 5 em 5':'Pause o timer para ajustar a duração'}
+            title={!isActive?'Arraste para cima/baixo para ajustar de 5 a 120 min, de 5 em 5 • Dois cliques no tempo para digitar':'Pause o timer para ajustar a duração'}
             onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}>
             {/* M2.1 — the dial became an abstract metronome: truncated pyramid,
@@ -6427,9 +6461,6 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
               <button className="btn btn-ghost bh-touch-target" onClick={reset} title="Reiniciar" style={{padding:5}}>
                 <Icon name="rotate-ccw" size={13}/>
               </button>
-              {!isActive&&!sessionMetaRef.current&&<button className="btn btn-ghost bh-touch-target" onMouseDown={e=>e.preventDefault()} onClick={openTypeMins} title="Digitar a duração (1 a 120 min)" aria-label="Digitar a duração em minutos" style={{padding:5}}>
-                <Icon name="pencil" size={13}/>
-              </button>}
               <button className="btn btn-ghost bh-touch-target"
                 onClick={()=>{const v=!soundOn;setSoundOn(v);setPomoSoundOn(v);}}
                 aria-pressed={soundOn}
