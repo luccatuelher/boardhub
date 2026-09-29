@@ -632,7 +632,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-panel-metric{display:flex;flex-direction:column;gap:1px;min-width:0}.rank-panel-metric>span{font-size:.58rem;font-weight:700;letter-spacing:.075em;text-transform:uppercase;color:var(--muted)}.rank-panel-metric>strong{font:600 1rem 'Cormorant Garamond',serif;color:var(--text)}
 .rank-panel-metric>i{display:block;width:100%;height:3px;margin-top:3px;border-radius:9px;background:rgba(var(--ink),.1);overflow:hidden}.rank-panel-metric>i b{display:block;height:100%;border-radius:inherit;background:#3694a7}
 .rank-panel-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;min-width:0}.rank-panel-actions .btn{padding:5px 9px;font-size:.68rem;white-space:nowrap}
-.rank-panel-footer>*{min-width:0}.rank-panel-metric>span,.rank-panel-metric>strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.rank-panel-footer>*{min-width:0}.rank-panel-metric>span,.rank-panel-metric>strong,.rank-panel-metric>small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.rank-panel-metric>small{margin-top:1px;font-size:.6rem;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums}
 .rank-history-list{display:flex;flex-direction:column;gap:7px;max-height:55vh;overflow:auto;padding-right:2px}.rank-history-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--border);border-radius:10px;background:var(--bg)}.rank-history-row>div:not(.rank-session-date){display:flex;flex-direction:column;min-width:0}.rank-history-row strong{font-size:.82rem;color:var(--text)}.rank-history-row span{font-size:.7rem;color:var(--muted)}.rank-history-row>em{font-size:.7rem;font-style:normal;color:var(--muted);white-space:nowrap}.rank-history-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:32px;color:var(--muted);font-size:.82rem;text-align:center}
 .rank-guide{max-height:68vh;overflow:auto;padding-right:3px}.rank-guide-intro{margin:0 0 13px;color:var(--muted);font-size:.78rem;line-height:1.45}.rank-guide-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.rank-guide-card{display:flex;min-width:0;flex-direction:column;align-items:center;padding:10px 5px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg);text-align:center}.rank-guide-card strong{margin-top:2px;font-size:.72rem;line-height:1.1}.rank-guide-card span{margin-top:2px;color:var(--muted);font-size:.58rem}.rank-guide-rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.rank-guide-rule{padding:11px 12px;border:1px solid var(--border);border-radius:10px}.rank-guide-rule h3{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:.72rem}.rank-guide-rule p{margin:0;color:var(--muted);font-size:.68rem;line-height:1.4}.rank-decay-table{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:7px}.rank-decay-table span{display:flex;flex-direction:column;align-items:center;padding:5px 2px;border-radius:6px;background:var(--bg);font-size:.56rem;color:var(--muted)}.rank-decay-table strong{font-size:.62rem;color:var(--text)}
 .task-filter{display:flex;gap:3px;margin:0 0 6px;flex-shrink:0}.task-filter button{border:1px solid var(--border);background:transparent;border-radius:20px;padding:1px 8px;font:500 .68rem 'Alegreya Sans',sans-serif;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:4px}.task-filter button span{opacity:.7;font-size:.62rem}.task-filter button.on{background:var(--text);border-color:var(--text);color:var(--bg)}
@@ -5392,7 +5392,12 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   const pos=rankPosition(rank.points),season=rankSeasonForDate();
   const pct=pos.isMax?100:Math.round(pos.divisionProgress/pos.needed*100);
   const victoryPct=Math.round((rank.cycleSeconds||0)/7200*100);
-  const seasonSessions=(rank.sessions||[]).filter(s=>s.seasonId===rank.seasonId).length;
+  // Season focus = every second logged on a day inside the season's window
+  // (the same per-day totals the decay and the streak read), not a session count.
+  const seasonStart=rankSeasonStart(season.id),seasonEnd=rankSeasonEnd(season.id);
+  const seasonFocusSecs=useMemo(()=>Object.entries(pomoData?.days||{}).reduce((sum,[key,secs])=>/^\d{4}-\d{2}-\d{2}$/.test(key)&&key>=seasonStart&&key<=seasonEnd?sum+Math.max(0,Number(secs)||0):sum,0),[pomoData?.days,seasonStart,seasonEnd]);
+  const seasonDateShort=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const seasonDateLong=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'});
   const todayKey=rankDateKey(),todaySecs=Number(pomoData?.days?.[todayKey]||0),weekday=rankDateFromKey(todayKey).getDay();
   const projectedLoss=(weekday===0||weekday===6)?0:Math.min(rank.points,rankDecayForSeconds(todaySecs));
   const projectedPosition=rankPosition(Math.max(0,rank.points-projectedLoss));
@@ -5411,7 +5416,7 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
       </div>
       <div className="rank-panel-footer">
         <div className="rank-panel-metric"><span>{rank.cycleSeconds>=7200?'Vitória do dia':'Próxima vitória'}</span><strong>{rank.cycleSeconds>=7200?'Concluída':pomoFmtRemaining(Math.max(0,7200-(rank.cycleSeconds||0)))}</strong><i><b style={{width:victoryPct+'%'}}/></i></div>
-        <div className="rank-panel-metric"><span>Sessões nesta temporada</span><strong>{seasonSessions}</strong></div>
+        <div className="rank-panel-metric"><span>Foco na temporada</span><strong>{pomoFmtSecs(seasonFocusSecs)}</strong><small title={seasonDateLong(seasonStart)+' a '+seasonDateLong(seasonEnd)}>Início {seasonDateShort(seasonStart)} · Fim {seasonDateShort(seasonEnd)}</small></div>
         <div className="rank-panel-actions">
           <button className="btn btn-outline" onClick={()=>setHistoryView('ranks')}><Icon name="list-checks" size={12}/> Ranks</button>
           <button className="btn btn-outline" onClick={()=>setHistoryView('seasons')}><Icon name="archive" size={12}/> Temporadas</button>
@@ -13641,7 +13646,7 @@ const App=()=>{
       const taskId=String(task?task.id:session.taskId);
       const noteId='session-note-'+session.id;
       const images=Array.isArray(session.images)?session.images:[];
-      const note={id:noteId,title:session.title||'Sessão',content:['Duração da sessão: '+pomoFmtSecs(session.durationSeconds||0),session.note||''].filter(Boolean).join('\n\n'),
+      const note={id:noteId,title:session.title||'Sessão',content:session.note||'',
         images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)],...(session.hideInGallery?{hideInGallery:true}:{})};
       // Linking the task to a Gallery post from the modal: a new post in the
       // project's folder, or a post of that folder no task feeds yet, whose
@@ -13705,7 +13710,9 @@ const App=()=>{
     const postId=existing?.id||('focus-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6));
     const target=session.targetLabel||'Sem categoria';
     const folderId=destination==='gallery'?String(session.folderId||existing?.folder||''):null;
-    const entry=['Duração da sessão: '+pomoFmtSecs(session.durationSeconds||0),session.note||''].filter(Boolean).join('\n\n');
+    // Only what the user wrote: the elapsed time is never stamped into the text
+    // (it is read from the session where it is shown).
+    const entry=session.note||'';
     const newPost={
       id:postId,folder:folderId,storageScope:destination,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,title:session.title||'Sessão — '+target,date:session.date||localDateISO(),
       content:entry,
