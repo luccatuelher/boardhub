@@ -5454,13 +5454,33 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   </>;
 };
 
-const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],project=null,lastTaskId=null})=>{
+const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],project=null,lastTaskId=null,projects=[]})=>{
   const isProjectSession=session.targetType==='project';
   // A project session always becomes a note under one of the project's tasks
   // (or a task created right here, '__new__'), so its default title names the
   // day rather than the project the task already belongs to.
-  const defaultTitle=isProjectSession?'Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'Sessão — '+(session.targetLabel||'Sem categoria');
-  const projectTasks=project?.projectTasks||[];
+  const taskTitleDefault='Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const galleryTitleDefault='Sessão — '+(session.targetLabel||'Sem categoria');
+  const defaultTitle=isProjectSession?taskTitleDefault:galleryTitleDefault;
+  const liveFolders=useMemo(()=>{
+    return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
+  },[galleryFolders]);
+  // A category session is about one gallery folder (the categories ARE the
+  // live folders), so its post starts there; it used to start on the first
+  // folder whatever the category. An archived one falls back to the first.
+  const [folderId,setFolderId]=useState(()=>{
+    const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
+    return String((liveFolders.find(f=>String(f.id)===cat)||liveFolders[0]||{id:''}).id);
+  });
+  // A folder a project is linked to (project.galleryFolder) lets a category
+  // session go into one of that project's tasks too: the projects offered here
+  // follow the folder chosen below. "Só na Galeria" (none) is the default and
+  // the old behaviour; picking a project turns the session into a project one.
+  const [linkProjectId,setLinkProjectId]=useState('');
+  const linkedProjects=useMemo(()=>isProjectSession?[]:(projects||[]).filter(p=>p&&!p.deleted&&p.galleryFolder!=null&&p.galleryFolder!==''&&String(p.galleryFolder)===String(folderId)),[projects,folderId,isProjectSession]);
+  const taskProject=isProjectSession?project:(linkedProjects.find(p=>String(p.id)===String(linkProjectId))||null);
+  const asTask=isProjectSession||!!taskProject;
+  const projectTasks=taskProject?.projectTasks||[];
   const taskOptions=useMemo(()=>{
     const list=(projectTasks||[]).filter(t=>t&&t.id!=null);
     return{open:list.filter(t=>t.status!=='Concluído'),done:list.filter(t=>t.status==='Concluído')};
@@ -5472,30 +5492,28 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     return projectTasks.some(t=>t&&t.id!=null)?'':'__new__';
   });
   const [newTaskName,setNewTaskName]=useState('');
-  const liveFolders=useMemo(()=>{
-    return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
-  },[galleryFolders]);
   // The chosen task's Gallery post, if it has one; if not, the posts of the
   // project's Gallery folder that no task feeds yet, to link one on the spot.
-  const chosenMini=taskChoice&&taskChoice!=='__new__'?(project?.miniProjects||[]).find(m=>m&&String(m.id)===taskChoice)||null:null;
+  const chosenMini=taskChoice&&taskChoice!=='__new__'?(taskProject?.miniProjects||[]).find(m=>m&&String(m.id)===taskChoice)||null:null;
   const linkedPost=chosenMini?.galleryPostId!=null?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(chosenMini.galleryPostId))||null:null;
-  const projectFolder=isProjectSession&&project?.galleryFolder?liveFolders.find(f=>String(f.id)===String(project.galleryFolder))||null:null;
+  const projectFolder=asTask&&taskProject?.galleryFolder?liveFolders.find(f=>String(f.id)===String(taskProject.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>projectFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(projectFolder.id)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,projectFolder]);
   const [showInGallery,setShowInGallery]=useState(true);
   const [galleryLink,setGalleryLink]=useState('');
   const [files,setFiles]=useState([]),[title,setTitle]=useState(session.title||defaultTitle),[note,setNote]=useState(''),[saving,setSaving]=useState(false),[progress,setProgress]=useState(null),[error,setError]=useState('');
   const savingRef=useRef(false);
-  const destination=isProjectSession?'task':'gallery';
+  const destination=asTask?'task':'gallery';
   const [saveMode,setSaveMode]=useState('new');
-  // A category session is about one gallery folder (the categories ARE the
-  // live folders), so its post starts there; it used to start on the first
-  // folder whatever the category. An archived one falls back to the first.
-  const [folderId,setFolderId]=useState(()=>{
-    const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
-    return String((liveFolders.find(f=>String(f.id)===cat)||liveFolders[0]||{id:''}).id);
-  });
   const eligiblePosts=useMemo(()=>(galleryPosts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===String(folderId))
     .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))),[galleryPosts,folderId]);
+  const pickLinkProject=id=>{
+    const p=linkedProjects.find(x=>String(x.id)===String(id))||null;
+    setLinkProjectId(p?String(p.id):'');
+    setTaskChoice(p?((p.projectTasks||[]).some(t=>t&&t.id!=null)?'':'__new__'):'');
+    setNewTaskName('');setGalleryLink('');setShowInGallery(true);setError('');
+    // The default title follows the mode; one the user typed is left alone.
+    setTitle(t=>t===taskTitleDefault||t===galleryTitleDefault?(p?taskTitleDefault:galleryTitleDefault):t);
+  };
   const [existingPostId,setExistingPostId]=useState('');
   const existingPost=eligiblePosts.find(p=>String(p.id)===String(existingPostId))||null;
   const [offline,setOffline]=useState(()=>typeof navigator!=='undefined'&&navigator.onLine===false);
@@ -5543,17 +5561,19 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     // A written session (script, notes) has no images; a note alone is enough.
     if(!files.length&&!note.trim()){setError('Adicione uma mídia ou escreva uma nota para registrar a sessão.');return;}
     if(destination==='gallery'&&!folderId){setError('Escolha uma categoria da Galeria.');return;}
-    if(isProjectSession&&!taskChoice){setError('Escolha a tarefa desta sessão, ou crie uma.');return;}
-    if(isProjectSession&&taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
-    if((isProjectSession||saveMode==='new')&&!title.trim()){setError('Dê um título ao registro.');return;}
-    if(!isProjectSession&&saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
+    if(asTask&&!taskChoice){setError('Escolha a tarefa desta sessão, ou crie uma.');return;}
+    if(asTask&&taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
+    if((asTask||saveMode==='new')&&!title.trim()){setError('Dê um título ao registro.');return;}
+    if(!asTask&&saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
     savingRef.current=true;setSaving(true);setError('');
     try{
       const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}),(i,pct)=>setProgress(p=>({done:p?.done||i,total:files.length,compact:pct})));
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
-      if(isProjectSession)await onSave({...session,title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,
+      if(asTask)await onSave({...session,title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,
         taskId:taskChoice!=='__new__'?taskChoice:null,newTaskName:taskChoice==='__new__'?newTaskName.trim():'',
-        hideInGallery:!!linkedPost&&!showInGallery,galleryLink:linkedPost?'':galleryLink});
+        hideInGallery:!!linkedPost&&!showInGallery,galleryLink:linkedPost?'':galleryLink,
+        // A category session filed into a linked project's task: which project.
+        ...(isProjectSession?{}:{linkProjectId:String(taskProject.id)})});
       else await onSave({...session,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId,existingPostId:saveMode==='append'?existingPost.id:null});
     }catch(e){
       setError(e instanceof BhMediaError?e.message:'Não foi possível guardar as mídias'+(e?.message?' — '+e.message:'')+'. Tente novamente.');
@@ -5568,7 +5588,27 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         {showRank&&<div className="session-result-card"><span>Pontos conquistados</span><strong>+{Number(session.pointsAwarded||0)} pts</strong></div>}
         <div className="session-result-card"><span>{victorySeconds>=7200?'Vitória do dia':'Próxima vitória de 2h'}</span><strong>{victorySeconds>=7200?'Concluída':pomoFmtSecs(victorySeconds)+' / 2h'}</strong><i><b style={{width:victoryPct+'%'}}/></i></div>
       </div>
-      {isProjectSession&&<div className="session-post-destination">
+      {!isProjectSession&&<>
+      {!asTask&&<div className="session-post-mode" role="group" aria-label="Destino das imagens">
+        <button type="button" className={saveMode==='new'?'active':''} onClick={()=>setSaveMode('new')} disabled={saving}>Criar novo post</button>
+        <button type="button" className={saveMode==='append'?'active':''} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
+      </div>}
+      <div className="session-post-destination">
+        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{setFolderId(e.target.value);setExistingPostId('');pickLinkProject('');}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
+        {!asTask&&saveMode==='append'&&<label className="session-post-field"><span>Post existente</span><select value={existingPostId} onChange={e=>setExistingPostId(e.target.value)} disabled={saving||!eligiblePosts.length}><option value="">{eligiblePosts.length?'Escolha um post':'Nenhum post nesta categoria'}</option>{eligiblePosts.map(p=><option key={p.id} value={p.id}>{p.title||'Sem título'}</option>)}</select></label>}
+      </div>
+      {linkedProjects.length>0&&<div className="session-post-destination" style={{gridTemplateColumns:'1fr'}}>
+        <label className="session-post-field"><span>Projeto vinculado a esta pasta</span>
+          <select value={taskProject?String(taskProject.id):''} onChange={e=>pickLinkProject(e.target.value)} disabled={saving} aria-label="Projeto vinculado a esta pasta da Galeria">
+            <option value="">Só na Galeria (sem tarefa)</option>
+            {linkedProjects.map(p=><option key={p.id} value={String(p.id)}>{p.title||'Projeto sem nome'}</option>)}
+          </select>
+        </label>
+      </div>}
+      {!asTask&&saveMode==='new'&&<label className="session-title-field"><span>Título do post</span><input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} disabled={saving}/></label>}
+      {!asTask&&saveMode==='append'&&existingPost&&<div className="session-offline-note"><Icon name="images" size={14}/><span>As novas imagens serão anexadas a <strong>{existingPost.title}</strong>. O post original e sua categoria serão preservados.</span></div>}
+      </>}
+      {asTask&&<div className="session-post-destination">
         <label className="session-post-field"><span>Tarefa</span>
           <select value={taskChoice} onChange={e=>{setTaskChoice(e.target.value);setGalleryLink('');setShowInGallery(true);setError('');}} disabled={saving} aria-label="Tarefa do projeto trabalhada na sessão">
             {taskChoice===''&&<option value="" disabled>Escolha a tarefa…</option>}
@@ -5579,13 +5619,13 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         </label>
         {taskChoice==='__new__'&&<label className="session-post-field"><span>Nome da nova tarefa</span><input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} maxLength={120} autoFocus disabled={saving} placeholder="Ex: Storyboard da cena 3"/></label>}
       </div>}
-      {isProjectSession&&<label className="session-title-field"><span>Título da sessão</span><input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} disabled={saving}/></label>}
-      {isProjectSession&&linkedPost&&<div className="session-gallery-line">
+      {asTask&&<label className="session-title-field"><span>Título da sessão</span><input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} disabled={saving}/></label>}
+      {asTask&&linkedPost&&<div className="session-gallery-line">
         <BhSwitch checked={showInGallery} onChange={setShowInGallery} label={'Mostrar no post da Galeria: '+(linkedPost.title||'Sem título')}>
           <span><Icon name="images" size={13}/>Mostrar no post <strong>{linkedPost.title||'Sem título'}</strong> da Galeria</span>
         </BhSwitch>
       </div>}
-      {isProjectSession&&!linkedPost&&projectFolder&&taskChoice!==''&&<div className="session-post-destination" style={{gridTemplateColumns:'1fr'}}>
+      {asTask&&!linkedPost&&projectFolder&&taskChoice!==''&&<div className="session-post-destination" style={{gridTemplateColumns:'1fr'}}>
         <label className="session-post-field"><span>Galeria</span>
           <select value={galleryLink} onChange={e=>setGalleryLink(e.target.value)} disabled={saving} aria-label="Publicar a tarefa na Galeria">
             <option value="">Não publicar a tarefa</option>
@@ -5594,19 +5634,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
           </select>
         </label>
       </div>}
-      {!isProjectSession&&<>
-      <div className="session-post-mode" role="group" aria-label="Destino das imagens">
-        <button type="button" className={saveMode==='new'?'active':''} onClick={()=>setSaveMode('new')} disabled={saving}>Criar novo post</button>
-        <button type="button" className={saveMode==='append'?'active':''} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
-      </div>
-      <div className="session-post-destination">
-        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{setFolderId(e.target.value);setExistingPostId('');}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
-        {saveMode==='append'&&<label className="session-post-field"><span>Post existente</span><select value={existingPostId} onChange={e=>setExistingPostId(e.target.value)} disabled={saving||!eligiblePosts.length}><option value="">{eligiblePosts.length?'Escolha um post':'Nenhum post nesta categoria'}</option>{eligiblePosts.map(p=><option key={p.id} value={p.id}>{p.title||'Sem título'}</option>)}</select></label>}
-      </div>
-      {saveMode==='new'&&<label className="session-title-field"><span>Título do post</span><input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} disabled={saving}/></label>}
-      {saveMode==='append'&&existingPost&&<div className="session-offline-note"><Icon name="images" size={14}/><span>As novas imagens serão anexadas a <strong>{existingPost.title}</strong>. O post original e sua categoria serão preservados.</span></div>}
-      </>}
-      {offline&&<div className="session-offline-note"><Icon name="hard-drive" size={14}/><span>Você está sem conexão. As imagens serão guardadas neste dispositivo e o registro continuará disponível {isProjectSession?'na tarefa':'na Galeria'}.</span></div>}
+      {offline&&<div className="session-offline-note"><Icon name="hard-drive" size={14}/><span>Você está sem conexão. As imagens serão guardadas neste dispositivo e o registro continuará disponível {asTask?'na tarefa':'na Galeria'}.</span></div>}
       <button className={'session-dropzone '+(files.length?'has-files':'')} onClick={()=>inputRef.current?.click()} disabled={saving} type="button">
         <Icon name="image-plus" size={22}/><strong>{files.length?'Adicionar mais mídias':'Arraste imagens, GIFs ou vídeos'}</strong><span>{files.length?files.length+' adicionadas · cole com Ctrl+V':'clique para escolher ou cole com Ctrl+V'}</span>
       </button>
@@ -5615,7 +5643,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Uma nota rápida sobre a sessão (opcional)" disabled={saving}/>
       {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{progress.done}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
       {error&&<div className="session-capture-error" role="alert">{error}</div>}
-      <div className="session-capture-actions"><span>{isProjectSession?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}><button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button><button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(isProjectSession?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':isProjectSession?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
+      <div className="session-capture-actions"><span>{asTask?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}><button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button><button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
     </div>
   </div>,document.body);
 };
@@ -13742,8 +13770,13 @@ const App=()=>{
     // here when named in the modal). The session row keeps the note's id; the
     // note keeps the session's, which is what files the session under a task:
     // moving the note moves the session.
-    if(session.targetType==='project'&&session.destination==='task'){
-      const projectId=String(session.targetKey||'').replace(/^project:/,'');
+    // A category session can be filed into a task of a project linked to its
+    // Gallery folder (session.linkProjectId, chosen in the modal).
+    const taskProjectId=session.destination==='task'
+      ?(session.targetType==='project'?String(session.targetKey||'').replace(/^project:/,''):(session.linkProjectId!=null&&session.linkProjectId!==''?String(session.linkProjectId):''))
+      :'';
+    if(taskProjectId){
+      const projectId=taskProjectId;
       const project=projects.find(p=>p&&String(p.id)===projectId);
       if(!project)throw new Error('o projeto desta sessão não está mais disponível');
       const hasTask=id=>id!=null&&[...(project.projectTasks||[]),...(project.miniProjects||[])].some(t=>t&&String(t.id)===String(id));
@@ -13769,6 +13802,11 @@ const App=()=>{
       }
       const linkId=newPost?newPost.id:linkPost?String(linkPost.id):null;
       const moved=linkPost?bhUniqStrings(linkPost.images):[];
+      // A category session keeps its category as target, so the time it took
+      // still counts for a project that links only a post or a section of that
+      // folder (pomoLinkedExtra reads the session's post): file it under the
+      // post its task feeds.
+      const filedPostId=session.targetType==='project'?null:(linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
       setProjects(prev=>prev.map(p=>{
         if(!p||String(p.id)!==projectId)return p;
         let projectTasks=p.projectTasks||[];const miniProjects=[...(p.miniProjects||[])];
@@ -13785,7 +13823,7 @@ const App=()=>{
       setPomoData(prev=>{
         const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
         const status=session.storageStatus==='local'?'saved-local':'saved';
-        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:null,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
+        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:filedPostId,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
         return{...base,rank:{...rank,sessions}};
       });
       return;
@@ -14865,7 +14903,7 @@ const App=()=>{
       {showQuickCapture&&<QuickCapture type={quickCaptureType} onClose={()=>setShowQuickCapture(false)} onAddTask={t=>setTasks(prev=>[...prev,t])} onAddNote={n=>setNotes(prev=>[n,...prev])}/>} 
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>} 
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
-      {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} lastTaskId={pendingLastTaskId} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
+      {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} projects={projects} lastTaskId={pendingLastTaskId} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
       {ranksEnabled&&pendingRankNotice&&!pendingSession&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
       {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
