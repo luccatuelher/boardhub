@@ -5534,7 +5534,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     if(!files.length&&!note.trim()){setError('Adicione uma mídia ou escreva uma nota para registrar a sessão.');return;}
     if(destination==='gallery'&&!folderId){setError('Escolha uma categoria da Galeria.');return;}
     if(isProjectSession&&!taskChoice){setError('Escolha a tarefa desta sessão, ou crie uma.');return;}
-    if(taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
+    if(isProjectSession&&taskChoice==='__new__'&&!newTaskName.trim()){setError('Dê um nome à nova tarefa.');return;}
     if((isProjectSession||saveMode==='new')&&!title.trim()){setError('Dê um título ao registro.');return;}
     if(!isProjectSession&&saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
     savingRef.current=true;setSaving(true);setError('');
@@ -8126,6 +8126,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     return{...prev,researchNotes:rn.map((n,k)=>k===i?{...n,content:html}:n)};
   }),[]);
   const overviewEditorApi=useRef(null),taskEditorApi=useRef(null),researchEditorApi=useRef(null);
+  // While the app is leaving the page (bhFlushPendingEdits) the parent has to
+  // get the edit inside that same synchronous commit, not from the passive effect below.
+  React.useLayoutEffect(()=>{
+    if(bhFlushingEdits&&_pendingUpdate.current){
+      onUpdate(_pendingUpdate.current,_pendingBase.current);
+      _pendingUpdate.current=null;
+    }
+  });
   // Flush pending updates to parent after React commits the state
   useEffect(()=>{
     if(_pendingUpdate.current){
@@ -10166,7 +10174,12 @@ const sanitizeHTML=html=>{
   try{
     const t=document.createElement('template');
     t.innerHTML=html;
-    t.content.querySelectorAll('script,style,iframe,object,embed,link,meta,form,base,svg,math').forEach(el=>el.remove());
+    // <template> is removed too: querySelectorAll('*') below does not enter a
+    // nested template's content, so a script-bearing payload inside one used to
+    // be stored and synced untouched (inert until something imports its
+    // content). noscript/plaintext/xmp/listing are the raw-text elements
+    // mutation-XSS payloads hide behind; the editor never produces any of them.
+    t.content.querySelectorAll('script,style,iframe,object,embed,link,meta,form,base,svg,math,template,noscript,plaintext,xmp,listing').forEach(el=>el.remove());
     t.content.querySelectorAll('*').forEach(el=>{
       [...el.attributes].forEach(a=>{
         const n=a.name.toLowerCase();
@@ -10414,6 +10427,25 @@ const _noteCaretRangeFromPoint=(x,y)=>{
   return range;
 };
 
+// RichEditor saves 800 ms after the last key. Leaving inside that window (closing
+// or reloading the tab, switching apps on a phone) dropped the last words: the
+// app's flush on leaving only writes the state already rendered, which does not
+// have them yet. An editor with a save pending registers here, and the app
+// commits those edits, synchronously, before writing to storage.
+const bhPendingEditFlushers=new Set();
+// True only while bhFlushPendingEdits runs. A project's edit reaches the app from
+// a passive effect, whose update flushSync does not drain; ProjectDetail
+// forwards it from a layout effect instead while this is set, inside the same
+// synchronous commit.
+let bhFlushingEdits=false;
+const bhFlushPendingEdits=()=>{
+  if(!bhPendingEditFlushers.size)return;
+  bhFlushingEdits=true;
+  try{
+    ReactDOM.flushSync(()=>{[...bhPendingEditFlushers].forEach(fn=>{try{fn();}catch(e){bhLog('flushPendingEdit',e);}});});
+  }catch(e){bhLog('flushPendingEdits',e);}
+  finally{bhFlushingEdits=false;}
+};
 const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeholder})=>{
   const ref=useRef(null);
   const saveTimer=useRef(null);
@@ -10430,6 +10462,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const lastIncomingRef=useRef('');
   const lastEmittedRef=useRef('');
   const dirtyRef=useRef(false);
+  const pendingSaveRef=useRef(false); // an emit() timer is waiting to save
   const [remoteConflict,setRemoteConflict]=useState(null);
   const [fmt,setFmt]=useState({});
   const [noteLightbox,setNoteLightbox]=useState(null); // {images,index}|null
@@ -10539,21 +10572,27 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   },[]);
 
   const emit=useCallback(()=>{
-    dirtyRef.current=true;
+    dirtyRef.current=true;pendingSaveRef.current=true;
     clearTimeout(saveTimer.current);
-    saveTimer.current=setTimeout(()=>{if(ref.current){const html=serializedHTML();lastEmittedRef.current=html;onSave(html,saveTarget);}},800);
+    saveTimer.current=setTimeout(()=>{pendingSaveRef.current=false;if(ref.current){const html=serializedHTML();lastEmittedRef.current=html;onSave(html,saveTarget);}},800);
   },[onSave,saveTarget,serializedHTML]);
 
   const flushSave=useCallback(()=>{
-    clearTimeout(saveTimer.current);
+    clearTimeout(saveTimer.current);pendingSaveRef.current=false;
     if(ref.current&&dirtyRef.current){const html=serializedHTML();lastEmittedRef.current=html;onSave(html,saveTarget);}
   },[onSave,saveTarget,serializedHTML]);
 
   useEffect(()=>()=>{flushSave();clearTimeout(saveTimer.current);},[flushSave]);
+  // Registered while it is mounted; it only acts when a save is really pending.
+  useEffect(()=>{
+    const flusher=()=>{if(pendingSaveRef.current)flushSave();};
+    bhPendingEditFlushers.add(flusher);
+    return()=>{bhPendingEditFlushers.delete(flusher);};
+  },[flushSave]);
 
   const acceptRemote=()=>{
     if(!remoteConflict||!ref.current)return;
-    clearTimeout(saveTimer.current);
+    clearTimeout(saveTimer.current);pendingSaveRef.current=false;
     ref.current.innerHTML=remoteConflict.html;
     _normalizeNoteImages(ref.current);
     [...ref.current.querySelectorAll('img[src^="idb://"],video[src^="idb://"]')].forEach(img=>{
@@ -12611,7 +12650,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       if(incomingWins===null)return; // dialog closed: import nothing
       if(!await onImport(data,{incomingWins}))throw new Error('Arquivo sem seções reconhecidas.');
       showStatus('ok','✓ Backup mesclado; original arquivado no histórico.');refreshHistory();
-    }catch(e){showStatus('err',e.message||'Arquivo inválido.');}
+    }catch(e){showStatus('err',e instanceof SyntaxError?'Arquivo inválido: não é um JSON de backup.':(e.message||'Arquivo inválido.'));}
     finally{setLoading(false);}
   };
 
@@ -14359,7 +14398,7 @@ const App=()=>{
     return()=>window.removeEventListener('storage',onStorage);
   },[]);//eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
-    const flush=()=>{try{if(_latestState.current)saveLocal(_latestState.current);}catch(e){bhLog('flushAoSair',e);}};
+    const flush=()=>{try{bhFlushPendingEdits();if(_latestState.current)saveLocal(_latestState.current);}catch(e){bhLog('flushAoSair',e);}};
     const onVis=()=>{if(document.visibilityState==='hidden')flush();};
     window.addEventListener('pagehide',flush);
     document.addEventListener('visibilitychange',onVis);
