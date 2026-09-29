@@ -5399,9 +5399,9 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   const projectedDrop=projectedLoss>0&&(projectedPosition.rankIndex<pos.rankIndex||projectedPosition.division<pos.division);
   return <>
     <section className="rank-profile-panel" aria-label={'Perfil ranqueado: '+pos.rankName+' '+pos.divisionRoman}>
-      <div className="rank-panel-emblem" role="button" tabIndex={0} title="Ver a animação de subida" style={{cursor:'pointer'}}
-        onClick={()=>window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}))}
-        onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}));}}}><RankBadge rankIndex={pos.rankIndex} size={isMobile?112:isSmall?148:168} label={pos.rankName+' '+pos.divisionRoman}/></div>
+      {/* The emblem is not a button: the promotion preview lives in Sync
+          (owner, 2026-09-29). */}
+      <div className="rank-panel-emblem"><RankBadge rankIndex={pos.rankIndex} size={isMobile?112:isSmall?148:168} label={pos.rankName+' '+pos.divisionRoman}/></div>
       <div className="rank-panel-main">
         <div className="rank-profile-kicker">Perfil ranqueado · Temporada {season.roman}</div>
         <div className="rank-panel-title"><span>{pos.rankName}</span><strong>{pos.divisionRoman}</strong></div>
