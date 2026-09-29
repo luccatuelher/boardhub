@@ -5942,7 +5942,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     targetKey==='none' ? 'Sem categoria' :
     selectedProjectAny?.title || selectedCategoryAny?.name || 'Sem categoria';
   const selectedTargetLiveExtra = targetKey==='none'?0:(displayUnsaved+pendingSecsRef.current);
-  const selectedTargetTotal = targetKey==='none'?0:(((pomoData?.allocations||{})[targetKey]||0)+selectedTargetLiveExtra);
+  const linkedExtra = useMemo(()=>pomoLinkedExtra(pomoData,projects,galleryFolders,galleryPosts),[pomoData?.allocations,pomoData?.rank?.sessions,projects,galleryFolders,galleryPosts]);
+  const selectedTargetTotal = targetKey==='none'?0:(((pomoData?.allocations||{})[targetKey]||0)+(linkedExtra[targetKey]||0)+selectedTargetLiveExtra);
   // Once a focus session has started, its destination must remain stable even
   // while paused. Otherwise one session can silently be filed under two targets.
   const targetLocked = isActive || !!sessionMetaRef.current;
@@ -6604,7 +6605,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                   </div>
                   :activeProjects.map((p,i)=>{
                     const key=pomoProjectKey(p.id);
-                    const total=((pomoData?.allocations||{})[key]||0)+(targetKey===key?displayUnsaved+pendingSecsRef.current:0);
+                    const total=((pomoData?.allocations||{})[key]||0)+(linkedExtra[key]||0)+(targetKey===key?displayUnsaved+pendingSecsRef.current:0);
                     const activeTarget=targetKey===key;
                     return <div key={key}
                       style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderBottom:i<activeProjects.length-1?'1px solid var(--border)':'none',background:activeTarget?'rgba(var(--ink),.025)':'transparent'}}>
@@ -6633,7 +6634,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                   </div>
                   :categories.map((c,i)=>{
                     const key=pomoCategoryKey(c.id);
-                    const total=((pomoData?.allocations||{})[key]||0)+(targetKey===key?displayUnsaved+pendingSecsRef.current:0);
+                    const total=((pomoData?.allocations||{})[key]||0)+(linkedExtra[key]||0)+(targetKey===key?displayUnsaved+pendingSecsRef.current:0);
                     const activeTarget=targetKey===key;
                     return <div key={key}
                       style={{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',borderBottom:i<categories.length-1?'1px solid var(--border)':'none',background:activeTarget?'rgba(var(--ink),.025)':'transparent'}}>
@@ -7869,7 +7870,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     bhUiSave('projectTabs',{...saved,[String(project.id)]:tab});
   },[project.id,tab]);
   const projectFocusKey=pomoProjectKey(project.id);
-  const projectFocusSecs=(pomoData?.allocations||{})[projectFocusKey]||0;
+  // Plus the category time the Gallery link brings in (see pomoLinkedExtra).
+  const projectLinkedSecs=useMemo(()=>pomoLinkedExtra(pomoData,[local],galleryFolders,galleryPosts)[projectFocusKey]||0,
+    [pomoData?.allocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
+  const projectFocusSecs=((pomoData?.allocations||{})[projectFocusKey]||0)+projectLinkedSecs;
   const projectTodaySecs=((pomoData?.dailyAllocations||{})[pomoTodayKey()]||{})[projectFocusKey]||0;
   // Each task's focus time is summed from the sessions filed under it: the
   // sessions its notes carry (moving a note moves its sessions), plus older
@@ -7965,7 +7969,18 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(linked&&!list.some(f=>String(f.id)===linked))list.push({id:linked,label:'Pasta removida',missing:true});
     return list;
   },[galleryFolders,local.galleryFolder]);
+  // The link can narrow to one section of the folder or one post: the list
+  // below and the focus time follow that scope.
+  const galleryScope=useMemo(()=>bhProjectGalleryScope(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
+  const linkedFolderSections=useMemo(()=>{
+    const f=local.galleryFolder?(galleryFolders||[]).find(x=>x&&String(x.id)===String(local.galleryFolder)):null;
+    return f?normalizeGallerySections(f.sections):[];
+  },[galleryFolders,local.galleryFolder]);
   const folderPosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!isProjectScopedPost(p)&&!p.deleted&&String(p.folder)===String(local.galleryFolder)).map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})).sort((a,b)=>((b.date||'').slice(0,10)).localeCompare((a.date||'').slice(0,10))):[],[galleryPosts,local.galleryFolder]);
+  // Posts offered in the "post" picker: those of the chosen section, else the folder's.
+  const sectionScope=useMemo(()=>local.gallerySection?bhProjectGalleryScope({galleryFolder:local.galleryFolder,gallerySection:local.gallerySection},galleryFolders,galleryPosts):null,[local.galleryFolder,local.gallerySection,galleryFolders,galleryPosts]);
+  const pickablePosts=useMemo(()=>sectionScope?.postIds?folderPosts.filter(p=>sectionScope.postIds.has(String(p.id))):folderPosts,[folderPosts,sectionScope]);
+  const scopedFolderPosts=useMemo(()=>galleryScope?.postIds?folderPosts.filter(p=>galleryScope.postIds.has(String(p.id))):folderPosts,[folderPosts,galleryScope]);
   const autoLateTasks=useMemo(()=>applyAutoLate(local.projectTasks||[]),[local.projectTasks]);
   useEscapeLayer(!!galleryPopup,()=>{setGalleryPopup(null);setGalleryPopupEditing(false);});
   const [showTimelineModal,setShowTimelineModal]=useState(false);
@@ -8509,17 +8524,28 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
             <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,gap:10,flexWrap:'wrap'}}>
                 <span className="label label-section"><StaveGlyph name="whole"/>Galeria</span>
-                <select value={local.galleryFolder||''} onChange={e=>upd('galleryFolder',e.target.value)} className="input-box" style={{width:'auto',maxWidth:'62%',padding:'5px 10px',fontSize:'.78rem',cursor:'pointer'}}>
-                  <option value="">Nenhuma pasta</option>
-                  {assignableFolders.map(f=><option key={f.id} value={f.id}>{f.label}{f.deleted?' (na lixeira)':f.archived?' (arquivada)':''}</option>)}
-                </select>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end',maxWidth:'100%'}}>
+                  <select value={local.galleryFolder||''} aria-label="Pasta da galeria" onChange={e=>edit(prev=>({...prev,galleryFolder:e.target.value,gallerySection:'',galleryPost:''}))} className="input-box" style={{width:'auto',maxWidth:180,padding:'5px 10px',fontSize:'.78rem',cursor:'pointer'}}>
+                    <option value="">Nenhuma pasta</option>
+                    {assignableFolders.map(f=><option key={f.id} value={f.id}>{f.label}{f.deleted?' (na lixeira)':f.archived?' (arquivada)':''}</option>)}
+                  </select>
+                  {local.galleryFolder&&linkedFolderSections.length>0&&<select value={local.gallerySection||''} aria-label="Seção da pasta" onChange={e=>edit(prev=>({...prev,gallerySection:e.target.value,galleryPost:''}))} className="input-box" style={{width:'auto',maxWidth:160,padding:'5px 10px',fontSize:'.78rem',cursor:'pointer'}}>
+                    <option value="">Pasta inteira</option>
+                    {linkedFolderSections.map(sec=><option key={sec.id} value={sec.id}>{sec.label}</option>)}
+                  </select>}
+                  {local.galleryFolder&&(pickablePosts.length>0||local.galleryPost)&&<select value={local.galleryPost||''} aria-label="Post da galeria" onChange={e=>upd('galleryPost',e.target.value)} className="input-box" style={{width:'auto',maxWidth:180,padding:'5px 10px',fontSize:'.78rem',cursor:'pointer'}}>
+                    <option value="">{local.gallerySection?'Seção inteira':'Todos os posts'}</option>
+                    {local.galleryPost&&!pickablePosts.some(p=>String(p.id)===String(local.galleryPost))&&<option value={local.galleryPost}>Post removido</option>}
+                    {pickablePosts.map(p=><option key={p.id} value={p.id}>{p.title||'Sem título'}</option>)}
+                  </select>}
+                </div>
               </div>
               {!local.galleryFolder
                 ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem',lineHeight:1.5}}><Icon name="image" size={22} style={{display:'block',margin:'0 auto 8px',opacity:.3}}/>Atribua uma pasta da galeria para ver os estudos aqui.</div>
-                :folderPosts.length===0
-                  ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem'}}>Nenhum post nesta pasta ainda.</div>
+                :scopedFolderPosts.length===0
+                  ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem'}}>{local.galleryPost?'O post vinculado não está mais na pasta.':local.gallerySection?'Nenhum post nesta seção ainda.':'Nenhum post nesta pasta ainda.'}</div>
                   :<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:isMobile?8:12}}>
-                    {folderPosts.map(post=>{const src=post.bannerImage||(post.images&&post.images[0]);return(
+                    {scopedFolderPosts.map(post=>{const src=post.bannerImage||(post.images&&post.images[0]);return(
                       <div key={post.id} className="card card-click" style={{overflow:'hidden',cursor:'pointer'}} onClick={()=>setGalleryPopup(post)}
                         {...keyActivate(()=>setGalleryPopup(post),'Abrir post '+(post.title||''))}>
                         <div style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -9220,6 +9246,42 @@ const galleryManualLayout=(folder,posts)=>{
     if(p){groups[groups.length-1].posts.push(p);byId.delete(k);}
   });
   return groups;
+};
+// PROJECT ↔ GALLERY LINK. A project links to a Gallery folder and may narrow
+// that to one section of it, or to one post. The scope: null when unlinked,
+// else {folderId, sectionId, postId, postIds} where postIds is null for the
+// whole folder, or the set of posts the section/post covers.
+const bhProjectGalleryScope=(project,folders,posts)=>{
+  const folderId=project?.galleryFolder?String(project.galleryFolder):'';
+  if(!folderId)return null;
+  const sectionId=project.gallerySection?String(project.gallerySection):'';
+  const postId=project.galleryPost?String(project.galleryPost):'';
+  if(postId)return{folderId,sectionId,postId,postIds:new Set([postId])};
+  if(!sectionId)return{folderId,sectionId:'',postId:'',postIds:null};
+  const folder=(folders||[]).find(f=>f&&String(f.id)===folderId);
+  const live=(posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===folderId);
+  const group=folder?galleryManualLayout(folder,live).find(g=>g.section&&String(g.section.id)===sectionId):null;
+  return{folderId,sectionId,postId:'',postIds:new Set(group?group.posts.map(p=>String(p.id)):[])};
+};
+// Focus time counts both ways across that link: a project adds the category
+// time spent on its scope (all of it for the whole folder; for a section or a
+// post, the sessions filed into those posts), and the category adds the time
+// of every project linked to it. Only raw allocations feed this, so nothing
+// is counted twice. Returns {targetKey: extra seconds}.
+const pomoLinkedExtra=(pomoData,projects,folders,posts)=>{
+  const alloc=pomoData?.allocations||{},sessions=pomoData?.rank?.sessions||[];
+  const extra={};
+  (projects||[]).forEach(p=>{
+    if(!p||p.deleted)return;
+    const scope=bhProjectGalleryScope(p,folders,posts);if(!scope)return;
+    const pk=pomoProjectKey(p.id),ck=pomoCategoryKey(scope.folderId);
+    const catPart=scope.postIds
+      ?sessions.reduce((sum,x)=>x&&x.targetKey===ck&&x.galleryPostId!=null&&scope.postIds.has(String(x.galleryPostId))?sum+(Number(x.durationSeconds)||0):sum,0)
+      :(alloc[ck]||0);
+    extra[pk]=(extra[pk]||0)+catPart;
+    extra[ck]=(extra[ck]||0)+(alloc[pk]||0);
+  });
+  return extra;
 };
 // Index just past the last post of the block that starts at `start` (the
 // position of the next section marker, or the end).
