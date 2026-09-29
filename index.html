@@ -2982,7 +2982,17 @@ const bhEntityPack=state=>{
   const emit=(path,value)=>{const id=bhEntityId(path);docs.set(id,{value});return {ref:id};};
   const pack=(value,path)=>{
     if(typeof value==='string'&&new Blob([value]).size>160000){
-      const parts=[];for(let i=0;i<value.length;i+=40000)parts.push(emit([...path,'text',i/40000],{text:value.slice(i,i+40000)}));
+      // Cut every 40,000 characters, but never between the two halves of a
+      // surrogate pair (an emoji): a lone half is not valid UTF-8, so storage
+      // returned it as U+FFFD and the emoji came back corrupted.
+      const parts=[];
+      for(let i=0,n=0;i<value.length;n++){
+        let end=Math.min(value.length,i+40000);
+        const last=value.charCodeAt(end-1);
+        if(end<value.length&&last>=0xD800&&last<=0xDBFF)end--;
+        parts.push(emit([...path,'text',n],{text:value.slice(i,end)}));
+        i=end;
+      }
       return {textParts:parts};
     }
     if(Array.isArray(value)){
