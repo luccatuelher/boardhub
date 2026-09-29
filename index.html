@@ -7126,6 +7126,9 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const scrollSetter=useCallback(node=>{scrollRef.current=node;setScrollNode(node);},[setScrollNode]);
   const [open,setOpen]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_KEY)!=='0';}catch{return true;}});
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
+  // Collapsed (default): a window of COLLAPSED_ROWS rows that scrolls
+  // vertically; the arrow under it grows the timeline to the whole list.
+  const [expanded,setExpanded]=useState(false);
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
   // same convention as the per-project timeline.
   const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
@@ -7189,13 +7192,22 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   // are drawn; spacers keep the full scroll height. Forty projects with their
   // tasks are hundreds of rows, each a bar with grips, and drawing them all
   // froze a phone for seconds on every visit to Projetos.
-  const VIEW_H=320,OVERSCAN=8;
+  // Collapsed shows the sticky header plus 6 rows (projects and tasks) and the
+  // rest is reached by scrolling. Expanded shows everything, unless the list is
+  // so long (EXPANDED_ALL_MAX) that drawing it whole would bring back the phone
+  // freeze above: then it is a taller window, still virtualised.
+  const COLLAPSED_ROWS=6,OVERSCAN=8,EXPANDED_ALL_MAX=120,EXPANDED_CAP_H=640;
+  const COLLAPSED_H=HEADER_H+ROW_H*COLLAPSED_ROWS+1;
+  const canExpand=visibleRows.length>COLLAPSED_ROWS;
+  const showAll=expanded&&canExpand&&visibleRows.length<=EXPANDED_ALL_MAX;
+  const VIEW_H=expanded&&canExpand?EXPANDED_CAP_H:COLLAPSED_H;
   const [scrollTop,setScrollTop]=useState(0);
+  const toggleExpanded=()=>{if(scrollRef.current)scrollRef.current.scrollTop=0;setScrollTop(0);setExpanded(v=>!v);};
   const onScroll=e=>{const t=e.currentTarget.scrollTop;if(Math.abs(t-scrollTop)>=ROW_H)setScrollTop(t);};
   // Clamped to the list: when it shrinks (the week filter, a task done) while
   // scrolled down, the stored offset pointed past the end and showed a gap.
-  const firstRow=Math.max(0,Math.min(Math.floor(scrollTop/ROW_H)-OVERSCAN,visibleRows.length-Math.ceil(VIEW_H/ROW_H)-OVERSCAN));
-  const lastRow=Math.min(visibleRows.length,Math.ceil((scrollTop+VIEW_H)/ROW_H)+OVERSCAN);
+  const firstRow=showAll?0:Math.max(0,Math.min(Math.floor(scrollTop/ROW_H)-OVERSCAN,visibleRows.length-Math.ceil(VIEW_H/ROW_H)-OVERSCAN));
+  const lastRow=showAll?visibleRows.length:Math.min(visibleRows.length,Math.ceil((scrollTop+VIEW_H)/ROW_H)+OVERSCAN);
   // Task bars are edited in place, like in the project's own timeline: drag
   // the bar to move it, its grips to change start/due. A plain click still
   // opens the project.
@@ -7218,7 +7230,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
       </div>
       {open&&(visibleRows.length===0
         ?<div style={{padding:'18px 16px',fontSize:'.82rem',color:'var(--muted)'}}>{thisWeek?'Nenhum projeto ou tarefa pendente nesta semana.':'Nenhum projeto com datas ou tarefas pendentes.'}</div>
-        :<div ref={scrollSetter} onScroll={onScroll} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:VIEW_H,position:'relative'}}>
+        :<><div ref={scrollSetter} onScroll={onScroll} style={{overflowX:thisWeek?'hidden':'auto',overflowY:'auto',maxHeight:showAll?'none':VIEW_H,position:'relative'}}>
           <div style={{width:LEFT_W+gridW,position:'relative'}}>
             <TlHeader cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} HEADER_H={HEADER_H} today={today} corner={isMobile?"Tarefa":"Projeto / tarefa"}/>
             <TlBackdrop cal={cal} DAY_W={DAY_W} LEFT_W={LEFT_W} top={HEADER_H} height={bodyH} today={today}/>
@@ -7264,7 +7276,12 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
             })}
             {lastRow<visibleRows.length&&<div style={{height:(visibleRows.length-lastRow)*ROW_H}}/>}
           </div>
-        </div>)}
+        </div>
+        {canExpand&&<button type="button" className="btn btn-ghost" onClick={toggleExpanded} aria-expanded={expanded} aria-label={expanded?'Recolher timeline':'Expandir timeline'} title={expanded?'Recolher':'Expandir'}
+          style={{display:'flex',width:'100%',justifyContent:'center',padding:'3px 0',borderRadius:0,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
+          <Icon name={expanded?'chevron-up':'chevron-down'} size={14} style={{color:'var(--muted)'}}/>
+        </button>}
+        </>)}
     </div>
   );
 };
