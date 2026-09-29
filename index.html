@@ -7191,6 +7191,7 @@ const TlGrip=({side,clipped,color,onDown})=>clipped
 
 const PT_TIMELINE_KEY='boardhub_projects_timeline_open';
 const PT_TIMELINE_WEEK_KEY='boardhub_projects_timeline_week';
+const PT_TIMELINE_EXPANDED_KEY='boardhub_projects_timeline_expanded';
 const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   // Phones: a narrow names column (96px) so most of the width shows the
   // calendar; names are cut with an ellipsis and complete on tap/hover.
@@ -7208,7 +7209,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const toggle=()=>setOpen(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline',e);}return n;});
   // Collapsed (default): a window of COLLAPSED_ROWS rows that scrolls
   // vertically; the arrow under it grows the timeline to the whole list.
-  const [expanded,setExpanded]=useState(false);
+  const [expanded,setExpanded]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_EXPANDED_KEY)==='1';}catch{return false;}});
   // "Esta semana" narrows the overview to the current Sunday-Saturday week,
   // same convention as the per-project timeline.
   const [thisWeek,setThisWeek]=useState(()=>{try{return localStorage.getItem(PT_TIMELINE_WEEK_KEY)==='1';}catch{return false;}});
@@ -7292,7 +7293,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const showAll=expanded&&canExpand&&visibleRows.length<=EXPANDED_ALL_MAX;
   const VIEW_H=expanded&&canExpand?EXPANDED_CAP_H:COLLAPSED_H;
   const [scrollTop,setScrollTop]=useState(0);
-  const toggleExpanded=()=>{if(scrollRef.current)scrollRef.current.scrollTop=0;setScrollTop(0);setExpanded(v=>!v);};
+  const toggleExpanded=()=>{if(scrollRef.current)scrollRef.current.scrollTop=0;setScrollTop(0);setExpanded(v=>{const n=!v;try{localStorage.setItem(PT_TIMELINE_EXPANDED_KEY,n?'1':'0');}catch(e){bhLog('projects.timeline.expanded',e,'the expanded/collapsed choice lasts only for this session');}return n;});};
   const onScroll=e=>{const t=e.currentTarget.scrollTop;if(Math.abs(t-scrollTop)>=ROW_H)setScrollTop(t);};
   // Clamped to the list: when it shrinks (the week filter, a task done) while
   // scrolled down, the stored offset pointed past the end and showed a gap.
@@ -7311,7 +7312,10 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
       <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
         <span className="label label-section" style={{margin:0,whiteSpace:'nowrap'}}><StaveGlyph name="half"/>Timeline</span>
         <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
-        {open&&<button type="button" onClick={toggleWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+        {open&&!thisWeek&&visibleRows.length>0&&<button type="button" onClick={()=>tlCenterToday(scrollRef.current,x(today),DAY_W,LEFT_W)} className="btn btn-outline" title="Centralizar em hoje" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap'}}>
+          <Icon name="crosshair" size={10}/> Hoje
+        </button>}
+        {open&&<button type="button" onClick={toggleWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{marginLeft:thisWeek?'auto':0,padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
           <Icon name="calendar" size={10}/> Esta semana
         </button>}
         <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:open?0:'auto',padding:'4px 8px',fontSize:'.76rem',whiteSpace:'nowrap'}}>
@@ -7353,8 +7357,10 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
                         <div onPointerDown={e=>{if(e.button===0&&onUpdateTask)startDrag(e,r,'move',g);}}
                           onClick={()=>{if(justMovedRef.current){justMovedRef.current=false;return;}openIt();}}
                           title={label+' · '+r.t.status+'\n'+fmtShort(r.s)+' \u2192 '+fmtShort(r.e)}
-                          style={{position:'absolute',left,width:Math.max(22,width),top:5,height:ROW_H-10,borderRadius:5,background:c.bar,border:'1px solid '+c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:onUpdateTask?'grab':'pointer',userSelect:'none',touchAction:'pan-y',
-                            ...(g.clipStart?{borderTopLeftRadius:2,borderBottomLeftRadius:2,borderLeftStyle:'dashed'}:{}),...(g.clipEnd?{borderTopRightRadius:2,borderBottomRightRadius:2,borderRightStyle:'dashed'}:{})}}>
+                          style={{position:'absolute',left,width:Math.max(22,width),top:5,height:ROW_H-10,background:c.bar,borderWidth:'1px',borderColor:c.border,color:c.text,fontSize:'.64rem',fontWeight:600,display:'flex',alignItems:'center',boxSizing:'border-box',overflow:'hidden',whiteSpace:'nowrap',cursor:onUpdateTask?'grab':'pointer',userSelect:'none',touchAction:'pan-y',
+                            // Longhand border/radius only (see the Gantt bar): the same keys clipped or not.
+                            borderTopStyle:'solid',borderBottomStyle:'solid',borderLeftStyle:g.clipStart?'dashed':'solid',borderRightStyle:g.clipEnd?'dashed':'solid',
+                            borderTopLeftRadius:g.clipStart?2:5,borderBottomLeftRadius:g.clipStart?2:5,borderTopRightRadius:g.clipEnd?2:5,borderBottomRightRadius:g.clipEnd?2:5}}>
                           {onUpdateTask?<TlGrip side="left" clipped={g.clipStart} color={c.text} onDown={e=>startDrag(e,r,'left',g)}/>:<span style={{width:6,flexShrink:0}}/>}
                           <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fits?label:''}</span>
                           {onUpdateTask&&<TlGrip side="right" clipped={g.clipEnd} color={c.text} onDown={e=>startDrag(e,r,'right',g)}/>}
@@ -7367,15 +7373,10 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
             {lastRow<visibleRows.length&&<div style={{height:(visibleRows.length-lastRow)*ROW_H}}/>}
           </div>
         </div>
-        {(canExpand||!thisWeek)&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
-          {!thisWeek&&<button type="button" className="btn btn-ghost" onClick={()=>tlCenterToday(scrollRef.current,x(today),DAY_W,LEFT_W)} title="Centralizar em hoje" style={{padding:'3px 10px',fontSize:'.7rem',borderRadius:0,whiteSpace:'nowrap'}}>
-            <Icon name="crosshair" size={11}/> Hoje
-          </button>}
-          {canExpand&&<button type="button" className="btn btn-ghost" onClick={toggleExpanded} aria-expanded={expanded} aria-label={expanded?'Recolher timeline':'Expandir timeline'} title={expanded?'Recolher':'Expandir'}
-            style={{padding:'3px 12px',borderRadius:0}}>
-            <Icon name={expanded?'chevron-up':'chevron-down'} size={14} style={{color:'var(--muted)'}}/>
-          </button>}
-        </div>}
+        {canExpand&&<button type="button" className="btn btn-ghost" onClick={toggleExpanded} aria-expanded={expanded} aria-label={expanded?'Recolher timeline':'Expandir timeline'} title={expanded?'Recolher':'Expandir'}
+          style={{display:'flex',width:'100%',justifyContent:'center',padding:'3px 0',borderRadius:0,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
+          <Icon name={expanded?'chevron-up':'chevron-down'} size={14} style={{color:'var(--muted)'}}/>
+        </button>}
         </>)}
     </div>
   );
@@ -7668,6 +7669,17 @@ const fmtShort=d=>{if(!d)return'';const dt=new Date(d+'T12:00:00');return dt.toL
 // "Esta semana" per project, remembered across visits AND app restarts (it
 // lived in sessionStorage, which forgets on every relaunch of the app).
 const GT_WEEK_KEY='boardhub_gantt_week_v1';
+// Expanded/collapsed per project, remembered like "Esta semana".
+const GT_EXPANDED_KEY='boardhub_gantt_expanded_v1';
+const gtExpandedLoad=projectId=>{
+  if(projectId==null)return false;
+  try{const all=JSON.parse(localStorage.getItem(GT_EXPANDED_KEY)||'{}');return !!(all&&all[String(projectId)]);}catch{return false;/*silent-ok: collapsed is the default*/}
+};
+const gtExpandedSave=(projectId,value)=>{
+  if(projectId==null)return;
+  try{const all=JSON.parse(localStorage.getItem(GT_EXPANDED_KEY)||'{}')||{};all[String(projectId)]=!!value;localStorage.setItem(GT_EXPANDED_KEY,JSON.stringify(all));}
+  catch(e){bhLog('gantt.expanded',e,'the expanded/collapsed choice lasts only for this session');}
+};
 const gtWeekLoad=projectId=>{
   if(projectId==null)return true;
   try{const all=JSON.parse(localStorage.getItem(GT_WEEK_KEY)||'{}');const v=all&&all[String(projectId)];if(typeof v==='boolean')return v;}catch{/*silent-ok: falls back to the session copy / default*/}
@@ -7687,7 +7699,9 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const [thisWeek,setThisWeek]=useState(()=>gtWeekLoad(projectId));
   useEffect(()=>{setThisWeek(gtWeekLoad(projectId));},[projectId]);
   const toggleThisWeek=()=>setThisWeek(v=>{const n=!v;gtWeekSave(projectId,n);return n;});
-  const [expanded,setExpanded]=useState(false);
+  const [expanded,setExpanded]=useState(()=>gtExpandedLoad(projectId));
+  useEffect(()=>{setExpanded(gtExpandedLoad(projectId));},[projectId]);
+  const toggleExpandedGantt=()=>setExpanded(v=>{const n=!v;gtExpandedSave(projectId,n);return n;});
   // One scroll area holds names AND bars (names column sticky on the left,
   // calendar sticky on top). They were two panes scrolling separately, so a
   // vertical scroll in one left each name next to another task's bar.
@@ -7803,6 +7817,9 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
           <button onClick={toggleThisWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
             <Icon name="calendar" size={10}/> Esta semana
           </button>
+          {!thisWeek&&<button type="button" onClick={()=>tlCenterToday(scrollRef.current,todayX,DAY_W,LEFT_W)} className="btn btn-outline" title="Centralizar em hoje" style={{padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap'}}>
+            <Icon name="crosshair" size={10}/> Hoje
+          </button>}
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',flex:'1 1 220px',justifyContent:'flex-end',minWidth:0}}>
           <input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask()}
@@ -7875,9 +7892,13 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                         title={`${name}\n${fmtShort(g.s)} → ${fmtShort(g.e)}`}
                         style={{
                           position:'absolute',left:g.left+1,width:Math.max(22,g.width-2),height:28,top:(ROW_H-28)/2,boxSizing:'border-box',
-                          background:colors.bar,border:`1.5px solid ${isSelected?'var(--text)':colors.border}`,borderRadius:7,
-                          ...(g.clipStart?{borderTopLeftRadius:2,borderBottomLeftRadius:2,borderLeftStyle:'dashed'}:{}),
-                          ...(g.clipEnd?{borderTopRightRadius:2,borderBottomRightRadius:2,borderRightStyle:'dashed'}:{}),
+                          // Longhand border/radius only, with the same keys whether or not an end
+                          // is clipped: mixing `border`/`borderRadius` with per-side overrides made
+                          // React clear just the override on a re-render, which dropped that side's
+                          // border and corner radius when a bar stopped being clipped.
+                          background:colors.bar,borderWidth:'1.5px',borderColor:isSelected?'var(--text)':colors.border,
+                          borderTopStyle:'solid',borderBottomStyle:'solid',borderLeftStyle:g.clipStart?'dashed':'solid',borderRightStyle:g.clipEnd?'dashed':'solid',
+                          borderTopLeftRadius:g.clipStart?2:7,borderBottomLeftRadius:g.clipStart?2:7,borderTopRightRadius:g.clipEnd?2:7,borderBottomRightRadius:g.clipEnd?2:7,
                           cursor:'grab',display:'flex',alignItems:'center',overflow:'hidden',
                           boxShadow:isSelected?'0 0 0 2px var(--text)':'0 1px 4px rgba(28,25,23,.09)',
                           userSelect:'none',touchAction:'pan-y',transition:'box-shadow .15s,border-color .15s',
@@ -7894,17 +7915,11 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         </div>
       </div>
 
-      {/* "Hoje" + expand/collapse, centered together under the grid */}
-      {(!thisWeek||visibleTasks.length>4)&&(
-        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
-          {!thisWeek&&<button type="button" className="btn btn-ghost" onClick={()=>tlCenterToday(scrollRef.current,todayX,DAY_W,LEFT_W)} title="Centralizar em hoje" style={{padding:'3px 10px',fontSize:'.7rem',borderRadius:0,whiteSpace:'nowrap'}}>
-            <Icon name="crosshair" size={11}/> Hoje
-          </button>}
-          {visibleTasks.length>4&&<button type="button" className="btn btn-ghost" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded} aria-label={expanded?'Recolher':'Expandir'} title={expanded?'Recolher':'Expandir'} style={{padding:'3px 12px',borderRadius:0}}>
-            <Icon name={expanded?'minus':'maximize-2'} size={13} style={{color:'var(--muted)'}}/>
-          </button>}
-        </div>
-      )}
+      {/* Expand/Collapse control */}
+      {visibleTasks.length>4&&<button type="button" className="btn btn-ghost" onClick={toggleExpandedGantt} aria-expanded={expanded} aria-label={expanded?'Recolher':'Expandir'} title={expanded?'Recolher':'Expandir'}
+        style={{display:'flex',width:'100%',justifyContent:'center',padding:'4px 0',borderRadius:0,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
+        <Icon name={expanded?'minus':'maximize-2'} size={13} style={{color:'var(--muted)'}}/>
+      </button>}
 
       {/* Edit drawer */}
       {editDraft&&(
