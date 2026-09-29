@@ -6427,7 +6427,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
               <button className="btn btn-ghost bh-touch-target" onClick={reset} title="Reiniciar" style={{padding:5}}>
                 <Icon name="rotate-ccw" size={13}/>
               </button>
-              {!isActive&&<button className="btn btn-ghost bh-touch-target" onMouseDown={e=>e.preventDefault()} onClick={openTypeMins} title="Digitar a duração (1 a 120 min)" aria-label="Digitar a duração em minutos" style={{padding:5}}>
+              {!isActive&&!sessionMetaRef.current&&<button className="btn btn-ghost bh-touch-target" onMouseDown={e=>e.preventDefault()} onClick={openTypeMins} title="Digitar a duração (1 a 120 min)" aria-label="Digitar a duração em minutos" style={{padding:5}}>
                 <Icon name="pencil" size={13}/>
               </button>}
               <button className="btn btn-ghost bh-touch-target"
@@ -10077,6 +10077,19 @@ const _noteTextDropTarget=(e,root)=>{
   const img=t.closest('img');
   return img&&img.closest('.note-image-cell')&&root?.contains(img)?img:null;
 };
+// HTML made fit for a grid image's text (an inline span): sanitized first,
+// then blocks become line breaks, list wrappers go and media is dropped. The
+// template keeps pasted markup inert while it is reshaped.
+const _noteInlineHTML=html=>{
+  const tpl=document.createElement('template');tpl.innerHTML=sanitizeHTML(html);
+  const frag=tpl.content;
+  frag.querySelectorAll('img,video,.note-image-grid').forEach(x=>x.remove());
+  frag.querySelectorAll('ul,ol').forEach(l=>l.replaceWith(...l.childNodes));
+  frag.querySelectorAll('p,div,h1,h2,h3,blockquote,li').forEach(b=>{b.parentNode.insertBefore(document.createElement('br'),b.nextSibling);b.replaceWith(...b.childNodes);});
+  while(frag.lastChild&&(frag.lastChild.nodeName==='BR'||(frag.lastChild.nodeType===3&&!frag.lastChild.data.trim())))frag.lastChild.remove();
+  const out=document.createElement('div');out.appendChild(frag);
+  return out.innerHTML;
+};
 // The dragged text as inline HTML. If it is the editor's own selection, its
 // formatting is kept (blocks become line breaks) and the original is removed,
 // so the text MOVES; from anywhere else it comes in as plain text.
@@ -10087,11 +10100,7 @@ const _noteDraggedTextHTML=(dt,root)=>{
   if(sel&&sel.rangeCount&&!sel.isCollapsed&&root?.contains(sel.anchorNode)&&sel.toString().trim()===plain.trim()){
     const range=sel.getRangeAt(0).cloneRange();
     const tmp=document.createElement('div');tmp.appendChild(range.cloneContents());
-    tmp.querySelectorAll('ul,ol').forEach(l=>l.replaceWith(...l.childNodes));
-    tmp.querySelectorAll('p,div,h1,h2,h3,blockquote,li').forEach(b=>{b.parentNode.insertBefore(document.createElement('br'),b.nextSibling);b.replaceWith(...b.childNodes);});
-    while(tmp.lastChild&&tmp.lastChild.nodeName==='BR')tmp.lastChild.remove();
-    tmp.querySelectorAll('img,video,.note-image-grid').forEach(x=>x.remove());
-    const html=sanitizeHTML(tmp.innerHTML);
+    const html=_noteInlineHTML(tmp.innerHTML);
     if(html.replace(/<br>/g,'').trim()){
       // The block the selection starts in, taken BEFORE deleting: deleteContents
       // collapses the range up to a common ancestor, not into that block.
@@ -10403,8 +10412,22 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const html=serializedHTML();lastEmittedRef.current=html;dirtyRef.current=true;onSave(html,saveTarget);setRemoteConflict(null);
   };
 
+  // A grid image's text is its own editing host (inside the non-editable grid):
+  // a toolbar command has to run with THAT host focused, or focusing the
+  // editor moves the selection out of it and the command does nothing.
+  const focusSelectionHost=()=>{
+    const ed=ref.current;if(!ed)return;
+    const sel=window.getSelection(),n=sel&&sel.rangeCount?sel.anchorNode:null;
+    const el=n&&(n.nodeType===1?n:n.parentElement);
+    const cell=el&&ed.contains(el)?el.closest('.note-cell-text'):null;
+    (cell||ed).focus();
+    return cell;
+  };
   const exec=(cmd,val)=>{
-    ref.current?.focus();document.execCommand(cmd,false,val||null);
+    const inCell=focusSelectionHost();
+    // Lists and headings are blocks; a grid image's text is one inline line.
+    if(inCell&&(cmd==='formatBlock'||cmd==='insertUnorderedList'||cmd==='insertOrderedList'))return;
+    document.execCommand(cmd,false,val||null);
     if(cmd==='removeFormat'){
       // removeFormat leaves class-based sizes: unwrap the ones in the selection.
       const sel=window.getSelection();
@@ -10455,7 +10478,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const ed=ref.current;if(!ed)return;
     const sel=window.getSelection();
     if(!sel||!sel.rangeCount||!ed.contains(sel.anchorNode)||sel.isCollapsed){applyWholeNoteSize(level);setSizeOpen(false);return;}
-    ed.focus();
+    focusSelectionHost();
     document.execCommand('styleWithCSS',false,false);
     document.execCommand('fontSize',false,'7');
     const made=[];
@@ -10929,7 +10952,28 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const handlePaste=e=>{
     const items=e.clipboardData?.items||[];
     const images=bhImageFiles([...items].filter(i=>i.kind==='file').map(i=>i.getAsFile()).filter(Boolean),true);
-    if(images.length){e.preventDefault();images.forEach(insertImageFile);return;}
+    // Inside a grid image's text only inline text belongs: images land right
+    // after the grid, and pasted blocks are flattened into line breaks.
+    const cellText=e.target?.closest?.('.note-cell-text');
+    if(images.length){
+      e.preventDefault();
+      const grid=cellText?.closest('.note-image-grid');
+      if(grid&&ref.current){
+        ref.current.focus();
+        const r=document.createRange();r.setStartAfter(grid);r.collapse(true);
+        const s=window.getSelection();s.removeAllRanges();s.addRange(r);
+      }
+      images.forEach(insertImageFile);return;
+    }
+    if(cellText){
+      e.preventDefault();
+      const html=e.clipboardData?.getData('text/html');
+      const plain=e.clipboardData?.getData('text/plain')||'';
+      const inline=html?_noteInlineHTML(html.replace(/<!--(?:StartFragment|EndFragment)-->/g,'')):plain.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\r?\n/g,'<br>');
+      if(inline)document.execCommand('insertHTML',false,inline);
+      emit();
+      return;
+    }
     // Rich paste goes through the same allowlist the save path uses. Left to
     // the browser, a web page's inline colours and fonts lived in the editor
     // until the next reload (dark text on the notturno page, stray fonts),
@@ -11687,7 +11731,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
       </div>
 
       <div style={{flex:1,display:'flex',gap:0,minHeight:0}}>
-        <div style={{width:sidebarW,flexShrink:0,display:'flex',flexDirection:'column',minHeight:0}}>
+        <div style={{width:sidebarW,maxWidth:'65%',flexShrink:0,display:'flex',flexDirection:'column',minHeight:0}}>
           {showTrash?(
             <div ref={treePaneRef} onScroll={e=>{treeScrollTopRef.current=e.currentTarget.scrollTop;}} style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
               {trashed.length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Lixeira vazia.</div>}
