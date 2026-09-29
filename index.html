@@ -568,6 +568,9 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .note-image-cell{display:flex;flex-direction:column;gap:8px;min-width:0;}
 .note-cell-text{display:block;outline:none;min-height:1.4em;line-height:1.55;word-break:break-word;cursor:text;color:var(--text);}
 .note-cell-text:empty::before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
+.notes-splitter{width:16px;flex-shrink:0;cursor:col-resize;position:relative;touch-action:none;outline:none;}
+.notes-splitter::after{content:'';position:absolute;top:8px;bottom:8px;left:7px;width:2px;border-radius:1px;background:var(--border);transition:background .15s,width .15s,left .15s;}
+.notes-splitter:hover::after,.notes-splitter:focus-visible::after,.notes-splitter.dragging::after{background:#3b82f6;width:4px;left:6px;}
 .note-drop-bar{position:absolute;z-index:6;background:#3b82f6;border-radius:3px;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 0 14px rgba(59,130,246,.85);pointer-events:none;}
 .note-cap-btn{position:absolute;z-index:4;padding:3px 9px 3px 7px;border-radius:999px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font:700 .7rem 'Alegreya Sans',sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:inline-flex;align-items:center;gap:4px;}
 .note-cap-btn:hover{background:var(--text);color:var(--bg);}
@@ -10885,6 +10888,26 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const rect=ref.current?.getBoundingClientRect();
     if(!rect||e.clientX<=rect.left||e.clientX>=rect.right||e.clientY<=rect.top||e.clientY>=rect.bottom)clearDragTarget();
   };
+  // Leaving a selection with a click. The selection now shows in a clear blue,
+  // and some clicks do not move it by themselves: an image or another
+  // non-editable part of the editor, or anything outside the editor. Those
+  // collapse it (toolbar controls are left alone, they act on the selection).
+  useEffect(()=>{
+    const onDown=e=>{
+      const ed=ref.current,sel=window.getSelection();
+      if(!ed||!sel||sel.isCollapsed||!ed.contains(sel.anchorNode))return;
+      const t=e.target;if(!t||!t.closest)return;
+      if(ed.contains(t)){
+        if(t.closest('img,video,.note-image-grid')&&!t.closest('.note-cell-text'))sel.removeAllRanges();
+        return;
+      }
+      if(t.closest('.rich-toolbar-btn,.note-size-wrap,.note-cap-btn,.note-resize-frame,.note-drop-bar,[role=dialog],[role=menu]'))return;
+      sel.removeAllRanges();
+    };
+    document.addEventListener('pointerdown',onDown,true);
+    return()=>document.removeEventListener('pointerdown',onDown,true);
+  },[]);
+
   // Lets a page route a paste or a file drop made OUTSIDE the editor into it
   // (at the caret, or at the end when the caret is elsewhere), the same way a
   // paste inside it works.
@@ -11562,6 +11585,22 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   };
   const sortEntries=list=>noteSort==='manual'?(list||[]):[...(list||[])].sort(noteSort==='az'?byNoteTitle:byNoteRecent);
   const tree=sortItems(childrenOf(null));
+  // The notes list can be dragged wider or narrower (drag the divider; a double
+  // click or Home resets it); the width is remembered.
+  const SIDEBAR_KEY='boardhub_notes_sidebar_w',SIDEBAR_DEFAULT=220,SIDEBAR_MIN=180;
+  const [sidebarW,setSidebarW]=useState(()=>{try{const v=Number(localStorage.getItem(SIDEBAR_KEY));return v>=SIDEBAR_MIN&&v<=900?v:SIDEBAR_DEFAULT;}catch{return SIDEBAR_DEFAULT;}});
+  const [sidebarDragging,setSidebarDragging]=useState(false);
+  const saveSidebarW=w=>{try{localStorage.setItem(SIDEBAR_KEY,String(w));}catch(err){bhLog('notes.sidebarWidth',err);}};
+  const startSidebarDrag=e=>{
+    e.preventDefault();
+    const box=e.currentTarget.parentElement.getBoundingClientRect();
+    const maxW=Math.max(SIDEBAR_MIN+40,Math.min(900,box.width*0.65)),startX=e.clientX,startW=sidebarW;
+    const handle=e.currentTarget;try{handle.setPointerCapture(e.pointerId);}catch{/*silent-ok: capture is a nicety*/}
+    let cur=startW;setSidebarDragging(true);
+    const move=me=>{cur=Math.round(Math.max(SIDEBAR_MIN,Math.min(maxW,startW+me.clientX-startX)));setSidebarW(cur);};
+    const up=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',up);handle.removeEventListener('pointercancel',up);setSidebarDragging(false);saveSidebarW(cur);};
+    handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',up);handle.addEventListener('pointercancel',up);
+  };
   const [treeLimit,setTreeLimit]=useState(BH_LIST_STEP);
   const moreTree=()=>setTreeLimit(l=>l+BH_LIST_STEP);
 
@@ -11647,8 +11686,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
         </div>
       </div>
 
-      <div style={{flex:1,display:'flex',gap:16,minHeight:0}}>
-        <div style={{width:220,flexShrink:0,display:'flex',flexDirection:'column',minHeight:0}}>
+      <div style={{flex:1,display:'flex',gap:0,minHeight:0}}>
+        <div style={{width:sidebarW,flexShrink:0,display:'flex',flexDirection:'column',minHeight:0}}>
           {showTrash?(
             <div ref={treePaneRef} onScroll={e=>{treeScrollTopRef.current=e.currentTarget.scrollTop;}} style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
               {trashed.length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Lixeira vazia.</div>}
@@ -11670,6 +11709,13 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
             </div></>
           )}
         </div>
+        <div className={'notes-splitter'+(sidebarDragging?' dragging':'')} role="separator" aria-orientation="vertical" aria-label="Largura da lista de notas" tabIndex={0} aria-valuemin={SIDEBAR_MIN} aria-valuenow={sidebarW}
+          title="Arraste para mudar a largura (dois cliques restauram)" onPointerDown={startSidebarDrag}
+          onDoubleClick={()=>{setSidebarW(SIDEBAR_DEFAULT);saveSidebarW(SIDEBAR_DEFAULT);}}
+          onKeyDown={e=>{
+            if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();const w=Math.max(SIDEBAR_MIN,Math.min(900,sidebarW+(e.key==='ArrowRight'?24:-24)));setSidebarW(w);saveSidebarW(w);}
+            else if(e.key==='Home'){e.preventDefault();setSidebarW(SIDEBAR_DEFAULT);saveSidebarW(SIDEBAR_DEFAULT);}
+          }}/>
         <div style={{flex:1,minWidth:0,display:'flex',minHeight:0}}>{showTrash?<div className="card" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted)',fontSize:'.85rem'}}>Itens excluídos</div>:renderEditor()}</div>
       </div>
     </div>
