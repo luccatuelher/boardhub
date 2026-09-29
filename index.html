@@ -7256,10 +7256,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
       <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:8,padding:'10px 14px',borderBottom:open&&rows.length?'1px solid var(--border)':'none'}}>
         <span className="label label-section" style={{margin:0,whiteSpace:'nowrap'}}><StaveGlyph name="half"/>Timeline</span>
         <span style={{fontSize:'.7rem',color:'var(--muted)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'1px 8px'}} title="Tarefas pendentes">{pendingCount}</span>
-        {open&&!thisWeek&&visibleRows.length>0&&<button type="button" onClick={()=>tlCenterToday(scrollRef.current,x(today),DAY_W,LEFT_W)} className="btn btn-outline" title="Centralizar em hoje" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap'}}>
-          <Icon name="crosshair" size={10}/> Hoje
-        </button>}
-        {open&&<button type="button" onClick={toggleWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{marginLeft:thisWeek?'auto':0,padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
+        {open&&<button type="button" onClick={toggleWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{marginLeft:'auto',padding:'3px 8px',fontSize:'.7rem',whiteSpace:'nowrap',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
           <Icon name="calendar" size={10}/> Esta semana
         </button>}
         <button type="button" className="btn btn-ghost" onClick={toggle} aria-expanded={open} style={{marginLeft:open?0:'auto',padding:'4px 8px',fontSize:'.76rem',whiteSpace:'nowrap'}}>
@@ -7315,10 +7312,15 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
             {lastRow<visibleRows.length&&<div style={{height:(visibleRows.length-lastRow)*ROW_H}}/>}
           </div>
         </div>
-        {canExpand&&<button type="button" className="btn btn-ghost" onClick={toggleExpanded} aria-expanded={expanded} aria-label={expanded?'Recolher timeline':'Expandir timeline'} title={expanded?'Recolher':'Expandir'}
-          style={{display:'flex',width:'100%',justifyContent:'center',padding:'3px 0',borderRadius:0,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
-          <Icon name={expanded?'chevron-up':'chevron-down'} size={14} style={{color:'var(--muted)'}}/>
-        </button>}
+        {(canExpand||!thisWeek)&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
+          {!thisWeek&&<button type="button" className="btn btn-ghost" onClick={()=>tlCenterToday(scrollRef.current,x(today),DAY_W,LEFT_W)} title="Centralizar em hoje" style={{padding:'3px 10px',fontSize:'.7rem',borderRadius:0,whiteSpace:'nowrap'}}>
+            <Icon name="crosshair" size={11}/> Hoje
+          </button>}
+          {canExpand&&<button type="button" className="btn btn-ghost" onClick={toggleExpanded} aria-expanded={expanded} aria-label={expanded?'Recolher timeline':'Expandir timeline'} title={expanded?'Recolher':'Expandir'}
+            style={{padding:'3px 12px',borderRadius:0}}>
+            <Icon name={expanded?'chevron-up':'chevron-down'} size={14} style={{color:'var(--muted)'}}/>
+          </button>}
+        </div>}
         </>)}
     </div>
   );
@@ -7746,9 +7748,6 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
           <button onClick={toggleThisWeek} aria-pressed={thisWeek} className="btn btn-outline" style={{padding:'3px 8px',fontSize:'.7rem',background:thisWeek?'var(--text)':'transparent',color:thisWeek?'var(--bg)':'var(--muted)',borderColor:thisWeek?'var(--text)':'var(--border)'}}>
             <Icon name="calendar" size={10}/> Esta semana
           </button>
-          {!thisWeek&&<button onClick={()=>tlCenterToday(scrollRef.current,todayX,DAY_W,LEFT_W)} className="btn btn-outline" title="Centralizar em hoje" style={{padding:'3px 8px',fontSize:'.7rem'}}>
-            <Icon name="crosshair" size={10}/> Hoje
-          </button>}
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',flex:'1 1 220px',justifyContent:'flex-end',minWidth:0}}>
           <input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask()}
@@ -7840,14 +7839,15 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         </div>
       </div>
 
-      {/* Expand/Collapse control */}
-      {visibleTasks.length>4&&(
-        <div onClick={()=>setExpanded(x=>!x)} {...keyActivate(()=>setExpanded(x=>!x),expanded?'Recolher':'Expandir')} aria-expanded={expanded}
-          style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'4px 0',cursor:'pointer',
-            borderTop:'1px solid var(--border)',background:'var(--surface)',transition:'background .15s',userSelect:'none'}}
-          onMouseEnter={e=>e.currentTarget.style.background='rgba(28,25,23,.04)'}
-          onMouseLeave={e=>e.currentTarget.style.background='var(--surface)'}>
-          <Icon name={expanded?'minus':'maximize-2'} size={13} style={{color:'var(--muted)'}}/>
+      {/* "Hoje" + expand/collapse, centered together under the grid */}
+      {(!thisWeek||visibleTasks.length>4)&&(
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
+          {!thisWeek&&<button type="button" className="btn btn-ghost" onClick={()=>tlCenterToday(scrollRef.current,todayX,DAY_W,LEFT_W)} title="Centralizar em hoje" style={{padding:'3px 10px',fontSize:'.7rem',borderRadius:0,whiteSpace:'nowrap'}}>
+            <Icon name="crosshair" size={11}/> Hoje
+          </button>}
+          {visibleTasks.length>4&&<button type="button" className="btn btn-ghost" onClick={()=>setExpanded(x=>!x)} aria-expanded={expanded} aria-label={expanded?'Recolher':'Expandir'} title={expanded?'Recolher':'Expandir'} style={{padding:'3px 12px',borderRadius:0}}>
+            <Icon name={expanded?'minus':'maximize-2'} size={13} style={{color:'var(--muted)'}}/>
+          </button>}
         </div>
       )}
 
