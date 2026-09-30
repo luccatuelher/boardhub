@@ -819,25 +819,25 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 <body>
 <div id="root">
   <!-- Instant loading screen — pure CSS, renders before any JS loads -->
-  <div id="splash" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#F4F1ED;font-family:serif;gap:10px">
-    <div style="font-size:2.4rem;font-weight:500;letter-spacing:-0.02em;color:#1C1917">Board<span style="font-style:italic;font-weight:300">Hub</span></div>
-    <div style="font-size:.65rem;color:#78716C;letter-spacing:.1em;text-transform:uppercase">Carregando...</div>
-    <div style="width:120px;height:3px;background:#E8E3DC;border-radius:3px;overflow:hidden;margin-top:8px">
-      <div style="width:40%;height:100%;background:#1C1917;border-radius:3px;animation:splashBar 1.2s ease infinite"></div>
+  <div id="splash" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:serif;gap:10px">
+    <div style="font-size:2.4rem;font-weight:500;letter-spacing:-0.02em;color:var(--text)">Board<span style="font-style:italic;font-weight:300">Hub</span></div>
+    <div style="font-size:.65rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase">Carregando...</div>
+    <div style="width:120px;height:3px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px">
+      <div style="width:40%;height:100%;background:var(--text);border-radius:3px;animation:splashBar 1.2s ease infinite"></div>
     </div>
   </div>
   <style>#splash{transition:opacity .4s ease}@keyframes splashBar{0%{transform:translateX(-100%)}50%{transform:translateX(150%)}100%{transform:translateX(250%)}}</style>
   <script>
     window.__splashTimeout=setTimeout(function(){
       var s=document.getElementById('splash');if(!s)return;
-      s.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;font-family:sans-serif;padding:24px;text-align:center"><div style="font-size:2.4rem;font-weight:500;font-family:serif;color:#1C1917">BoardHub</div><div style="font-size:.8rem;color:#DC2626">Erro ao carregar. Verifique sua conexao e recarregue.</div><button onclick="location.reload()" style="margin-top:8px;padding:8px 20px;background:#1C1917;color:white;border:none;border-radius:8px;cursor:pointer">Recarregar</button></div>';
+      s.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;font-family:sans-serif;padding:24px;text-align:center"><div style="font-size:2.4rem;font-weight:500;font-family:serif;color:var(--text)">BoardHub</div><div style="font-size:.8rem;color:var(--danger-fg)">Erro ao carregar. Verifique sua conexao e recarregue.</div><button onclick="location.reload()" style="margin-top:8px;padding:8px 20px;background:var(--text);color:var(--bg);border:none;border-radius:8px;cursor:pointer">Recarregar</button></div>';
     },12000);
     window.addEventListener('error',function(e){
       clearTimeout(window.__splashTimeout);
       var s=document.getElementById('splash');if(!s)return;
       var safeMsg=document.createElement('div');
       safeMsg.textContent=e.message||'Erro desconhecido';
-      s.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;font-family:sans-serif;padding:24px;text-align:center"><div style="font-size:2.4rem;font-weight:500;font-family:serif;color:#1C1917">BoardHub</div><div style="font-size:.8rem;color:#DC2626;max-width:400px">Erro: '+safeMsg.innerHTML+'</div><button onclick="location.reload()" style="margin-top:8px;padding:8px 20px;background:#1C1917;color:white;border:none;border-radius:8px;cursor:pointer">Recarregar</button></div>';
+      s.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;font-family:sans-serif;padding:24px;text-align:center"><div style="font-size:2.4rem;font-weight:500;font-family:serif;color:var(--text)">BoardHub</div><div style="font-size:.8rem;color:var(--danger-fg);max-width:400px">Erro: '+safeMsg.innerHTML+'</div><button onclick="location.reload()" style="margin-top:8px;padding:8px 20px;background:var(--text);color:var(--bg);border:none;border-radius:8px;cursor:pointer">Recarregar</button></div>';
     });
   </script>
 </div>
