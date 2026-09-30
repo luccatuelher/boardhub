@@ -12449,6 +12449,12 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
   // localStorage (per device) rather than in the synced state.
   const [postSort,setPostSort]=useState(()=>{try{const v=localStorage.getItem(SOCIAL_SORT_KEY);return SOCIAL_SORT_ORDERS.some(([o])=>o===v)?v:'newest';}catch{return 'newest';}});
   const [platformFilter,setPlatformFilter]=useState('all');
+  // The saved posts render in steps (BH_LIST_STEP, more as the list scrolls): every card
+  // mounted at once cost ~0.9 s to open the view and ~80 ms per keystroke in the composer
+  // at 400 posts, because the composer draft lives in this same component.
+  const [postLimit,setPostLimit]=useState(BH_LIST_STEP);
+  const morePosts=()=>setPostLimit(l=>l+BH_LIST_STEP);
+  useEffect(()=>{setPostLimit(BH_LIST_STEP);},[trash,postSort,platformFilter]);
   const changePostSort=v=>{setPostSort(v);try{localStorage.setItem(SOCIAL_SORT_KEY,v);}catch(e){bhLog('social.sort',e,'the chosen order lasts only for this session');}};
   const displayed=useMemo(()=>{
     const base=(trash?trashedPosts:activePosts).filter(p=>platformFilter==='all'||(p.platform||'Instagram')===platformFilter);
@@ -12597,7 +12603,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
             </div>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {displayed.map(p=>(
+            {displayed.slice(0,postLimit).map(p=>(
               <div key={p.id} className="card" style={{padding:isMobile?'14px 16px':'18px 22px',display:'flex',gap:16,alignItems:'flex-start',flexDirection:'row',width:'100%',boxSizing:'border-box'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <p style={{margin:0,fontSize:'.88rem',lineHeight:1.7,color:'var(--text)',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{p.text}</p>
@@ -12636,6 +12642,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                 </div>
               </div>
             ))}
+            {displayed.length>postLimit&&<ListMoreSentinel key={postLimit} onMore={morePosts}/>}
           </div>
         </div>
       )}
