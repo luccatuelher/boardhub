@@ -11874,6 +11874,15 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     const draft=titleDraftRef.current;
     if(draft)flushTitle(draft.value,draft.target);
   },[]);// title target is captured in the draft; setNotes is stable
+  // A rename reaches the state 600 ms after the last key. Leaving the page inside that window (closing or
+  // reloading the tab, switching apps on a phone) dropped the new title: the effects above only run on blur
+  // and unmount. Registered like RichEditor's pending save: it acts only while a draft is waiting, and the
+  // app commits it, synchronously, before writing to storage.
+  useEffect(()=>{
+    const flusher=()=>{const d=titleDraftRef.current;if(!d)return;clearTimeout(renameRef.current);flushTitle(d.value,d.target);titleDraftRef.current=null;};
+    bhPendingEditFlushers.add(flusher);
+    return()=>{bhPendingEditFlushers.delete(flusher);};
+  },[]);//eslint-disable-line react-hooks/exhaustive-deps
   const handleTitleKey=e=>{
     if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}
     if(e.key==='Escape'){e.preventDefault();clearTimeout(renameRef.current);titleDraftRef.current=null;setLocalTitle(selectedEntry?.title||selectedItem?.title||'');e.currentTarget.blur();}
@@ -12738,6 +12747,14 @@ const ClientDetail=({client,onBack,onSave,onDelete,isMobile,projects=[],onSelect
   const formRef=useRef(form);formRef.current=form;
   const onSaveRef=useRef(onSave);onSaveRef.current=onSave;
   useEffect(()=>()=>{if(!settledRef.current&&JSON.stringify(formRef.current)!==initialRef.current)onSaveRef.current(bhFormPatch(initialRef.current,formRef.current),{stay:true});},[]);
+  // The page itself is one more way out that skips Voltar and the unmount above: closing or reloading the tab, or
+  // switching apps on a phone, dropped an edit made in the last moments. Same shared hook as RichEditor's pending
+  // save; not marked settled, so coming back to the tab and going on editing still saves on leaving.
+  useEffect(()=>{
+    const flusher=()=>{if(settledRef.current||JSON.stringify(formRef.current)===initialRef.current)return;onSaveRef.current(bhFormPatch(initialRef.current,formRef.current),{stay:true});};
+    bhPendingEditFlushers.add(flusher);
+    return()=>{bhPendingEditFlushers.delete(flusher);};
+  },[]);
   const leave=()=>{settledRef.current=true;if(dirty)onSave(bhFormPatch(initialRef.current,form));else onBack();};
   // Projects are linked to clients by the free-text "cliente" field, which
   // people fill with either the person's name or the company.
