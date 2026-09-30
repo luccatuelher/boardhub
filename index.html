@@ -4229,7 +4229,7 @@ const SetupModal=({onDone})=>{
               <div style={{fontSize:'.65rem',fontWeight:700,letterSpacing:'.12em',textTransform:'uppercase',color:'var(--muted)',textAlign:'center',marginBottom:16}}>
                 Como você quer chamar seu hub?
               </div>
-              <input ref={hubRef} value={hubName} onChange={e=>setHubName(e.target.value)}
+              <input aria-label="Nome do hub" ref={hubRef} value={hubName} onChange={e=>setHubName(e.target.value)}
                 onKeyDown={e=>e.key==='Enter'&&next()} style={inputStyle}/>
               <p style={mutedStyle}>Esse nome vai aparecer na barra lateral e no cabeçalho.</p>
             </div>
@@ -4246,7 +4246,7 @@ const SetupModal=({onDone})=>{
               <div style={{fontSize:'.65rem',fontWeight:700,letterSpacing:'.12em',textTransform:'uppercase',color:'var(--muted)',textAlign:'center',marginBottom:16}}>
                 Como você quer chamar seu sistema?
               </div>
-              <input ref={osRef} value={osName} onChange={e=>setOsName(e.target.value)}
+              <input aria-label="Nome do sistema" ref={osRef} value={osName} onChange={e=>setOsName(e.target.value)}
                 onKeyDown={e=>e.key==='Enter'&&next()} style={inputStyle}/>
               <p style={mutedStyle}>Esse subtítulo aparece abaixo do nome do hub na barra lateral.</p>
             </div>
@@ -7993,20 +7993,20 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         <div style={{borderTop:'2px solid var(--text)',padding:'14px 18px',background:'var(--surface)',display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end',animation:'fadeUp .2s ease'}}>
           <div style={{flex:2,minWidth:160}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Tarefa</label>
-            <input value={editDraft.text} onChange={e=>setEditDraft({...editDraft,text:e.target.value})} className="input-box" style={{width:'100%'}} autoFocus
+            <input aria-label="Tarefa" value={editDraft.text} onChange={e=>setEditDraft({...editDraft,text:e.target.value})} className="input-box" style={{width:'100%'}} autoFocus
               onKeyDown={e=>e.key==='Enter'&&saveEdit()}/>
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Início</label>
-            <input type="date" value={editDraft.startDate||''} onChange={e=>setEditDraft({...editDraft,startDate:e.target.value})} className="input-box"/>
+            <input aria-label="Início" type="date" value={editDraft.startDate||''} onChange={e=>setEditDraft({...editDraft,startDate:e.target.value})} className="input-box"/>
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Prazo</label>
-            <input type="date" value={editDraft.dueDate||''} onChange={e=>setEditDraft({...editDraft,dueDate:e.target.value})} className="input-box"/>
+            <input aria-label="Prazo" type="date" value={editDraft.dueDate||''} onChange={e=>setEditDraft({...editDraft,dueDate:e.target.value})} className="input-box"/>
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Status</label>
-            <select value={editDraft.status} onChange={e=>setEditDraft({...editDraft,status:e.target.value})}
+            <select aria-label="Status" value={editDraft.status} onChange={e=>setEditDraft({...editDraft,status:e.target.value})}
               style={{width:'100%',padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
               {PTASK_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
@@ -9030,7 +9030,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.6rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:'1 1 200px',minWidth:0}}
                     placeholder="Título da tarefa"/>
                   <div style={{display:'flex',gap:6,flexShrink:0,alignItems:'center'}}>
-                    <select value={activeMini.status} onChange={e=>updateMini('status',e.target.value)}
+                    <select aria-label="Status da tarefa" value={activeMini.status} onChange={e=>updateMini('status',e.target.value)}
                       style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
                       {MINI_STATUSES.map(s=><option key={s}>{s}</option>)}
                     </select>
@@ -9271,7 +9271,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   ?<input value={galleryPopup.title||''} onChange={e=>updateGalleryPopup('title',e.target.value)} placeholder="Título do post" style={{width:'100%',boxSizing:'border-box',fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,color:'var(--text)',background:'transparent',border:0,borderBottom:'1px solid var(--border)',outline:'none',padding:'0 0 4px'}}/>
                   :<h3 style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,margin:0,lineHeight:1.2,color:'var(--text)'}}>{galleryPopup.title}</h3>}
                 {galleryPopupEditing
-                  ?<input type="date" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
+                  ?<input aria-label="Data do post" type="date" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
                   :<div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:3}}>{(()=>{try{return new Date(galleryPopup.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});}catch{return galleryPopup.date;}})()}</div>}
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
@@ -10142,7 +10142,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                 onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='0'}/>
               {editingFolderId===f.id
                 ? <>
-                    <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={editingLabel} onChange={e=>setEditingLabel(e.target.value)}
+                    <input aria-label="Nome da pasta" autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={editingLabel} onChange={e=>setEditingLabel(e.target.value)}
                       onBlur={()=>{if(folderRenameCancelRef.current){folderRenameCancelRef.current=false;return;}renameFolder(f.id,editingLabel);setEditingFolderId(null);}}
                       onKeyDown={e=>{if(e.key==='Enter'){renameFolder(f.id,editingLabel);setEditingFolderId(null);}if(e.key==='Escape'){e.stopPropagation();folderRenameCancelRef.current=true;setEditingFolderId(null);}}}
                       style={{background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',fontWeight:activeFolder===f.id?600:500,color:'var(--text)',width:Math.max(60,editingLabel.length*9)+'px',padding:'10px 0'}}
@@ -12162,7 +12162,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
           {!(isCategory(n)||isFolder(n))&&<span style={{width:11,flexShrink:0}}/>}
           <Icon name={open&&isFolder(n)?'folder-open':meta.icon} size={11} style={{color:'var(--muted)',flexShrink:0}}/>
           {isRenaming&& !showTrash
-            ? <input autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={renaming.value} onChange={e=>setRenaming(r=>({...r,value:e.target.value}))} onBlur={commitRename}
+            ? <input aria-label="Novo nome" autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={renaming.value} onChange={e=>setRenaming(r=>({...r,value:e.target.value}))} onBlur={commitRename}
                 onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commitRename();}if(e.key==='Escape')setRenaming(null);}}
                 onClick={e=>e.stopPropagation()} style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
             : <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>}
@@ -12292,7 +12292,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     const date=noteDateLabel(target);
     return <div className="card" style={{flex:1,padding:isMobile?18:28,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,borderBottom:'1px solid var(--border)',paddingBottom:12,flexShrink:0}}>
-        <input value={localTitle} onChange={handleTitleChange} onBlur={handleTitleBlur} onKeyDown={handleTitleKey}
+        <input aria-label="Título da nota" value={localTitle} onChange={handleTitleChange} onBlur={handleTitleBlur} onKeyDown={handleTitleKey}
           style={{fontFamily:'Cormorant Garamond,serif',fontSize:isMobile?'1.5rem':'1.8rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:1,minWidth:0}}/>
         <div style={{display:'flex',gap:6,flexShrink:0,alignItems:'center'}}>
           {date&&<span style={{fontSize:'.72rem',color:'var(--muted)'}}>{date}</span>}
@@ -12533,7 +12533,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
               {isMobile?(
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <span className="label label-field" style={{flexShrink:0}}>Plataforma</span>
-                  <select value={platform} onChange={e=>setPlatform(e.target.value)}
+                  <select aria-label="Plataforma" value={platform} onChange={e=>setPlatform(e.target.value)}
                     style={{flex:1,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'16px',color:'var(--text)',outline:'none',cursor:'pointer',minHeight:44}}>
                     {SOCIAL_PLATFORMS.map(pl=><option key={pl}>{pl}</option>)}
                   </select>
@@ -12605,7 +12605,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                     {/* Platform badge - clickable when not in trash */}
                     {!trash?(
                       isMobile?(
-                        <select value={p.platform||'Instagram'} onChange={e=>changePostPlatform(p.id,e.target.value)}
+                        <select aria-label="Plataforma do post" value={p.platform||'Instagram'} onChange={e=>changePostPlatform(p.id,e.target.value)}
                           style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'4px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:600,color:'var(--text)',outline:'none',cursor:'pointer',maxWidth:'100%'}}>
                           {SOCIAL_PLATFORMS.map(pl=><option key={pl}>{pl}</option>)}
                         </select>
