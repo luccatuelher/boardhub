@@ -7490,6 +7490,12 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
     // kept the OLD project objects here, a click opened the stale copy, and its
     // first edit overwrote the newer project locally and then in the cloud.
   },[filtered,projSort,trash]);
+  // Cards render in steps (BH_LIST_STEP, more as the list scrolls): 200 projects mounted ~5,900
+  // nodes at once, so opening the view and every filter change took ~0.45 s. The timeline above
+  // is already windowed and still receives the whole list.
+  const [listLimit,setListLimit]=useState(BH_LIST_STEP);
+  const moreProjects=()=>setListLimit(l=>l+BH_LIST_STEP);
+  useEffect(()=>{setListLimit(BH_LIST_STEP);},[filterType,onlyActive,projSort,trash]);
   const canDrag=!trash&&projSort==='manual';
   const softDelete=id=>setProjects(p=>p.map(x=>x.id===id?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
   const restore=id=>setProjects(p=>p.map(x=>x.id===id?{...x,deleted:false,deletedAt:null}:x));
@@ -7574,7 +7580,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
           {isMobile&&!trash?(
             /* Mobile: compact list rows */
             <div className="card" style={{overflow:'hidden',borderRadius:12}}>
-              {visible.map(p=>(
+              {visible.slice(0,listLimit).map(p=>(
                 <div key={p.id} className="compact-row" onClick={()=>onSelect(p)} {...keyActivate(()=>onSelect(p),'Abrir projeto '+(p.title||''))}>
                   <div className="compact-row-thumb">
                     {p.cover
@@ -7589,12 +7595,13 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                   <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
                 </div>
               ))}
+              {visible.length>listLimit&&<ListMoreSentinel key={listLimit} onMore={moreProjects}/>}
               {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)',fontSize:'.9rem'}}>Nenhum projeto encontrado.</div>}
             </div>
           ):(
             /* Desktop: card grid (and trash on both) */
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(3,1fr)',gap:isMobile?12:16}}>
-            {visible.map(p=>(
+            {visible.slice(0,listLimit).map(p=>(
               <div key={p.id} className="card" draggable={canDrag}
                 {...keyActivate(()=>onSelect(p),'Abrir projeto '+(p.title||''),!trash)}
                 style={{overflow:'hidden',display:'flex',flexDirection:'column',cursor:trash?'default':canDrag?'grab':'pointer',opacity:trash?0.85:1,position:'relative'}}
@@ -7657,6 +7664,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                 </div>
               </div>
             ))}
+            {visible.length>listLimit&&<div style={{gridColumn:'1/-1'}}><ListMoreSentinel key={listLimit} onMore={moreProjects}/></div>}
             {visible.length===0&&<div style={{gridColumn:'1/-1',textAlign:'center',padding:48,color:'var(--muted)',fontSize:'.9rem'}}>{trash?'Lixeira vazia.':'Nenhum projeto encontrado.'}</div>}
             </div>
           )}
