@@ -5458,6 +5458,25 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
 // The project last chosen for a Gallery folder in the session modal, per folder
 // ('' = "Só na Galeria"), so the next session on that folder starts there. It is
 // a per-device preference (like the task filter), not synced data.
+// "Registro obrigatório" (Sincronizar): when on, a finished session cannot be
+// skipped with "Não registrar" and leaving the tab warns while one waits. Off by
+// default, a per-device preference like the others here.
+const BH_REQUIRE_REGISTER_KEY='boardhub_require_session_register';
+const bhRequireRegisterLoad=()=>{try{return localStorage.getItem(BH_REQUIRE_REGISTER_KEY)==='1';}catch{return false;}};
+const bhRequireRegisterSave=v=>{
+  try{localStorage.setItem(BH_REQUIRE_REGISTER_KEY,v?'1':'0');}
+  catch(e){bhLog('session.requireRegister',e,'the choice lasts only until the page is reloaded');}
+  window.dispatchEvent(new Event('bh-require-register'));
+};
+const useRequireRegister=()=>{
+  const [on,setOn]=useState(bhRequireRegisterLoad);
+  useEffect(()=>{
+    const sync=()=>setOn(bhRequireRegisterLoad());
+    window.addEventListener('bh-require-register',sync);window.addEventListener('storage',sync);
+    return()=>{window.removeEventListener('bh-require-register',sync);window.removeEventListener('storage',sync);};
+  },[]);
+  return on;
+};
 const BH_SESSION_LINK_KEY='boardhub_session_folder_project';
 const bhSessionLinkLoad=()=>{try{const v=JSON.parse(localStorage.getItem(BH_SESSION_LINK_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return{};}};
 const bhSessionLinkSave=(folderId,projectId)=>{
@@ -5516,6 +5535,10 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const [galleryLink,setGalleryLink]=useState('');
   const [files,setFiles]=useState([]),[title,setTitle]=useState(session.title||defaultTitle),[note,setNote]=useState(''),[saving,setSaving]=useState(false),[progress,setProgress]=useState(null),[error,setError]=useState('');
   const savingRef=useRef(false);
+  // With "registro obrigatório" on, skipping is offered again only after a save failed, so a
+  // session whose project or media cannot be saved never traps the user here.
+  const requireRegister=useRequireRegister();
+  const [saveFailed,setSaveFailed]=useState(false);
   const destination=asTask?'task':'gallery';
   const [saveMode,setSaveMode]=useState('new');
   const eligiblePosts=useMemo(()=>(galleryPosts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===String(folderId))
@@ -5596,7 +5619,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     }catch(e){
       setError(e instanceof BhMediaError?e.message:'Não foi possível guardar as mídias'+(e?.message?' — '+e.message:'')+'. Tente novamente.');
       savingRef.current=false;
-      setSaving(false);setProgress(null);
+      setSaving(false);setProgress(null);setSaveFailed(true);
     }
   };
   return ReactDOM.createPortal(<div className="session-capture-overlay" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!saving)addFiles(e.dataTransfer.files);}}>
@@ -5661,7 +5684,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Uma nota rápida sobre a sessão (opcional)" disabled={saving}/>
       {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{progress.done}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
       {error&&<div className="session-capture-error" role="alert">{error}</div>}
-      <div className="session-capture-actions"><span>{asTask?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}><button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button><button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
+      <div className="session-capture-actions"><span>{asTask?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}{requireRegister&&!saveFailed?' Registro obrigatório (Sincronizar).':''}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{(!requireRegister||saveFailed)&&<button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button>}<button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
     </div>
   </div>,document.body);
 };
@@ -12712,6 +12735,10 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
 });
 
 // - SYNC HUB -
+const RequireRegisterSwitch=()=>{
+  const on=useRequireRegister();
+  return <BhSwitch checked={on} onChange={bhRequireRegisterSave} label="Registro de sessão obrigatório" style={{flexShrink:0}}/>;
+};
 const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled})=>{
   // Where the running JS came from: 'cache' (a compiled bundle reused) or 'babel'
   // (transpiled just now). Free diagnostics for P1-1.
@@ -13072,6 +13099,21 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             <button type="button" className="btn btn-outline" style={{padding:'4px 10px',fontSize:'.74rem'}} onClick={()=>window.dispatchEvent(new CustomEvent('bh-rank-preview',{detail:{type:'rank'}}))}>Novo rank</button>
           </div>
         </div>);
+      })()}
+
+      {/* Sessions: make registering a finished focus session mandatory. */}
+      {(()=>{
+        return <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+            <div style={{minWidth:0}}>
+              <span className="label label-section" style={{display:'block',marginBottom:6}}><StaveGlyph name="quarter"/>Sessões de foco</span>
+              <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
+                Registro obrigatório: ao terminar uma sessão, ela precisa ser registrada (tarefa ou Galeria) antes de continuar; “Não registrar” some e fechar a aba avisa enquanto houver uma sessão esperando. Desativado por padrão.
+              </div>
+            </div>
+            <RequireRegisterSwitch/>
+          </div>
+        </div>;
       })()}
 
       {/* Danger zone */}
@@ -13803,6 +13845,14 @@ const App=()=>{
     window.addEventListener('bh-rank-preview',onPreview);
     return()=>window.removeEventListener('bh-rank-preview',onPreview);
   },[]);
+  const requireRegisterApp=useRequireRegister();
+  const hasPendingSession=!!(pomoData?.rank?.sessions||[]).some(x=>x&&x.status==='pending');
+  useEffect(()=>{
+    if(!requireRegisterApp||!hasPendingSession)return;
+    const warn=e=>{e.preventDefault();e.returnValue='';return '';};
+    window.addEventListener('beforeunload',warn);
+    return()=>window.removeEventListener('beforeunload',warn);
+  },[requireRegisterApp,hasPendingSession]);
   const pendingSession=useMemo(()=>{
     const rank=rankNormalize(pomoData?.rank);
     return (rank.sessions||[]).find(s=>s&&s.status==='pending')||null;
