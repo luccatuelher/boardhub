@@ -2642,7 +2642,9 @@ const ListMoreSentinel=({onMore})=>{
     const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))cb.current();},{rootMargin:'600px 0px'});
     io.observe(el);return()=>io.disconnect();
   },[]);
-  return <div ref={ref} aria-hidden="true" style={{height:1}}/>;
+  // flexShrink:0: in a height-limited flex column (the "Todas as atividades" dialog) the empty 1px
+  // box shrank to 0 and the observer never fired, so the list stopped after a few steps.
+  return <div ref={ref} aria-hidden="true" style={{height:1,flexShrink:0}}/>;
 };
 const useInView=(enabled)=>{
   const hasIO=typeof IntersectionObserver!=='undefined';
@@ -6780,6 +6782,9 @@ const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone,initial
   const [filter,setFilter]=useState(initialFilter);
   const [editing,setEditing]=useState(null); // {id,text}
   const list=tasks.filter(t=>filter==='all'||(filter==='done'?t.done:!t.done));
+  // Rows in steps like the dashboard list: editing one used to rebuild every row.
+  const [limit,setLimit]=useState(BH_LIST_STEP);
+  useEffect(()=>{setLimit(BH_LIST_STEP);},[filter]);
   const doneCount=tasks.filter(t=>t.done).length;
   const commit=()=>{if(editing){const v=editing.text.trim();if(v)onEdit(editing.id,v);setEditing(null);}};
   return(
@@ -6794,7 +6799,7 @@ const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone,initial
       </div>
       <div style={{display:'flex',flexDirection:'column',maxHeight:'55vh',overflow:'auto'}}>
         {list.length===0&&<p style={{color:'var(--muted)',fontSize:'.84rem',textAlign:'center',padding:'18px 0',margin:0}}>{filter==='done'?'Nenhuma atividade feita.':'Nada pendente.'}</p>}
-        {list.map(t=>(
+        {list.slice(0,limit).map(t=>(
           <div key={t.id} className="task-row" style={{paddingTop:7,paddingBottom:7}}>
             <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>onToggle(t.id)}/>
             {editing&&editing.id===t.id
@@ -6808,6 +6813,7 @@ const AllTasksModal=({tasks,onClose,onToggle,onRemove,onEdit,onClearDone,initial
             </div>
           </div>
         ))}
+        {list.length>limit&&<ListMoreSentinel key={limit} onMore={()=>setLimit(l=>l+BH_LIST_STEP)}/>}
       </div>
     </Modal>
   );
@@ -6867,6 +6873,12 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const [taskFilter,setTaskFilterRaw]=useState(()=>{try{const v=localStorage.getItem(TASK_FILTER_KEY);return v==='open'||v==='done'?v:'all';}catch{return'all';}});
   const setTaskFilter=v=>{setTaskFilterRaw(v);try{localStorage.setItem(TASK_FILTER_KEY,v);}catch(e){bhLog('tasks.filter',e);}};
   const shownTasks=taskFilter==='all'?tasks:tasks.filter(t=>taskFilter==='done'?t.done:!t.done);
+  // The list renders in steps (BH_LIST_STEP, more as it scrolls): with 500 activities every row
+  // was rebuilt on each keystroke of "Nova atividade" (~50 ms) and on every filter change or
+  // tick of a task (~125-215 ms), and this dashboard stays mounted under every other view.
+  const [taskLimit,setTaskLimit]=useState(BH_LIST_STEP);
+  const moreTasks=()=>setTaskLimit(l=>l+BH_LIST_STEP);
+  useEffect(()=>{setTaskLimit(BH_LIST_STEP);},[taskFilter]);
   const streakDays=useMemo(()=>{
     // pomoData.days values are plain seconds (numbers), not {total} objects —
     // the old .total read made the streak permanently 0.
@@ -7001,7 +7013,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               </div>}
               {tasks.length>0&&shownTasks.length===0&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:'6px 0',textAlign:'center'}}>{taskFilter==='done'?'Nenhuma atividade feita.':'Nada a fazer.'}</p>}
               <div className="dashboard-activity-list" style={{overflow:'auto',flex:1}}>
-                {shownTasks.map(t=>(
+                {shownTasks.slice(0,taskLimit).map(t=>(
                   <div key={t.id} className="task-row" style={{paddingTop:isSmall?4:6,paddingBottom:isSmall?4:6}}>
                     <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>toggleTask(t.id)}/>
                     <span style={{flex:1,fontSize:'.8rem',textDecoration:t.done?'line-through':'none',color:t.done?'var(--muted)':'var(--text)',lineHeight:1.35}}>{t.text}</span>
@@ -7012,6 +7024,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                     </div>
                   </div>
                 ))}
+                {shownTasks.length>taskLimit&&<ListMoreSentinel key={taskLimit} onMore={moreTasks}/>}
               </div>
             </div>
           </div>
