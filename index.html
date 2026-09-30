@@ -4017,6 +4017,15 @@ const DialogLayer=({onClose,label,className,style,children})=>{
     </div>
   ,document.body);
 };
+// The image viewer's shell (Gallery post and notes): dialog semantics, focus moved in and given
+// back on close, Tab kept inside. It used to be a bare div, so a screen reader was not told
+// a viewer had opened, focus stayed on the thumbnail behind it and Tab walked the page under it.
+// Escape and the arrows stay with the owner's useEscapeLayer, which sits above this layer's
+// own Escape in the stack and is what tells the arrows whether a dialog is on top.
+const LightboxShell=({onClose,children})=>{
+  const {boxRef,trapTab}=useModalLayer(onClose);
+  return <div className="lightbox" ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Imagem ampliada" onKeyDown={trapTab} onClick={onClose} style={{outline:'none'}}>{children}</div>;
+};
 const Modal=({title,onClose,children,width=480})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
   return ReactDOM.createPortal(
@@ -10000,7 +10009,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   // used to unmount its scroll container, so closing an image rebuilt the post
   // at scrollTop 0 instead of returning to the image the user had opened.
   const lightboxPortal=lightbox?ReactDOM.createPortal(
-    <div className="lightbox" onClick={()=>setLightbox(null)}>
+    <LightboxShell onClose={()=>setLightbox(null)}>
       {lightboxImages.length>1&&(
         <>
           <button onClick={e=>{e.stopPropagation();goLightboxPrev();}} aria-label="Imagem anterior" title="Imagem anterior"
@@ -10025,7 +10034,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
         <Icon name="x" size={20}/>
       </button>
-    </div>,
+    </LightboxShell>,
     document.body
   ):null;
 
@@ -11618,7 +11627,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const canNotePrev=!!noteLightbox&&noteLightbox.index>0;
   const canNoteNext=!!noteLightbox&&noteLightbox.index<noteLightbox.images.length-1;
   const noteLightboxPortal=noteLightbox?ReactDOM.createPortal(
-    <div className="lightbox" onClick={()=>setNoteLightbox(null)}>
+    <LightboxShell onClose={()=>setNoteLightbox(null)}>
       {noteLightbox.images.length>1&&<>
         <button onClick={e=>{e.stopPropagation();if(canNotePrev)setNoteLightbox(cur=>({...cur,index:cur.index-1}));}} disabled={!canNotePrev} aria-label="Imagem anterior" title="Imagem anterior"
           style={{position:'absolute',left:window.innerWidth<=768?10:16,top:'50%',transform:'translateY(-50%)',background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',cursor:canNotePrev?'pointer':'default',color:'white',backdropFilter:'blur(4px)',zIndex:201,opacity:canNotePrev?1:.35}}><Icon name="arrow-left" size={20}/></button>
@@ -11631,7 +11640,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       </div>
       <button onClick={()=>setNoteLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}><Icon name="x" size={20}/></button>
-    </div>,document.body
+    </LightboxShell>,document.body
   ):null;
 
   return(
