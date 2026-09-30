@@ -13124,9 +13124,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       </div>
 
       {localImgCount>0&&(
-        <div style={{background:'var(--warn-bg)',border:'1px solid #fde68a',borderRadius:10,padding:'8px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div style={{background:'var(--warn-bg)',border:'1px solid var(--warn-line)',borderRadius:10,padding:'8px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <Icon name="image" size={14} style={{color:'var(--warn-fg)',flexShrink:0}}/>
-          <div style={{flex:1,fontSize:'.8rem',color:'#78350F'}}>
+          <div style={{flex:1,fontSize:'.8rem',color:'var(--warn-fg)'}}>
             <strong>{localImgCount} imagem(ns)</strong> apenas localmente. Use <strong>"Re-enviar Imagens"</strong> abaixo.
           </div>
         </div>
@@ -13139,7 +13139,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
         </div>
       )}
       {syncNotice&&(
-        <div style={{padding:'10px 14px',borderRadius:10,marginBottom:10,background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1E40AF',fontSize:'.82rem',display:'flex',alignItems:'flex-start',gap:10,lineHeight:1.5}}>
+        <div style={{padding:'10px 14px',borderRadius:10,marginBottom:10,background:'var(--info-bg)',border:'1px solid var(--info-line)',color:'var(--info-fg)',fontSize:'.82rem',display:'flex',alignItems:'flex-start',gap:10,lineHeight:1.5}}>
           <Icon name="info" size={15} style={{flexShrink:0,marginTop:2}}/><span>{syncNotice}</span>
           <button className="bh-touch-target" onClick={onDismissNotice} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'inherit',padding:2,flexShrink:0}} title="Fechar aviso" aria-label="Fechar aviso"><Icon name="x" size={13}/></button>
         </div>
