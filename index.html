@@ -565,6 +565,12 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    deliberately a block (not a floating/inline element), so text before and
    after it never reflows sideways while the image is uploading. */
 @keyframes noteImageLoading{0%,100%{opacity:.52}50%{opacity:.9}}
+.note-embed{position:relative;display:block;width:calc(100% - 12px);max-width:760px;aspect-ratio:16/9;margin:16px 0;border:1px solid var(--border);border-radius:10px;background:#000;user-select:none}
+.note-embed-audio{aspect-ratio:auto;height:180px}
+.note-embed-frame{display:block;width:100%;height:100%;border:0;border-radius:9px}
+/* The × hangs off the corner, outside the player: :hover never reaches the box while the pointer is over a cross-origin iframe, so it cannot depend on it. */
+.note-embed::after{content:'×';position:absolute;top:-11px;right:-11px;z-index:2;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1C1917;color:#fff;box-shadow:0 0 0 2px var(--bg);font:600 16px/1 sans-serif;opacity:.72;cursor:pointer;transition:opacity .12s}
+.note-embed:hover::after{opacity:1}
 .note-image-loading{display:block;width:min(100%,520px);aspect-ratio:16/9;margin:10px 0;border:1px solid var(--border);border-radius:8px;background:linear-gradient(110deg,var(--bg) 28%,var(--surface) 44%,var(--bg) 60%);background-size:220% 100%;animation:noteImageLoading 1.15s ease-in-out infinite;position:relative;overflow:hidden;user-select:none;}
 .note-image-loading[data-stage]{position:relative}.note-image-loading[data-stage]::after{content:attr(data-stage);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 .78rem 'Alegreya Sans',sans-serif;color:var(--muted)}
 .note-image-loading::after{content:'Carregando imagem…';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.72rem;font-weight:600;letter-spacing:.02em;}
@@ -10390,7 +10396,108 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
 // javascript: URL; and href="data:text/html,..." opens a document with script on
 // the same origin. base href also joins the removal list — it rewrites the
 // destination of every relative link in the document.
+// EMBEDS. A note may hold an <iframe> from this short list of providers and
+// nothing else: the address is checked against host AND path, the iframe is
+// rebuilt with fixed attributes (sandbox included) and every other iframe is
+// dropped, so pasted/synced HTML cannot smuggle in an arbitrary page.
+const BH_EMBED_ALLOW=[
+  {host:/^(www\.)?youtube-nocookie\.com$/,path:/^\/embed\/[\w-]{1,64}$/},
+  {host:/^(www\.)?youtube\.com$/,path:/^\/embed\/[\w-]{1,64}$/},
+  {host:/^player\.vimeo\.com$/,path:/^\/video\/\d+$/},
+  {host:/^docs\.google\.com$/,path:/^\/(presentation\/d\/(e\/)?[\w-]+\/(embed|pub)|document\/d\/(e\/)?[\w-]+\/(preview|pub)|spreadsheets\/d\/(e\/)?[\w-]+\/(preview|pubhtml)|forms\/d\/e\/[\w-]+\/viewform)$/},
+  {host:/^drive\.google\.com$/,path:/^\/file\/d\/[\w-]+\/preview$/},
+  {host:/^speakerdeck\.com$/,path:/^\/player\/[\w-]+$/},
+  {host:/^www\.figma\.com$/,path:/^\/embed$/},
+  {host:/^www\.loom\.com$/,path:/^\/embed\/[\w-]+$/},
+  {host:/^open\.spotify\.com$/,path:/^\/embed\/(track|album|playlist|episode|show|artist)\/[\w-]+$/,kind:'audio'},
+  {host:/^w\.soundcloud\.com$/,path:/^\/player\/?$/,kind:'audio'},
+  {host:/^www\.canva\.com$/,path:/^\/design\/[\w-]+(\/[\w-]+)?\/(view|watch)$/},
+];
+// {src,kind} for an address that may be embedded as it is, else null.
+const bhEmbedCheck=raw=>{
+  let v=String(raw||'').trim().replace(/&amp;/g,'&');if(v.startsWith('//'))v='https:'+v;
+  let u;try{u=new URL(v);}catch{return null;}
+  if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
+  const rule=BH_EMBED_ALLOW.find(r=>r.host.test(u.hostname)&&r.path.test(u.pathname));
+  return rule?{src:u.href,kind:rule.kind||'video'}:null;
+};
+const _embedStart=t=>{
+  if(!t)return 0;
+  if(/^\d+$/.test(t))return Number(t);
+  const m=String(t).match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  return m?(Number(m[1]||0)*3600+Number(m[2]||0)*60+Number(m[3]||0)):0;
+};
+// What a user pastes -> {src,kind}, or {lookup:'speakerdeck',url} when the
+// provider needs a request to find its player, or null. Accepts a page link,
+// an embed link, or the provider's whole embed code.
+const bhEmbedParse=input=>{
+  const text=String(input||'').trim();if(!text)return null;
+  const frame=text.match(/<iframe\b[^>]*?\ssrc\s*=\s*["']([^"']+)["']/i);
+  if(frame)return bhEmbedCheck(frame[1]);
+  const sd=text.match(/speakerdeck-embed[^>]*?data-id\s*=\s*["']([\w-]+)["']/i)||text.match(/data-id\s*=\s*["']([\w-]+)["'][^>]*speakerdeck-embed/i);
+  if(sd)return bhEmbedCheck('https://speakerdeck.com/player/'+sd[1]);
+  let u;try{u=new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text)?text:'https://'+text);}catch{return null;}
+  if(u.protocol!=='https:'&&u.protocol!=='http:')return null;
+  const h=u.hostname.replace(/^(www|m|music)\./,''),p=u.pathname;let m;
+  if(h==='youtu.be'||h==='youtube.com'){
+    let id=null;
+    if(h==='youtu.be')id=p.slice(1).split('/')[0];
+    else if(p==='/watch')id=u.searchParams.get('v');
+    else if((m=p.match(/^\/(?:shorts|live|embed|v)\/([\w-]{6,})/)))id=m[1];
+    const list=u.searchParams.get('list'),start=_embedStart(u.searchParams.get('t')||u.searchParams.get('start'));
+    if(id&&/^[\w-]{6,64}$/.test(id)&&id!=='videoseries')return bhEmbedCheck('https://www.youtube-nocookie.com/embed/'+id+(start?'?start='+start:''));
+    if(list&&/^[\w-]+$/.test(list))return bhEmbedCheck('https://www.youtube-nocookie.com/embed/videoseries?list='+list);
+    return null;
+  }
+  if(h==='vimeo.com'&&(m=p.match(/^\/(?:channels\/[\w-]+\/|groups\/[\w-]+\/videos\/)?(\d+)(?:\/([\w]+))?/)))
+    return bhEmbedCheck('https://player.vimeo.com/video/'+m[1]+(m[2]?'?h='+m[2]:''));
+  if(h==='docs.google.com'){
+    if(/\/(embed|preview)$/.test(p)&&u.protocol==='https:'){const kept=bhEmbedCheck(u.href);if(kept)return kept;}
+    if((m=p.match(/^\/presentation\/d\/(e\/)?([\w-]+)/)))return bhEmbedCheck('https://docs.google.com/presentation/d/'+(m[1]||'')+m[2]+'/embed?start=false&loop=false&delayms=3000');
+    if((m=p.match(/^\/document\/d\/(e\/)?([\w-]+)/)))return bhEmbedCheck('https://docs.google.com/document/d/'+(m[1]||'')+m[2]+(m[1]?'/pub?embedded=true':'/preview'));
+    if((m=p.match(/^\/spreadsheets\/d\/(e\/)?([\w-]+)/)))return bhEmbedCheck('https://docs.google.com/spreadsheets/d/'+(m[1]||'')+m[2]+(m[1]?'/pubhtml?widget=true&headers=false':'/preview'));
+    if((m=p.match(/^\/forms\/d\/e\/([\w-]+)/)))return bhEmbedCheck('https://docs.google.com/forms/d/e/'+m[1]+'/viewform?embedded=true');
+    return null;
+  }
+  if(h==='drive.google.com'){
+    m=p.match(/^\/file\/d\/([\w-]+)/);const id=m?m[1]:(p==='/open'?u.searchParams.get('id'):null);
+    return id&&/^[\w-]+$/.test(id)?bhEmbedCheck('https://drive.google.com/file/d/'+id+'/preview'):null;
+  }
+  if(h==='speakerdeck.com')return /^\/[\w.-]+\/[\w.-]+/.test(p)&&!p.startsWith('/player/')?{lookup:'speakerdeck',url:u.origin+p}:bhEmbedCheck(u.href);
+  if(h==='figma.com'&&/^\/(file|design|proto|board|slides|deck)\//.test(p))return bhEmbedCheck('https://www.figma.com/embed?embed_host=boardhub&url='+encodeURIComponent(u.href));
+  if(h==='loom.com'&&(m=p.match(/^\/(?:share|embed)\/([\w-]+)/)))return bhEmbedCheck('https://www.loom.com/embed/'+m[1]);
+  if(h==='open.spotify.com'&&(m=p.match(/^\/(?:intl-[\w-]+\/)?(track|album|playlist|episode|show|artist)\/([\w-]+)/)))return bhEmbedCheck('https://open.spotify.com/embed/'+m[1]+'/'+m[2]);
+  if(h==='soundcloud.com'&&p.length>1)return bhEmbedCheck('https://w.soundcloud.com/player/?url='+encodeURIComponent(u.origin+p)+'&auto_play=false&visual=true');
+  if(h==='canva.com'&&(m=p.match(/^\/design\/([\w-]+)(?:\/([\w-]+))?\/(?:view|edit|watch)\/?$/)))return bhEmbedCheck('https://www.canva.com/design/'+m[1]+(m[2]?'/'+m[2]:'')+'/view?embed');
+  return bhEmbedCheck(u.href);
+};
+// Speaker Deck's player id is not in its page address, so its public oEmbed
+// endpoint is asked for it; the embed code (Share > Embed) always works too.
+const bhEmbedResolve=async input=>{
+  const found=bhEmbedParse(input);
+  if(!found||!found.lookup)return found;
+  const res=await fetch('https://speakerdeck.com/oembed.json?url='+encodeURIComponent(found.url));
+  if(!res.ok)throw new Error('lookup');
+  const data=await res.json();
+  return bhEmbedParse(String(data&&data.html||''));
+};
 const _BAD_PROTO=/^(?:javascript:|vbscript:|data:text\/html)/i;
+// The one shape an embed takes in a note: a non-editable box holding the iframe.
+const bhEmbedFrame=info=>{
+  const f=document.createElement('iframe');
+  f.setAttribute('src',info.src);f.setAttribute('class','note-embed-frame');f.setAttribute('loading','lazy');
+  f.setAttribute('sandbox','allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms');
+  f.setAttribute('allow','fullscreen; picture-in-picture; encrypted-media; clipboard-write');
+  f.setAttribute('referrerpolicy','strict-origin-when-cross-origin');f.setAttribute('title','Conteúdo incorporado');
+  return f;
+};
+const bhEmbedBox=info=>{
+  const box=document.createElement('div');
+  box.className='note-embed'+(info.kind==='audio'?' note-embed-audio':'');
+  box.setAttribute('contenteditable','false');
+  box.appendChild(bhEmbedFrame(info));
+  return box;
+};
 const sanitizeHTML=html=>{
   if(!html||typeof html!=='string')return html||'';
   try{
@@ -10401,7 +10508,14 @@ const sanitizeHTML=html=>{
     // be stored and synced untouched (inert until something imports its
     // content). noscript/plaintext/xmp/listing are the raw-text elements
     // mutation-XSS payloads hide behind; the editor never produces any of them.
-    t.content.querySelectorAll('script,style,iframe,object,embed,link,meta,form,base,svg,math,template,noscript,plaintext,xmp,listing').forEach(el=>el.remove());
+    // Embeds first: an allowed one is rebuilt as a clean box, any other iframe goes.
+    t.content.querySelectorAll('iframe').forEach(f=>{
+      const info=bhEmbedCheck(f.getAttribute('src'));
+      const host=f.closest('.note-embed');
+      const gone=host&&t.content.contains(host)?host:f;
+      if(!info)gone.remove();else gone.replaceWith(bhEmbedBox(info));
+    });
+    t.content.querySelectorAll('script,style,object,embed,link,meta,form,base,svg,math,template,noscript,plaintext,xmp,listing').forEach(el=>el.remove());
     t.content.querySelectorAll('*').forEach(el=>{
       [...el.attributes].forEach(a=>{
         const n=a.name.toLowerCase();
@@ -10415,7 +10529,7 @@ const sanitizeHTML=html=>{
           if(!ok)el.removeAttribute(a.name);
         }
         else if(n==='class'){
-          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&/^note-all-[1-5]$/.test(c)));
+          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&(/^note-all-[1-5]$/.test(c)||c==='note-embed'||c==='note-embed-audio'))||(el.tagName==='IFRAME'&&c==='note-embed-frame'));
           if(allowed.length)el.className=allowed.join(' ');else el.removeAttribute('class');
         }
         else if(n==='href'&&!/^(?:https?:|mailto:|#)/i.test(compact))el.removeAttribute(a.name);
@@ -10474,7 +10588,7 @@ const _noteTextDropTarget=(e,root)=>{
 const _noteInlineHTML=html=>{
   const tpl=document.createElement('template');tpl.innerHTML=sanitizeHTML(html);
   const frag=tpl.content;
-  frag.querySelectorAll('img,video,.note-image-grid').forEach(x=>x.remove());
+  frag.querySelectorAll('img,video,.note-image-grid,.note-embed').forEach(x=>x.remove());
   frag.querySelectorAll('ul,ol').forEach(l=>l.replaceWith(...l.childNodes));
   frag.querySelectorAll('p,div,h1,h2,h3,blockquote,li').forEach(b=>{b.parentNode.insertBefore(document.createElement('br'),b.nextSibling);b.replaceWith(...b.childNodes);});
   while(frag.lastChild&&(frag.lastChild.nodeName==='BR'||(frag.lastChild.nodeType===3&&!frag.lastChild.data.trim())))frag.lastChild.remove();
@@ -11026,7 +11140,14 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     if(images.length)setNoteLightbox({images,index});
   },[]);
 
+  // Embeds: the × drawn in an embed's corner (a pseudo-element, so nothing extra is stored).
   const handleEditorClick=e=>{
+    const emb=e.target?.classList?.contains('note-embed')?e.target:null;
+    if(emb&&ref.current?.contains(emb)){
+      const r=emb.getBoundingClientRect();
+      if(e.clientX>r.right-42&&e.clientY<r.top+42){e.preventDefault();e.stopPropagation();emb.remove();emit();}
+      return;
+    }
     const img=e.target?.closest?.('img');
     if(!img||!ref.current?.contains(img))return;
     e.preventDefault();
@@ -11403,6 +11524,49 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       emit();
     }
   };
+  const [embedOpen,setEmbedOpen]=useState(false);
+  const [embedText,setEmbedText]=useState('');
+  const [embedErr,setEmbedErr]=useState('');
+  const [embedBusy,setEmbedBusy]=useState(false);
+  const embedRangeRef=useRef(null);
+  const openEmbedPanel=()=>{
+    const sel=window.getSelection();
+    embedRangeRef.current=sel&&sel.rangeCount&&ref.current?.contains(sel.anchorNode)?sel.getRangeAt(0).cloneRange():null;
+    setEmbedErr('');setEmbedOpen(v=>!v);
+  };
+  // At the saved caret (after the grid when it was inside an image's text), else at the end.
+  const insertEmbed=info=>{
+    const el=ref.current;if(!el)return;
+    el.focus();
+    const sel=window.getSelection();sel.removeAllRanges();
+    const saved=embedRangeRef.current;
+    const at=saved&&el.contains(saved.startContainer)?saved:null;
+    const cellGrid=at&&(at.startContainer.nodeType===1?at.startContainer:at.startContainer.parentElement)?.closest?.('.note-cell-text')?.closest?.('.note-image-grid');
+    const r=document.createRange();
+    if(cellGrid){r.setStartAfter(cellGrid);r.collapse(true);}
+    else if(at)r.setStart(at.startContainer,at.startOffset),r.collapse(true);
+    else{r.selectNodeContents(el);r.collapse(false);}
+    sel.addRange(r);
+    const id='note-embed-'+Date.now();
+    document.execCommand('insertHTML',false,`<div class="note-embed" data-note-embed-new="${id}" contenteditable="false"></div><p><br></p>`);
+    const box=el.querySelector(`[data-note-embed-new="${id}"]`);
+    if(!box)return;
+    box.replaceWith(bhEmbedBox(info));
+    emit();
+  };
+  const submitEmbed=async()=>{
+    const text=embedText.trim();if(!text||embedBusy)return;
+    setEmbedBusy(true);setEmbedErr('');
+    try{
+      const info=await bhEmbedResolve(text);
+      if(!info||!info.src){setEmbedErr('Não reconheci esse link. Cole o endereço do YouTube, Vimeo, Google Slides/Docs/Drive, Speaker Deck, Figma, Loom, Spotify, SoundCloud ou Canva — ou o código de incorporação do site.');return;}
+      insertEmbed(info);setEmbedOpen(false);setEmbedText('');
+    }catch(e){
+      setEmbedErr(/lookup|fetch|Failed|Network|CORS/i.test(String(e&&e.message))||e instanceof TypeError
+        ?'Não consegui ler esse link do Speaker Deck. Na página da apresentação use Share › Embed, copie o código e cole aqui.'
+        :(e&&e.message)||'Não foi possível incorporar esse link.');
+    }finally{setEmbedBusy(false);}
+  };
   const updateFmt=()=>{try{
     const next={bold:document.queryCommandState('bold'),italic:document.queryCommandState('italic'),underline:document.queryCommandState('underline'),strikeThrough:document.queryCommandState('strikeThrough'),insertUnorderedList:document.queryCommandState('insertUnorderedList'),insertOrderedList:document.queryCommandState('insertOrderedList')};
     // Mouseup used to allocate new state even when no format changed. Image
@@ -11504,7 +11668,22 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
           }}/>
           <Icon name="image" size={13}/>
         </label>
+        <button type="button" className={'rich-toolbar-btn'+(embedOpen?' active':'')} title="Incorporar YouTube, Google Slides, Speaker Deck, Vimeo, Figma…" aria-label="Incorporar conteúdo (embed)" aria-expanded={embedOpen}
+          onMouseDown={e=>{e.preventDefault();openEmbedPanel();}}
+          onClick={e=>{if(e.detail===0)openEmbedPanel();}}>
+          <Icon name="monitor-play" size={13}/>
+        </button>
       </div>
+      {embedOpen&&<form onSubmit={e=>{e.preventDefault();submitEmbed();}} style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',padding:'0 0 10px',flexShrink:0}}>
+        <input autoFocus value={embedText} onChange={e=>setEmbedText(e.target.value)} aria-label="Link ou código do embed" maxLength={2000}
+          onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setEmbedOpen(false);}}}
+          placeholder="Cole o link ou o código de incorporação (YouTube, Google Slides, Speaker Deck, Vimeo, Figma, Loom, Spotify…)"
+          style={{flex:'1 1 280px',minWidth:0,border:'1px solid var(--border)',borderRadius:8,padding:'7px 11px',fontSize:'.8rem',outline:'none',background:'var(--bg)',color:'var(--text)',fontFamily:'inherit'}}/>
+        <button type="submit" className="btn btn-dark" disabled={embedBusy||!embedText.trim()} style={{padding:'6px 12px',fontSize:'.76rem'}}>{embedBusy?'Lendo…':'Inserir'}</button>
+        <button type="button" className="btn btn-outline" onClick={()=>setEmbedOpen(false)} style={{padding:'6px 12px',fontSize:'.76rem'}}>Cancelar</button>
+        {embedErr&&<div role="alert" style={{flexBasis:'100%',fontSize:'.74rem',color:'var(--danger-fg)',lineHeight:1.4}}>{embedErr}</div>}
+        <div style={{flexBasis:'100%',fontSize:'.68rem',color:'var(--muted)',lineHeight:1.4}}>Google Slides e Docs só aparecem se estiverem compartilhados por link ou publicados na web.</div>
+      </form>}
       <div ref={ref} className="rich-editor" contentEditable suppressContentEditableWarning
         data-placeholder={placeholder||"Comece a escrever..."}
         onScroll={e=>{scrollTopRef.current=e.currentTarget.scrollTop;}}
