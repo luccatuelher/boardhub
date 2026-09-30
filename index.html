@@ -2691,7 +2691,9 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
   // else stays async to keep the main thread free while off-screen cells resolve.
   // Lowercase on purpose: React 18 does not know `fetchPriority` and warns in
   // dev (the attribute still landed); the plain attribute passes straight through.
-  return <img {...props} ref={setRef} src={url} loading={priority||local?'eager':'lazy'}
+  // alt="" by default: these are thumbnails and photos with no description, and an <img> with no
+  // alt is announced by its file name or data address. A caller's own alt (in props) still wins.
+  return <img alt="" {...props} ref={setRef} src={url} loading={priority||local?'eager':'lazy'}
     fetchpriority={priority?'high':'auto'} decoding={priority?'sync':'async'} onError={onErr}
     style={local?props.style:{...props.style,animation:'imgFadeIn .12s ease'}}/>;
 };
