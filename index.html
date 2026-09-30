@@ -817,6 +817,11 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .dashboard-mentor-cover{height:108px!important}
 }
 @media(prefers-reduced-motion:reduce){.rank-promotion,.rank-promotion-aura,.rank-promotion-mark,.rank-promotion-copy{animation:none}.rank-progress-track span{transition:none}}
+/* The rows of the dashboard's "Em andamento" list are .card boxes (overflow:hidden), so as flex items they could
+   shrink below their content when the pane is short: with 4+ active projects at 800 px of window height each row
+   got 18 px of the 33 px it needs and its lines overlapped. They keep their height; the list scrolls, or on short
+   windows (overflow:hidden below) the rows that do not fit are cut whole and "Ver todos" has the rest. */
+.dashboard-project-list>*{flex-shrink:0}
 /* Reduced motion, the rest of the app: the entrance animations (view, dialogs, palette, sheets,
    toast, check, image fade-in) collapse to their end state instead of sliding and scaling, and
    scrolling stops gliding. Durations, not animation:none, so an element whose base style is the
@@ -835,6 +840,9 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .bh-switch>span{forced-color-adjust:none;background:CanvasText;box-shadow:none}
 .bh-switch.on{background:Highlight;outline-color:Highlight}
 .bh-switch.on>span{background:HighlightText}
+/* Meters and bars are a fill on a track with no border of their own: both vanished. The track gets an outline and the fill a system colour. */
+.bh-track,.rank-progress-track,.rank-panel-metric>i{forced-color-adjust:none;background:Canvas;outline:1px solid CanvasText;outline-offset:-1px}
+.bh-fill,.rank-progress-track span,.rank-panel-metric>i b{forced-color-adjust:none;background:Highlight!important;opacity:1!important}
 }
 </style>
 </head>
@@ -5950,8 +5958,8 @@ const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
                         </div>
                         <span style={{fontSize:'.82rem',fontWeight:600}}>{pomoFmtSecs(s)}</span>
                       </div>
-                      <div style={{height:5,background:'var(--bg)',borderRadius:3,overflow:'hidden'}}>
-                        <div style={{height:'100%',width:Math.round(s/maxDay*100)+'%',background:isBaseTempo(dayStar) ? 'var(--text)' : dayStar.color,borderRadius:3}}/>
+                      <div className="bh-track" style={{height:5,background:'var(--bg)',borderRadius:3,overflow:'hidden'}}>
+                        <div className="bh-fill" style={{height:'100%',width:Math.round(s/maxDay*100)+'%',background:isBaseTempo(dayStar) ? 'var(--text)' : dayStar.color,borderRadius:3}}/>
                       </div>
                     </div>
                   )})}
@@ -5974,8 +5982,8 @@ const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
                           </div>
                           <span style={{fontSize:'.85rem',fontWeight:700}}>{pomoFmtSecs(s)}</span>
                         </div>
-                        <div style={{height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden',marginBottom:2}}>
-                          <div style={{height:'100%',width:mPct+'%',background:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color,borderRadius:3,transition:'width .3s'}}/>
+                        <div className="bh-track" style={{height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden',marginBottom:2}}>
+                          <div className="bh-fill" style={{height:'100%',width:mPct+'%',background:isBaseDynamic(mMedal)?'var(--muted)':mMedal.color,borderRadius:3,transition:'width .3s'}}/>
                         </div>
                         {mNext&&<div style={{fontSize:'.62rem',color:'var(--muted)',marginBottom:6,textAlign:'right'}}>{Math.round(mPct)}% → <span className="serif" style={{fontStyle:'italic',fontSize:'.76rem'}}>{mNext.name}</span></div>}
                         <div style={{paddingLeft:8}}>
@@ -6721,8 +6729,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                 </div>
                 {nextStarTier&&(
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{height:3,background:'var(--bg)',borderRadius:2,overflow:'hidden'}}>
-                      <div style={{height:'100%',width:Math.min(100,progressToNext)+'%',background:currentStar.color,borderRadius:2,transition:'width 0.5s ease'}}/>
+                    <div className="bh-track" style={{height:3,background:'var(--bg)',borderRadius:2,overflow:'hidden'}}>
+                      <div className="bh-fill" style={{height:'100%',width:Math.min(100,progressToNext)+'%',background:currentStar.color,borderRadius:2,transition:'width 0.5s ease'}}/>
                     </div>
                     <div style={{fontSize:'.62rem',color:'var(--muted)',marginTop:1,textAlign:'right'}}>{Math.round(progressToNext)}% → <span className="serif" style={{fontStyle:'italic',fontSize:'.74rem'}}>{nextStarTier.name}</span></div>
                   </div>
@@ -7236,7 +7244,7 @@ const TlBackdrop=({cal,DAY_W,LEFT_W,top,height,today})=>{
     <div aria-hidden="true" style={{position:'absolute',left:LEFT_W,top,width:cal.gridW,height,pointerEvents:'none',zIndex:0}}>
       {cal.days.map(d=>d.weekend?<div key={'w'+d.i} style={{position:'absolute',left:d.i*DAY_W,width:DAY_W,top:0,bottom:0,background:'rgba(var(--ink),.035)'}}/>:null)}
       {cal.days.map(d=>d.i===0?null:<div key={'l'+d.i} style={{position:'absolute',left:d.i*DAY_W,top:0,bottom:0,width:0,borderLeft:'1px solid rgba(var(--ink),.06)'}}/>)}
-      {ti>=0&&<div style={{position:'absolute',left:ti*DAY_W+DAY_W/2-1,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.75}}/>}
+      {ti>=0&&<div className="bh-fill" style={{position:'absolute',left:ti*DAY_W+DAY_W/2-1,top:0,bottom:0,width:2,background:'var(--danger-strong)',opacity:.75}}/>}
     </div>
   );
 };
@@ -7467,7 +7475,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
                   </div>
                   <div style={{position:'relative',width:gridW,flexShrink:0,overflow:'hidden',zIndex:1}}>
                     {left!=null&&(isP
-                      ?<div onClick={openIt} title={label+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
+                      ?<div className="bh-fill" onClick={openIt} title={label+(r.p.deadline?' · prazo '+r.p.deadline.split('-').reverse().join('/'):'')} style={{position:'absolute',left,width,top:ROW_H/2-3,height:6,borderRadius:3,background:'rgba(var(--ink),.32)',cursor:'pointer'}}/>
                       :<>
                         <div onPointerDown={e=>{if(e.button===0&&onUpdateTask)startDrag(e,r,'move',g);}}
                           onClick={()=>{if(justMovedRef.current){justMovedRef.current=false;return;}openIt();}}
@@ -7695,7 +7703,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                     {Number(p.shotsTotal)>0&&(()=>{const pct=Math.min(100,Math.round((Number(p.shotsDone)||0)/Number(p.shotsTotal)*100));return(
                       <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8}}>
                         <div style={{flex:1,height:4,background:'var(--bg)',borderRadius:2,overflow:'hidden',border:'1px solid var(--border)'}}>
-                          <div style={{height:'100%',width:pct+'%',background:pct===100?'var(--ok-strong)':'var(--border-2)',borderRadius:2}}/>
+                          <div className="bh-fill" style={{height:'100%',width:pct+'%',background:pct===100?'var(--ok-strong)':'var(--border-2)',borderRadius:2}}/>
                         </div>
                         <span style={{fontSize:'.64rem',color:'var(--muted)',flexShrink:0}}>{(p.shotsDone||0)}/{p.shotsTotal} painéis</span>
                       </div>
@@ -8912,7 +8920,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       </div>
                       <div>
                         <div style={{height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden',border:'1px solid var(--border)'}}>
-                          <div style={{height:'100%',width:pct+'%',background:pct===100?'var(--ok-strong)':'var(--text)',borderRadius:3,transition:'width .3s'}}/>
+                          <div className="bh-fill" style={{height:'100%',width:pct+'%',background:pct===100?'var(--ok-strong)':'var(--text)',borderRadius:3,transition:'width .3s'}}/>
                         </div>
                         <div style={{fontSize:'.68rem',color:pct===100?'var(--ok-fg)':'var(--muted)',marginTop:5,textAlign:'center',fontWeight:pct===100?600:400}}>
                           {pct===100?'✓ Storyboard completo!':pct+'% · faltam '+(total-done)}
