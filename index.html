@@ -7869,6 +7869,17 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const scrollRef=useRef(null);
   const [setScrollNode,viewW]=useTlWidth();
   const scrollSetter=useCallback(node=>{scrollRef.current=node;setScrollNode(node);},[setScrollNode]);
+  // The new task is appended at the END, and the collapsed timeline shows 4 rows: with more tasks
+  // the Enter/Adicionar looked like it did nothing (the row sat below the fold, scrollTop 0).
+  // Scrolls the timeline's own area to its end once the row is in the list (a no-op expanded).
+  const [justAdded,setJustAdded]=useState(null);
+  useEffect(()=>{
+    if(justAdded==null)return;
+    if(!tasks.some(t=>String(t.id)===String(justAdded)))return;
+    setJustAdded(null);
+    const el=scrollRef.current;
+    if(el&&el.scrollHeight>el.clientHeight)el.scrollTo({top:el.scrollHeight,behavior:bhScrollBehavior()});
+  },[justAdded,tasks]);
   const dragJustMovedRef=useRef(false);
   const dragRowRef=useRef(null);
   const dragOverRowRef=useRef(null);
@@ -7958,6 +7969,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     onUpdateTasks(ts=>[...ts,newTask]);
     if(onSyncAdd)onSyncAdd(newTask);
     setNewTaskName('');
+    setJustAdded(id);
   };
 
   // Week: Sunday at the left edge. Otherwise: today in the middle of the view,
