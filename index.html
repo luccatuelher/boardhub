@@ -6811,6 +6811,12 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
         if(entry&&!entry.deleted)result.push({...entry,_recentKind:'entry',_recentFolderId:n.id,_recentExpanded:[n.id,...expanded],_recentPreview:noteTextPreview(entry.content)});
       });
     });
+    // Where each note lives, briefly: its folder, preceded by that folder's own
+    // parent (the category) when there is one. _recentExpanded is nearest first.
+    result.forEach(n=>{
+      const names=(n._recentExpanded||[]).map(id=>byId.get(String(id))).filter(Boolean).map(x=>String(x.title||'').trim()).filter(Boolean);
+      n._recentWhere=names.slice(0,2).reverse().join(' › ');
+    });
     // Newest first. The array is tree order (notes made in Anotações are
     // appended, reordering the tree moves them), so the first three were the
     // OLDEST ones and a new note never showed up here. Ids are creation
@@ -6925,7 +6931,10 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
             </div>}
             <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:5}}>
               {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota: '+(n.title||''))} style={{padding:isSmall?'6px 10px':'7px 12px'}}>
-                <div style={{fontWeight:600,fontSize:'.78rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>
+                <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:'.78rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title}</div>
+                  {n._recentWhere&&<span title={'Pasta: '+n._recentWhere} style={{flex:'0 1 auto',maxWidth:'46%',fontSize:'.6rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentWhere}</span>}
+                </div>
                 <div style={{fontSize:'.66rem',color:'var(--muted)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentPreview}</div>
               </div>)}
             </div>
@@ -7105,9 +7114,12 @@ const useTlWidth=()=>{
 };
 // The "Hoje" button of both timelines: scroll so today's column sits in the
 // middle of the calendar, i.e. of the width right of the sticky names column.
+// Today's column lands in the middle of the whole timeline (the names column
+// included), which is where the expand arrow sits, so the two line up.
+const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W+todayX+DAY_W/2-el.clientWidth/2);
 const tlCenterToday=(el,todayX,DAY_W,LEFT_W)=>{
   if(!el)return;
-  el.scrollTo({left:Math.max(0,todayX+DAY_W/2-(el.clientWidth-LEFT_W)/2),behavior:'smooth'});
+  el.scrollTo({left:tlTodayLeft(el,todayX,DAY_W,LEFT_W),behavior:'smooth'});
 };
 // Header strip shared by both timelines: sticky month bands over one cell per
 // day (weekday initial + number, hairline between days, today in red).
@@ -7822,12 +7834,12 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     setNewTaskName('');
   };
 
-  // Week: Sunday at the left edge. Otherwise: centre today in the calendar
-  // part of the view (the names column covers the first LEFT_W pixels).
+  // Week: Sunday at the left edge. Otherwise: today in the middle of the view,
+  // the same place the "Hoje" button puts it.
   useEffect(()=>{
     const el=scrollRef.current;if(!el)return;
     if(thisWeek){el.scrollLeft=0;return;}
-    el.scrollLeft=Math.max(0,todayX+DAY_W/2-(el.clientWidth-LEFT_W)/2);
+    el.scrollLeft=tlTodayLeft(el,todayX,DAY_W,LEFT_W);
   },[todayX,thisWeek,LEFT_W,viewW>0]);
 
   const bodyH=Math.max(1,visibleTasks.length)*ROW_H;
