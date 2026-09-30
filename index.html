@@ -824,6 +824,18 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    the note at .bh-pendulum: it is the running-timer indicator), the image-loading pulse and the
    rank promotion overlay. */
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.fade-up,.overlay,.modal,.task-check.done,.task-check.done::after,.lightbox-stage img,.save-toast,.more-sheet-overlay,.more-sheet,.view-enter,.cmd-overlay,.cmd-palette,.quick-capture,.stat-value,.session-capture-overlay,img[style*="imgFadeIn"]{animation-duration:.01ms!important;animation-delay:0s!important}}
+/* Windows High Contrast / forced-colors: the browser drops backgrounds and shadows, so a control whose
+   "on" state is only a fill (current screen, checked box, switch, selected chip) looked the same in both
+   states, and the switch track vanished altogether. System colours put the state back. */
+@media(forced-colors:active){
+.nav-item.active,.gallery-chip.on,.task-filter button.on,[aria-pressed="true"]{forced-color-adjust:none;background:Highlight!important;color:HighlightText!important;border-color:Highlight!important}
+.task-check.done{forced-color-adjust:none;background:Highlight;border-color:Highlight}
+.task-check.done::after{border-color:HighlightText}
+.bh-switch{forced-color-adjust:none;background:Canvas;outline:1px solid CanvasText;outline-offset:-1px}
+.bh-switch>span{forced-color-adjust:none;background:CanvasText;box-shadow:none}
+.bh-switch.on{background:Highlight;outline-color:Highlight}
+.bh-switch.on>span{background:HighlightText}
+}
 </style>
 </head>
 <body>
@@ -7601,7 +7613,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'6px 16px 6px 6px',marginBottom:isMobile?12:16,flexWrap:isMobile?'wrap':'nowrap',gap:isMobile?8:0}}>
               <div style={{display:'flex',gap:4}}>
                 {[['all','Todos'],['work','Trabalho'],['personal','Pessoal']].map(([v,l])=>(
-                  <button key={v} onClick={()=>setFilterType(v)} style={{padding:'7px 16px',borderRadius:7,border:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.82rem',fontWeight:500,background:filterType===v?'var(--text)':'transparent',color:filterType===v?'var(--bg)':'var(--muted)',transition:'all .15s'}}>{l}</button>
+                  <button key={v} onClick={()=>setFilterType(v)} aria-pressed={filterType===v} style={{padding:'7px 16px',borderRadius:7,border:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.82rem',fontWeight:500,background:filterType===v?'var(--text)':'transparent',color:filterType===v?'var(--bg)':'var(--muted)',transition:'all .15s'}}>{l}</button>
                 ))}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -12599,7 +12611,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                 <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',paddingBottom:0}}>
                   <span className="label label-field" style={{flexShrink:0}}>Plataforma</span>
                   {SOCIAL_PLATFORMS.map(pl=>(
-                    <button key={pl} onClick={()=>setPlatform(pl)}
+                    <button key={pl} onClick={()=>setPlatform(pl)} aria-pressed={platform===pl}
                       style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${platform===pl?platformColor(pl):'var(--border)'}`,background:platform===pl?platformColor(pl):'transparent',color:platform===pl?'white':'var(--muted)',fontSize:'.74rem',fontWeight:600,cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',transition:'all .15s',flexShrink:0,whiteSpace:'nowrap'}}>
                       {pl}
                     </button>
@@ -12669,7 +12681,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                       ):(
                         <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
                           {SOCIAL_PLATFORMS.map(pl=>(
-                            <button key={pl} onClick={()=>changePostPlatform(p.id,pl)}
+                            <button key={pl} onClick={()=>changePostPlatform(p.id,pl)} aria-pressed={(p.platform||'Instagram')===pl}
                               style={{padding:'3px 9px',borderRadius:20,border:`1px solid ${(p.platform||'Instagram')===pl?platformColor(pl):'var(--border)'}`,background:(p.platform||'Instagram')===pl?platformColor(pl):'transparent',color:(p.platform||'Instagram')===pl?'white':'var(--muted)',fontSize:'.68rem',fontWeight:600,cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',transition:'all .12s',flexShrink:0}}>
                               {pl}
                             </button>
