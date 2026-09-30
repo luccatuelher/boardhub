@@ -814,6 +814,13 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   .dashboard-mentor-cover{height:108px!important}
 }
 @media(prefers-reduced-motion:reduce){.rank-promotion,.rank-promotion-aura,.rank-promotion-mark,.rank-promotion-copy{animation:none}.rank-progress-track span{transition:none}}
+/* Reduced motion, the rest of the app: the entrance animations (view, dialogs, palette, sheets,
+   toast, check, image fade-in) collapse to their end state instead of sliding and scaling, and
+   scrolling stops gliding. Durations, not animation:none, so an element whose base style is the
+   'from' frame still lands on the final one. NOT touched, on purpose: the metronome pendulum (see
+   the note at .bh-pendulum: it is the running-timer indicator), the image-loading pulse and the
+   rank promotion overlay. */
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.fade-up,.overlay,.modal,.task-check.done,.task-check.done::after,.lightbox-stage img,.save-toast,.more-sheet-overlay,.more-sheet,.view-enter,.cmd-overlay,.cmd-palette,.quick-capture,.stat-value,.session-capture-overlay,img[style*="imgFadeIn"]{animation-duration:.01ms!important;animation-delay:0s!important}}
 </style>
 </head>
 <body>
@@ -2634,6 +2641,8 @@ const _ioUnwatch=node=>{if(!node)return;const io=_getSharedIO();if(io)io.unobser
 // the rendered items and asks for the next step when it nears the viewport,
 // so opening a view with hundreds of items no longer builds them all at once.
 const BH_LIST_STEP=60;
+// 'smooth' scrolling unless the system asks for reduced motion (the CSS side is html{scroll-behavior}).
+const bhScrollBehavior=()=>{try{return window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';}catch{return 'smooth';}};
 const ListMoreSentinel=({onMore})=>{
   const ref=useRef(null),cb=useRef(onMore);cb.current=onMore;
   useEffect(()=>{
@@ -7178,7 +7187,7 @@ const useTlWidth=()=>{
 const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W+todayX+DAY_W/2-el.clientWidth/2);
 const tlCenterToday=(el,todayX,DAY_W,LEFT_W)=>{
   if(!el)return;
-  el.scrollTo({left:tlTodayLeft(el,todayX,DAY_W,LEFT_W),behavior:'smooth'});
+  el.scrollTo({left:tlTodayLeft(el,todayX,DAY_W,LEFT_W),behavior:bhScrollBehavior()});
 };
 // Header strip shared by both timelines: sticky month bands over one cell per
 // day (weekday initial + number, hairline between days, today in red).
@@ -8734,7 +8743,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           onUpdateTasks={updateTimelineTasks}
           projectStart={local.startDate}
           projectEnd={local.deadline}
-          onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}}
+          onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);window.scrollTo({top:document.body.scrollHeight,behavior:bhScrollBehavior()});}}
           onSyncAdd={addTimelineTaskCard}
           onSyncDelete={archiveTask}
           projectId={local.id}
