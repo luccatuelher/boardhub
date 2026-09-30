@@ -4026,6 +4026,13 @@ const LightboxShell=({onClose,children})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
   return <div className="lightbox" ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Imagem ampliada" onKeyDown={trapTab} onClick={onClose} style={{outline:'none'}}>{children}</div>;
 };
+// A dialog box for a full-screen layer with its own layout (the project's Gallery post popup, the
+// phone's project timeline): role, name, Escape, focus in and back, Tab kept inside. Those were bare
+// divs, so a screen reader was not told a layer had opened and Tab walked the page under it.
+const DialogBox=({onClose,label,children,...props})=>{
+  const {boxRef,trapTab}=useModalLayer(onClose);
+  return <div {...props} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={label} onKeyDown={trapTab}>{children}</div>;
+};
 const Modal=({title,onClose,children,width=480})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
   return ReactDOM.createPortal(
@@ -8675,7 +8682,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       {/* Timeline - vertical on mobile (with popup), Gantt on desktop */}
       {isMobile?(<>
         {showTimelineModal&&ReactDOM.createPortal(
-          <div style={{position:'fixed',inset:0,zIndex:300,background:'var(--bg)',display:'flex',flexDirection:'column',overflowY:'auto'}}>
+          <DialogBox onClose={()=>setShowTimelineModal(false)} label="Timeline do projeto" style={{position:'fixed',inset:0,zIndex:300,background:'var(--bg)',display:'flex',flexDirection:'column',overflowY:'auto',outline:'none'}}>
             <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 16px 0',flexShrink:0}}>
               <button onClick={()=>setShowTimelineModal(false)} className="btn btn-ghost" style={{padding:'6px 10px',fontSize:'.88rem'}}>
                 <Icon name="arrow-left" size={16}/> Voltar
@@ -8694,7 +8701,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 projectId={local.id}
               />
             </div>
-          </div>,
+          </DialogBox>,
           document.body
         )}
         <div style={{marginBottom:16}}>
@@ -9295,7 +9302,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           {/* The whole backdrop is the drop target: the dialog scrolls, so an
               overlay inside it would sit off-screen once scrolled. */}
           {popupDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar ao post</span></div>}
-          <div onClick={e=>e.stopPropagation()} style={{background:'var(--surface)',borderRadius:16,maxWidth:1120,width:'100%',maxHeight:'92vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+          <DialogBox onClose={()=>{setGalleryPopup(null);setGalleryPopupEditing(false);}} label={galleryPopup.title||'Post da galeria'} onClick={e=>e.stopPropagation()} style={{background:'var(--surface)',borderRadius:16,maxWidth:1120,width:'100%',maxHeight:'92vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)',outline:'none'}}>
             <input ref={galleryPopupImgRef} type="file" accept="image/*,video/*,.gif" multiple hidden onChange={addGalleryPopupImages}/>
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,padding:isMobile?'18px 18px 0':'24px 28px 0'}}>
               <div style={{minWidth:0,flex:1}}>
@@ -9333,7 +9340,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               {(galleryPopup.images||[]).length===0&&galleryPopupEditing&&<button onClick={()=>galleryPopupImgRef.current?.click()} disabled={galleryPopupUploading} className="upload-zone" style={{width:'100%',minHeight:130}}><Icon name={galleryPopupUploading?'loader':'image-plus'} size={20}/><span>{galleryPopupUploading?(bhUploadStage(galleryPopupCompact)||'Enviando…'):'Adicionar imagens'}</span></button>}
               {!galleryPopupEditing&&!galleryPopup.content&&(galleryPopup.images||[]).length===0&&<div style={{color:'var(--muted)',fontSize:'.85rem',fontStyle:'italic'}}>Sem conteúdo neste post.</div>}
             </div>
-          </div>
+          </DialogBox>
         </div>,
         document.body
       )}
@@ -12347,7 +12354,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <button onClick={()=>setShowTrash(t=>!t)} className={`btn ${showTrash?'btn-danger':'btn-outline'}`} style={{padding:'5px 12px',fontSize:'.78rem'}}><Icon name="trash-2" size={12}/>{showTrash?' Sair':' Arquivos'}{!showTrash&&trashed.length>0&&` (${trashed.length})`}</button>
           {!showTrash&&<div style={{position:'relative'}}>
-            <button className="btn btn-dark" style={{padding:'5px 14px',fontSize:'.78rem'}} onClick={()=>setShowCreateMenu(m=>!m)}><Icon name="plus" size={12}/> Criar</button>
+            <button className="btn btn-dark" style={{padding:'5px 14px',fontSize:'.78rem'}} onClick={()=>setShowCreateMenu(m=>!m)} aria-expanded={showCreateMenu}><Icon name="plus" size={12}/> Criar</button>
             {showCreateMenu&&<div style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:6,display:'flex',flexDirection:'column',gap:2,minWidth:155,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50}}>
               <button onClick={newNote} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="file-text" size={13}/> Nota</button>
               <button onClick={newFolder} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="folder" size={13}/> Pasta</button>
@@ -12401,7 +12408,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
             <div style={{display:'flex',gap:6}}>
               <button onClick={()=>setShowTrash(t=>!t)} className={`btn ${showTrash?'btn-danger':'btn-outline'}`} style={{padding:'6px 10px',fontSize:'.8rem'}}><Icon name="trash-2" size={12}/>{trashed.length>0&&` (${trashed.length})`}</button>
               {!showTrash&&<div style={{position:'relative'}}>
-                <button className="btn btn-dark" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={()=>setShowCreateMenu(m=>!m)}><Icon name="plus" size={12}/> Criar</button>
+                <button className="btn btn-dark" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={()=>setShowCreateMenu(m=>!m)} aria-expanded={showCreateMenu}><Icon name="plus" size={12}/> Criar</button>
                 {showCreateMenu&&<div style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:6,display:'flex',flexDirection:'column',gap:2,minWidth:145,boxShadow:'0 8px 24px rgba(0,0,0,.15)',zIndex:50}}>
                   <button onClick={newNote} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="file-text" size={13}/> Nota</button>
                   <button onClick={newFolder} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="folder" size={13}/> Pasta</button>
