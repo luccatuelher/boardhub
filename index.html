@@ -833,7 +833,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
    "on" state is only a fill (current screen, checked box, switch, selected chip) looked the same in both
    states, and the switch track vanished altogether. System colours put the state back. */
 @media(forced-colors:active){
-.nav-item.active,.gallery-chip.on,.task-filter button.on,[aria-pressed="true"]{forced-color-adjust:none;background:Highlight!important;color:HighlightText!important;border-color:Highlight!important}
+.nav-item.active,.gallery-chip.on,.task-filter button.on,[aria-pressed="true"],.bottom-tab-item[aria-current],.more-sheet-item[aria-current],.seg-tab[aria-current],.note-result[aria-current]{forced-color-adjust:none;background:Highlight!important;color:HighlightText!important;border-color:Highlight!important}
+.btn-dark{border:1px solid ButtonText}
 .task-check.done{forced-color-adjust:none;background:Highlight;border-color:Highlight}
 .task-check.done::after{border-color:HighlightText}
 .bh-switch{forced-color-adjust:none;background:Canvas;outline:1px solid CanvasText;outline-offset:-1px}
@@ -4444,11 +4445,11 @@ const SidebarMobile=React.memo(({activeView,setView,resetView,setForceMobile,hub
       {/* Bottom tab bar */}
       <nav className="bottom-tab-bar">
         {TAB_ITEMS.map(item=>(
-          <button key={item.id} onClick={()=>go(item.id)} className={`bottom-tab-item ${activeView.startsWith(item.id)||(item.id==='projects'&&activeView==='project-detail')?'active':''}`}>
+          <button key={item.id} onClick={()=>go(item.id)} aria-current={(activeView.startsWith(item.id)||(item.id==='projects'&&activeView==='project-detail'))?'page':undefined} className={`bottom-tab-item ${activeView.startsWith(item.id)||(item.id==='projects'&&activeView==='project-detail')?'active':''}`}>
             <Icon name={item.icon} size={22}/>{item.label}
           </button>
         ))}
-        <button onClick={()=>setMoreOpen(true)} className={`bottom-tab-item ${isMore?'active':''}`}>
+        <button onClick={()=>setMoreOpen(true)} aria-current={isMore?'page':undefined} className={`bottom-tab-item ${isMore?'active':''}`}>
           <Icon name="menu" size={22}/>Mais
         </button>
       </nav>
@@ -4459,7 +4460,7 @@ const SidebarMobile=React.memo(({activeView,setView,resetView,setForceMobile,hub
           <div className="more-sheet">
             <div className="more-sheet-handle"/>
             {MORE_ITEMS.map(item=>(
-              <button key={item.id} onClick={()=>go(item.id)} className={`more-sheet-item ${activeView.startsWith(item.id)?'active-sheet':''}`}>
+              <button key={item.id} onClick={()=>go(item.id)} aria-current={activeView.startsWith(item.id)?'page':undefined} className={`more-sheet-item ${activeView.startsWith(item.id)?'active-sheet':''}`}>
                 <Icon name={item.icon} size={20}/>{item.label}
               </button>
             ))}
@@ -5688,8 +5689,8 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       </div>
       {!isProjectSession&&<>
       {!asTask&&<div className="session-post-mode" role="group" aria-label="Destino das imagens">
-        <button type="button" className={saveMode==='new'?'active':''} onClick={()=>setSaveMode('new')} disabled={saving}>Criar novo post</button>
-        <button type="button" className={saveMode==='append'?'active':''} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
+        <button type="button" className={saveMode==='new'?'active':''} aria-pressed={saveMode==='new'} onClick={()=>setSaveMode('new')} disabled={saving}>Criar novo post</button>
+        <button type="button" className={saveMode==='append'?'active':''} aria-pressed={saveMode==='append'} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
       </div>}
       <div className="session-post-destination">
         <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{const fid=e.target.value,list=projectsOfFolder(fid),mem=rememberedProject(fid,list);setFolderId(fid);setExistingPostId('');pickLinkProject(mem?mem.id:'',list);}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
@@ -8778,7 +8779,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       {isMobile?(
         <div className="seg-tabs">
           {['Visão Geral','Tarefas','Pesquisa','Mentores'].map(t=>(
-            <button key={t} onClick={()=>setTab(t)} className={`seg-tab ${tab===t?'active':''}`}>{t}</button>
+            <button key={t} onClick={()=>setTab(t)} aria-current={tab===t?'true':undefined} className={`seg-tab ${tab===t?'active':''}`}>{t}</button>
           ))}
         </div>
       ):(
@@ -12348,7 +12349,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
       {noteResults.length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Nada encontrado.</div>}
       {noteResults.map(r=>{
         const on=selected&&selected.kind===r.target.kind&&String(selected.id)===String(r.target.id);
-        return <button key={r.key} type="button" className={`note-result${on?' on':''}`} onClick={()=>{setSelected(r.target);setMobileDetail(true);}}>
+        return <button key={r.key} type="button" aria-current={on?'true':undefined} className={`note-result${on?' on':''}`} onClick={()=>{setSelected(r.target);setMobileDetail(true);}}>
           <strong>{r.title||'Sem título'}</strong>
           {r.where&&<em>{r.where}</em>}
           {r.preview&&<span>{r.preview.slice(0,90)}</span>}
