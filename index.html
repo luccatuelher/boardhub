@@ -523,7 +523,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .cmd-item.cmd-active .cmd-item-icon{background:var(--text);color:var(--bg);}
 .cmd-item-title{font-weight:600;font-size:.86rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .cmd-item-meta{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.cmd-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:5px;background:var(--bg);border:1px solid var(--border);font-size:.68rem;font-weight:600;color:var(--muted);font-family:'Alegreya Sans',sans-serif;}
+.cmd-kbd{flex-shrink:0;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:5px;background:var(--bg);border:1px solid var(--border);font-size:.68rem;font-weight:600;color:var(--muted);font-family:'Alegreya Sans',sans-serif;}
 .cmd-footer{display:flex;align-items:center;gap:12px;padding:10px 20px;border-top:1px solid var(--border);font-size:.72rem;color:var(--muted);}
 .cmd-empty{padding:32px 20px;text-align:center;color:var(--muted);font-size:.88rem;}
 .progress-ring{transform:rotate(-90deg);}
@@ -4327,13 +4327,13 @@ const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForce
   return(
   <aside style={{width:220,minWidth:220,borderRight:'1px solid var(--border)',height:'100vh',position:'fixed',top:0,left:0,background:'var(--surface)',display:'flex',flexDirection:'column',padding:'22px 14px 18px',zIndex:30,overflowY:'auto'}}>
     <div onClick={()=>setView('dashboard')} {...keyActivate(()=>setView('dashboard'),'Ir para a visão geral')} onDoubleClick={e=>{e.preventDefault();resetView?.('dashboard');}} style={{cursor:'pointer',marginBottom:20,padding:'0 4px'}}>
-      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.85rem',fontWeight:500,letterSpacing:'-0.02em',lineHeight:1,color:'var(--text)'}}>
+      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'min(1.85rem,30px)',fontWeight:500,letterSpacing:'-0.02em',lineHeight:1,color:'var(--text)'}}>
         {(([a,b])=><>{a}<span style={{fontStyle:'italic',fontWeight:300}}>{b}</span></>)(splitHubName(hubName))}
       </div>
       <div style={{fontSize:'.62rem',color:'var(--muted)',letterSpacing:'.1em',textTransform:'uppercase',marginTop:3}}>{osName||'Storyboard OS'}</div>
     </div>
     <button onClick={onOpenCmd} className="hover-border-text" style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:400,color:'var(--muted)',transition:'all .15s',width:'100%',marginBottom:16,textAlign:'left'}}>
-      <Icon name="search" size={13}/><span style={{flex:1}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>Cmd+K</span>
+      <Icon name="search" size={13}/><span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>Cmd+K</span>
     </button>
     {activeProjects.length>0&&(
       <>
