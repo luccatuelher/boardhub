@@ -6933,6 +6933,23 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const [taskLimit,setTaskLimit]=useState(BH_LIST_STEP);
   const moreTasks=()=>setTaskLimit(l=>l+BH_LIST_STEP);
   useEffect(()=>{setTaskLimit(BH_LIST_STEP);},[taskFilter]);
+  // A task typed into the field lands at the END of the list, and Enter used to look like it did
+  // nothing: under the "Feitas" filter (kept in localStorage) the open task was filtered out, past
+  // the first BH_LIST_STEP rows it was not even mounted, and in the ~4-row pane it sat below the
+  // fold. Declared after the filter reset above so its updater runs on top of that reset.
+  const [justAdded,setJustAdded]=useState(null);
+  const taskListRef=useRef(null);
+  useEffect(()=>{
+    if(justAdded==null)return;
+    const idx=shownTasks.findIndex(t=>String(t.id)===String(justAdded));
+    if(idx<0)return;
+    if(idx>=taskLimit){setTaskLimit(l=>Math.max(l,idx+1));return;}
+    setJustAdded(null);
+    const list=taskListRef.current;
+    // Only where the list scrolls: the compact desktop layouts clip it (overflow:hidden) and a
+    // programmatic scroll there would hide the first rows with no way to scroll back.
+    if(list&&getComputedStyle(list).overflowY==='auto')list.scrollTo({top:list.scrollHeight,behavior:bhScrollBehavior()});
+  },[justAdded,tasks,taskFilter,taskLimit]);//eslint-disable-line react-hooks/exhaustive-deps
   const streakDays=useMemo(()=>{
     // pomoData.days values are plain seconds (numbers), not {total} objects —
     // the old .total read made the streak permanently 0.
@@ -6940,7 +6957,13 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
     for(let i=0;i<30;i++){const key=localDateISO(d);if((days[key]||0)>0)streak++;else if(i>0)break;d.setDate(d.getDate()-1);}
     return streak;
   },[pomoData]);
-  const addTask=()=>{if(!newTask.trim())return;setTasks(p=>[...p,{id:Date.now(),text:newTask.trim(),done:false,noteId:null}]);setNewTask('');};
+  const addTask=()=>{
+    if(!newTask.trim())return;
+    const id=Date.now();
+    setTasks(p=>[...p,{id,text:newTask.trim(),done:false,noteId:null}]);setNewTask('');
+    if(taskFilter==='done')setTaskFilter('all');
+    setJustAdded(id);
+  };
   const toggleTask=id=>setTasks(p=>p.map(t=>t.id===id?{...t,done:!t.done}:t));
   const removeTask=id=>setTasks(p=>p.filter(t=>t.id!==id));
   const editTask=(id,text)=>setTasks(p=>p.map(t=>t.id===id?{...t,text}:t));
@@ -7066,7 +7089,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                   <button key={k} type="button" aria-pressed={taskFilter===k} className={taskFilter===k?'on':''} onClick={()=>setTaskFilter(k)}>{l}<span>{n}</span></button>)}
               </div>}
               {tasks.length>0&&shownTasks.length===0&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:'6px 0',textAlign:'center'}}>{taskFilter==='done'?'Nenhuma atividade feita.':'Nada a fazer.'}</p>}
-              <div className="dashboard-activity-list" style={{overflow:'auto',flex:1}}>
+              <div ref={taskListRef} className="dashboard-activity-list" style={{overflow:'auto',flex:1}}>
                 {shownTasks.slice(0,taskLimit).map(t=>(
                   <div key={t.id} className="task-row" style={{paddingTop:isSmall?4:6,paddingBottom:isSmall?4:6}}>
                     <button type="button" role="checkbox" aria-checked={!!t.done} aria-label={(t.done?'Desmarcar: ':'Concluir: ')+(t.text||'')} className={`task-check ${t.done?'done':''}`} onClick={()=>toggleTask(t.id)}/>
