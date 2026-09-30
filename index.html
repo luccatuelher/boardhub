@@ -12817,6 +12817,11 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
     if(clientSort==='status')return [...list].sort((a,b)=>{const i=x=>{const k=CLIENT_STATUS_ORDER.indexOf(x.status);return k<0?99:k;};return i(a)-i(b)||byName(a,b);});
     return list;
   },[clients,trash,clientSort,catId]);
+  // Rows render in steps (BH_LIST_STEP, more as the list scrolls): 300 contacts mounted ~6,300
+  // nodes at once and took ~280 ms to open the view. Back to the first step when the list changes.
+  const [listLimit,setListLimit]=useState(BH_LIST_STEP);
+  const moreContacts=()=>setListLimit(l=>l+BH_LIST_STEP);
+  useEffect(()=>{setListLimit(BH_LIST_STEP);},[catId,trash,clientSort]);
   const clientDrag=!trash&&clientSort==='manual';
   const dragIdxRef=useRef(null);
   // By id: the visible list can be one category, so its indexes are not the
@@ -12891,7 +12896,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
       )}
       {isMobile&&!trash?(
         <div className="card" style={{overflow:'hidden',borderRadius:12}}>
-          {visible.map((c,idx)=>(
+          {visible.slice(0,listLimit).map((c,idx)=>(
             <div key={c.id} {...(clientDrag?dragProps(idx):{})} className={`compact-row${trash?'':' drag-item'}`} onClick={()=>setSelected(c)} {...keyActivate(()=>setSelected(c),'Abrir contato '+(c.name||''))}>
               {!trash&&<span className="drag-handle" style={{color:'var(--muted)',marginRight:2,lineHeight:0,flexShrink:0}}><Icon name="grip-vertical" size={12}/></span>}
               {c.photo?<Img src={c.photo} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
@@ -12903,11 +12908,12 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
               <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
             </div>
           ))}
+          {visible.length>listLimit&&<ListMoreSentinel key={listLimit} onMore={moreContacts}/>}
           {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum contato{catId==='all'?'':' nesta categoria'}.</div>}
         </div>
       ):(
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(3,1fr)',gap:14}}>
-        {visible.map((c,idx)=>(
+        {visible.slice(0,listLimit).map((c,idx)=>(
           <div key={c.id} {...(clientDrag?dragProps(idx):{})} className={`card drag-item`} style={{padding:22,cursor:trash?'default':'pointer',position:'relative'}} onClick={()=>!trash&&setSelected(c)}
             {...keyActivate(()=>setSelected(c),'Abrir contato '+(c.name||''),!trash)}>
             {!trash&&<span className="drag-handle" style={{position:'absolute',top:8,right:8,color:'var(--muted)',lineHeight:0,zIndex:1}}><Icon name="grip-vertical" size={13}/></span>}
@@ -12933,6 +12939,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
             </div>
           </div>
         ))}
+        {visible.length>listLimit&&<div style={{gridColumn:'1/-1'}}><ListMoreSentinel key={listLimit} onMore={moreContacts}/></div>}
         {visible.length===0&&<div style={{gridColumn:'1/-1',textAlign:'center',padding:48,color:'var(--muted)'}}>{trash?'Lixeira vazia.':'Nenhum contato'+(catId==='all'?'':' nesta categoria')+'.'}</div>}
         </div>
       )}
@@ -13572,7 +13579,6 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     :mentorSort==='year'?[...filteredMentors].sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0)||byMentorName(a,b))
     :mentorSort==='main'?[...filteredMentors].sort((a,b)=>(b.main?1:0)-(a.main?1:0)||byMentorName(a,b))
     :filteredMentors;
-
   const dragIdxRef=useRef(null);
   const reorderMentors=(fromId,toId)=>{
     if(String(fromId)===String(toId))return;
@@ -13614,6 +13620,10 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   // Deleting moves the mentor to the trash (restorable; purged after 30 days
   // like every other trash). Only the trash's own button deletes for good.
   const [trash,setTrash]=useState(false);
+  // Same stepped rendering as the contacts list; the limit restarts when the list changes.
+  const [listLimit,setListLimit]=useState(BH_LIST_STEP);
+  const moreMentors=()=>setListLimit(l=>l+BH_LIST_STEP);
+  useEffect(()=>{setListLimit(BH_LIST_STEP);},[activeYear,search,mentorSort,trash]);
   const trashed=mentors.filter(m=>m&&m.deleted);
   const del=()=>{
     const id=selected.id;
@@ -13699,7 +13709,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
       )}
       {!trash&&(isMobile?(
         <div className="card" style={{overflow:'hidden',borderRadius:12}}>
-          {visible.map(m=>(
+          {visible.slice(0,listLimit).map(m=>(
             <div key={m.id} draggable className="compact-row drag-item"
               onDragStart={e=>{e.dataTransfer.effectAllowed='move';dragIdxRef.current=m.id;e.currentTarget.style.opacity='0.45';}}
               onDragEnd={e=>{e.currentTarget.style.opacity='1';dragIdxRef.current=null;document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));}}
@@ -13722,11 +13732,12 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
               </div>
             </div>
           ))}
+          {visible.length>listLimit&&<ListMoreSentinel key={listLimit} onMore={moreMentors}/>}
           {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum mentor.</div>}
         </div>
       ):(
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
-        {visible.map((m,idx)=>{
+        {visible.slice(0,listLimit).map((m,idx)=>{
           const photos=(m.photos||[]).filter(Boolean);
           return(
             <div key={m.id} {...dp(m.id)} style={{padding:0,overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>setSelected(m)} {...keyActivate(()=>setSelected(m),'Abrir mentor '+(m.name||''))}>
@@ -13760,6 +13771,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
             </div>
           );
         })}
+        {visible.length>listLimit&&<div style={{gridColumn:'1/-1'}}><ListMoreSentinel key={listLimit} onMore={moreMentors}/></div>}
         </div>
       ))}
     </div>
