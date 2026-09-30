@@ -63,7 +63,7 @@
 try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours();var _bhNight=_bhT==='automatico'?(_bhH<8||_bhH>=18):_bhT==='notturno';if(_bhNight)document.documentElement.setAttribute('data-theme','notturno');}catch(e){/*silent-ok: no localStorage (private mode) means no stored preference, and the default IS the paper theme*/}
 </script>
 <style>
-:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--session-accent:#2a7a8c;--accent:#4A3728;--focus-ring:rgba(var(--ink),.55);
+:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--session-accent:#2a7a8c;--accent:#4A3728;--focus-ring:rgba(var(--ink),.55);--field-border:#8A847E;
 /* M1 — tempo ramp. Replaces the 4 medal colours that were hardcoded in the JSX
    (#CD7F32/#94A3B8/#FBBF24/#60A5FA). It is not a gamification rainbow: it is ink
    warming and thickening until it reaches the app's own --accent, which stays
@@ -113,7 +113,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
    pale tint over black turns into noise. */
 :root[data-theme="notturno"]{
 --bg:#17140F;--surface:#211C16;--border:#332B22;--border-2:#4A3F32;
---text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--session-accent:#3a9cb1;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.5);
+--text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--session-accent:#3a9cb1;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.5);--field-border:#766C60;
 --tempo-1:#8A7A5E;--tempo-2:#C08F35;--tempo-3:#C27642;--tempo-4:#C9A87C;
 /* The same four pigments seen by candlelight: the background is the earth, the
    text is the pure pigment lightened just enough to read. No neon. */
@@ -184,6 +184,7 @@ h1,h2,h3,.serif{font-family:'Cormorant Garamond',serif;}
 /* Buttons — improved hover lift + press feedback */
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .18s;border:none;outline:none;position:relative;}
 .btn:focus-visible{box-shadow:0 0 0 2.5px var(--focus-ring);}
+/* --field-border: the edge of a form field is what identifies it, so it needs 3:1 against the page and card behind it (WCAG 1.4.11); the old --border measured 1.1-1.3:1. Used by .input-box, .gallery-sort-select, .gallery-search and the inline field styles. */
 /* --focus-ring is a focus INDICATOR, so it needs 3:1 against the page (WCAG 1.4.11): at the old 18-22% opacity it measured 1.1-1.3:1. The Social composer's borderless textarea had no indicator at all. */
 .social-post-input:focus-visible{box-shadow:inset 0 0 0 2.5px var(--focus-ring);border-radius:8px}
 .btn-dark{background:var(--text);color:var(--bg);}.btn-dark:hover{box-shadow:0 2px 10px rgba(var(--ink),.2);transform:translateY(-1px);}.btn-dark:active{transform:translateY(0);box-shadow:none;opacity:.9;}
@@ -203,7 +204,7 @@ h1,h2,h3,.serif{font-family:'Cormorant Garamond',serif;}
 .tag-green{background:var(--ok-bg);color:var(--ok-fg);}.tag-yellow{background:var(--warn-bg);color:var(--warn-fg);}.tag-gray{background:var(--neutral-bg);color:var(--muted-chip);}.tag-red{background:var(--danger-bg);color:var(--danger-fg);}.tag-blue{background:var(--info-bg);color:var(--info-fg);}
 .input-bare{background:transparent;outline:none;border-bottom:1px solid var(--border);font-family:'Alegreya Sans',sans-serif;color:var(--text);transition:border-color .2s,box-shadow .2s;}.input-bare:focus{border-color:var(--text);box-shadow:0 1px 0 0 var(--text);}
 /* Input — subtle focus glow */
-.input-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;color:var(--text);outline:none;transition:border-color .2s,box-shadow .2s;width:100%;}.input-box:focus{border-color:var(--text);box-shadow:0 0 0 3px rgba(var(--ink),.06);}
+.input-box{background:var(--bg);border:1px solid var(--field-border);border-radius:8px;padding:8px 12px;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;color:var(--text);outline:none;transition:border-color .2s,box-shadow .2s;width:100%;}.input-box:focus{border-color:var(--text);box-shadow:0 0 0 3px rgba(var(--ink),.06);}
 input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .label{font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
 .tab-btn{padding:10px 0;margin-right:24px;background:none;border:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;font-weight:500;transition:all .15s;margin-bottom:-1px;}
@@ -253,7 +254,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 /* Gallery — sort bar, manual sections and post chips */
 .gallery-sortbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:8px 10px;background:var(--bg);border-radius:9px;flex-wrap:wrap}
 .gallery-sortbar-label{font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
-.gallery-sort-select{margin-left:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px;font:600 .72rem 'Alegreya Sans',sans-serif;color:var(--text);background:var(--surface);cursor:pointer}
+.gallery-sort-select{margin-left:6px;border:1px solid var(--field-border);border-radius:8px;padding:5px 8px;font:600 .72rem 'Alegreya Sans',sans-serif;color:var(--text);background:var(--surface);cursor:pointer}
 .gallery-grid{display:grid}
 .gallery-folder-edit{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:5px;line-height:0;opacity:.55;transition:opacity .12s,background .12s}
 .gallery-folder-edit:hover,.gallery-folder-edit:focus-visible{opacity:1;background:rgba(var(--ink),.06);color:var(--text)}
@@ -301,7 +302,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .note-result span{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .client-project-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:400 .84rem 'Alegreya Sans',sans-serif;cursor:pointer;transition:border-color .12s}
 .client-project-row:hover:not(:disabled){border-color:var(--text)}
-.gallery-search{display:flex;align-items:center;gap:6px;flex:1 1 160px;max-width:280px;min-width:0;border:1px solid var(--border);border-radius:8px;padding:4px 8px;background:var(--surface);color:var(--muted)}
+.gallery-search{display:flex;align-items:center;gap:6px;flex:1 1 160px;max-width:280px;min-width:0;border:1px solid var(--field-border);border-radius:8px;padding:4px 8px;background:var(--surface);color:var(--muted)}
 .gallery-search:focus-within{border-color:var(--text)}
 .gallery-search input{flex:1;min-width:0;border:none;outline:none;background:transparent;font:400 .78rem 'Alegreya Sans',sans-serif;color:var(--text)}
 .gallery-search button{background:none;border:none;cursor:pointer;color:var(--muted);line-height:0;padding:2px}
@@ -7029,7 +7030,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
             <div className="card" style={{padding:'10px 14px',flex:1,minHeight:0,display:'flex',flexDirection:'column'}}>
               <div style={{display:'flex',gap:7,marginBottom:tasks.length>0?8:0,flexShrink:0}}>
                 <input value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask()}
-                  placeholder="Nova atividade..." style={{flex:1,background:'transparent',border:'none',outline:'none',borderBottom:'1px solid var(--border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.8rem',color:'var(--text)',paddingBottom:3}}/>
+                  placeholder="Nova atividade..." style={{flex:1,background:'transparent',border:'none',outline:'none',borderBottom:'1px solid var(--field-border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.8rem',color:'var(--text)',paddingBottom:3}}/>
                 <button onClick={addTask} className="btn btn-dark" style={{padding:'3px 8px',fontSize:'.73rem'}} title="Adicionar atividade" aria-label="Adicionar atividade"><Icon name="plus" size={12}/></button>
               </div>
               {tasks.length===0&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:5,padding:'12px 0',color:'var(--muted)'}}>
@@ -7941,7 +7942,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
         <div style={{display:'flex',gap:8,alignItems:'center',flex:'1 1 220px',justifyContent:'flex-end',minWidth:0}}>
           <input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask()}
             placeholder="Nome da tarefa..."
-            style={{border:'1px solid var(--border)',borderRadius:7,padding:'5px 10px',fontSize:'.78rem',fontFamily:'Alegreya Sans,sans-serif',outline:'none',backgroundColor:'var(--bg)',color:'var(--text)',width:160,minWidth:0,flex:'0 1 160px',transition:'border-color .2s'}}
+            style={{border:'1px solid var(--field-border)',borderRadius:7,padding:'5px 10px',fontSize:'.78rem',fontFamily:'Alegreya Sans,sans-serif',outline:'none',backgroundColor:'var(--bg)',color:'var(--text)',width:160,minWidth:0,flex:'0 1 160px',transition:'border-color .2s'}}
             onFocus={e=>e.target.style.borderColor='var(--text)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
           <button onClick={addTask} className="btn btn-dark" style={{padding:'5px 12px',fontSize:'.78rem',flexShrink:0}}><Icon name="plus" size={12}/> Adicionar</button>
         </div>
@@ -8057,7 +8058,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Status</label>
             <select aria-label="Status" value={editDraft.status} onChange={e=>setEditDraft({...editDraft,status:e.target.value})}
-              style={{width:'100%',padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
+              style={{width:'100%',padding:'8px 12px',borderRadius:8,border:'1px solid var(--field-border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
               {PTASK_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
@@ -9081,7 +9082,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     placeholder="Título da tarefa"/>
                   <div style={{display:'flex',gap:6,flexShrink:0,alignItems:'center'}}>
                     <select aria-label="Status da tarefa" value={activeMini.status} onChange={e=>updateMini('status',e.target.value)}
-                      style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
+                      style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--field-border)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',background:'var(--bg)',color:'var(--text)',outline:'none',cursor:'pointer'}}>
                       {MINI_STATUSES.map(s=><option key={s}>{s}</option>)}
                     </select>
                     {(()=>{const i=(local.miniProjects||[]).findIndex(m=>m.id===activeMini.id),n=(local.miniProjects||[]).length;return n>1&&<>
@@ -9318,10 +9319,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,padding:isMobile?'18px 18px 0':'24px 28px 0'}}>
               <div style={{minWidth:0,flex:1}}>
                 {galleryPopupEditing
-                  ?<input value={galleryPopup.title||''} onChange={e=>updateGalleryPopup('title',e.target.value)} placeholder="Título do post" style={{width:'100%',boxSizing:'border-box',fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,color:'var(--text)',background:'transparent',border:0,borderBottom:'1px solid var(--border)',outline:'none',padding:'0 0 4px'}}/>
+                  ?<input value={galleryPopup.title||''} onChange={e=>updateGalleryPopup('title',e.target.value)} placeholder="Título do post" style={{width:'100%',boxSizing:'border-box',fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,color:'var(--text)',background:'transparent',border:0,borderBottom:'1px solid var(--field-border)',outline:'none',padding:'0 0 4px'}}/>
                   :<h3 style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,margin:0,lineHeight:1.2,color:'var(--text)'}}>{galleryPopup.title}</h3>}
                 {galleryPopupEditing
-                  ?<input aria-label="Data do post" type="date" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
+                  ?<input aria-label="Data do post" type="date" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--field-border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
                   :<div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:3}}>{(()=>{try{return new Date(galleryPopup.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});}catch{return galleryPopup.date;}})()}</div>}
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
@@ -9333,7 +9334,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
             <div style={{padding:isMobile?'14px 18px 20px':'18px 28px 26px'}}>
               {galleryPopup.linkedTask&&<div className="gallery-linked-note"><Icon name="list-checks" size={13} style={{flexShrink:0}}/><span>As mídias vêm da tarefa <strong>{galleryPopup.linkedTask.taskTitle}</strong>. O que você adicionar aqui entra na tarefa também; remover tira só deste post.</span></div>}
               {galleryPopupEditing
-                ?<textarea value={galleryPopup.content||''} onChange={e=>updateGalleryPopup('content',e.target.value)} placeholder="Notas da sessão (opcional)" style={{width:'100%',boxSizing:'border-box',minHeight:84,resize:'vertical',border:'1px solid var(--border)',borderRadius:9,padding:'11px 13px',background:'var(--bg)',color:'var(--text)',font:'400 .88rem Alegreya Sans,sans-serif',lineHeight:1.6,outline:'none',margin:'0 0 16px'}}/>
+                ?<textarea value={galleryPopup.content||''} onChange={e=>updateGalleryPopup('content',e.target.value)} placeholder="Notas da sessão (opcional)" style={{width:'100%',boxSizing:'border-box',minHeight:84,resize:'vertical',border:'1px solid var(--field-border)',borderRadius:9,padding:'11px 13px',background:'var(--bg)',color:'var(--text)',font:'400 .88rem Alegreya Sans,sans-serif',lineHeight:1.6,outline:'none',margin:'0 0 16px'}}/>
                 :galleryPopup.content&&<p style={{fontSize:'.9rem',lineHeight:1.7,color:'var(--text)',margin:'0 0 16px',whiteSpace:'pre-wrap'}}>{galleryPopup.content}</p>}
               {(galleryPopup.images||[]).length>0&&(
                 <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:isMobile?8:12}}>
@@ -10071,7 +10072,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       </div>
       <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
         <input value={selected.title} onChange={e=>upd('title',e.target.value)} aria-label="Título do estudo"
-          style={{fontSize:'2rem',fontWeight:400,background:'transparent',outline:'none',border:'none',borderBottom:'1px solid var(--border)',width:'100%',marginBottom:16,paddingBottom:8,color:'var(--text)',fontFamily:'Cormorant Garamond,serif'}}/>
+          style={{fontSize:'2rem',fontWeight:400,background:'transparent',outline:'none',border:'none',borderBottom:'1px solid var(--field-border)',width:'100%',marginBottom:16,paddingBottom:8,color:'var(--text)',fontFamily:'Cormorant Garamond,serif'}}/>
         {/* Folder, section and date share one row (it wraps only when the window is narrow). */}
         <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',columnGap:28,rowGap:12,marginBottom:20}}>
         {/* Folder selector */}
@@ -10103,7 +10104,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
           <input type="date" value={(selected.date||'').slice(0,10)} onChange={e=>upd('date',e.target.value)} aria-label="Data do estudo"
-            style={{border:'1px solid var(--border)',borderRadius:8,padding:'6px 12px',fontSize:'.82rem',outline:'none',color:'var(--text)',backgroundColor:'var(--bg)',cursor:'pointer'}}/>
+            style={{border:'1px solid var(--field-border)',borderRadius:8,padding:'6px 12px',fontSize:'.82rem',outline:'none',color:'var(--text)',backgroundColor:'var(--bg)',cursor:'pointer'}}/>
         </div>
         </div>
         {selected.linkedTask&&<div className="gallery-linked-note">
@@ -10112,7 +10113,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
           {onOpenTask&&<button type="button" className="gallery-chip" onClick={()=>onOpenTask(selected.linkedTask.projectId,selected.linkedTask.taskId)}><Icon name="external-link" size={11}/> Abrir tarefa</button>}
         </div>}
         <textarea value={selected.content} onChange={e=>upd('content',e.target.value)} placeholder="Análise, insights, observações..."
-          style={{width:'100%',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',fontSize:'.92rem',outline:'none',resize:'vertical',minHeight:160,fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',backgroundColor:'var(--bg)',marginBottom:24}}/>
+          style={{width:'100%',border:'1px solid var(--field-border)',borderRadius:10,padding:'16px 20px',fontSize:'.92rem',outline:'none',resize:'vertical',minHeight:160,fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',backgroundColor:'var(--bg)',marginBottom:24}}/>
         <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
           {selected.images.map((img,i,list)=>(
             <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('gallery',i,moveImg)}
@@ -11727,7 +11728,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         <input autoFocus value={embedText} onChange={e=>setEmbedText(e.target.value)} aria-label="Link ou código do embed" maxLength={2000}
           onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setEmbedOpen(false);}}}
           placeholder="Cole o link ou o código de incorporação (YouTube, Google Slides, Speaker Deck, Vimeo, Figma, Loom, Spotify…)"
-          style={{flex:'1 1 280px',minWidth:0,border:'1px solid var(--border)',borderRadius:8,padding:'7px 11px',fontSize:'.8rem',outline:'none',background:'var(--bg)',color:'var(--text)',fontFamily:'inherit'}}/>
+          style={{flex:'1 1 280px',minWidth:0,border:'1px solid var(--field-border)',borderRadius:8,padding:'7px 11px',fontSize:'.8rem',outline:'none',background:'var(--bg)',color:'var(--text)',fontFamily:'inherit'}}/>
         <button type="submit" className="btn btn-dark" disabled={embedBusy||!embedText.trim()} style={{padding:'6px 12px',fontSize:'.76rem'}}>{embedBusy?'Lendo…':'Inserir'}</button>
         <button type="button" className="btn btn-outline" onClick={()=>setEmbedOpen(false)} style={{padding:'6px 12px',fontSize:'.76rem'}}>Cancelar</button>
         {embedErr&&<div role="alert" style={{flexBasis:'100%',fontSize:'.74rem',color:'var(--danger-fg)',lineHeight:1.4}}>{embedErr}</div>}
@@ -12590,7 +12591,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <span className="label label-field" style={{flexShrink:0}}>Plataforma</span>
                   <select aria-label="Plataforma" value={platform} onChange={e=>setPlatform(e.target.value)}
-                    style={{flex:1,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'16px',color:'var(--text)',outline:'none',cursor:'pointer',minHeight:44}}>
+                    style={{flex:1,background:'var(--bg)',border:'1px solid var(--field-border)',borderRadius:8,padding:'8px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'16px',color:'var(--text)',outline:'none',cursor:'pointer',minHeight:44}}>
                     {SOCIAL_PLATFORMS.map(pl=><option key={pl}>{pl}</option>)}
                   </select>
                 </div>
@@ -12662,7 +12663,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
                     {!trash?(
                       isMobile?(
                         <select aria-label="Plataforma do post" value={p.platform||'Instagram'} onChange={e=>changePostPlatform(p.id,e.target.value)}
-                          style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:20,padding:'4px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:600,color:'var(--text)',outline:'none',cursor:'pointer',maxWidth:'100%'}}>
+                          style={{background:'var(--bg)',border:'1px solid var(--field-border)',borderRadius:20,padding:'4px 10px',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:600,color:'var(--text)',outline:'none',cursor:'pointer',maxWidth:'100%'}}>
                           {SOCIAL_PLATFORMS.map(pl=><option key={pl}>{pl}</option>)}
                         </select>
                       ):(
