@@ -344,7 +344,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes slideInStats{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
 
 /* - BOTTOM TAB BAR - */
-.bottom-tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:80;background:rgba(253,252,250,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;align-items:stretch;justify-content:space-around;padding:4px 0 env(safe-area-inset-bottom,0);height:56px;}
+.bottom-tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:80;background:rgba(var(--paper),.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;align-items:stretch;justify-content:space-around;padding:4px 0 env(safe-area-inset-bottom,0);height:56px;}
 .bottom-tab-item{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;border:none;background:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.62rem;font-weight:600;color:var(--muted);padding:6px 2px;transition:color .15s,transform .1s;-webkit-tap-highlight-color:transparent;letter-spacing:.02em;}
 .bottom-tab-item.active{color:var(--text);}
 .bottom-tab-item:active{transform:scale(.9);opacity:.7;}
@@ -357,7 +357,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .more-sheet-item:active{background:var(--bg);transform:scale(.97);}
 .more-sheet-item.active-sheet{background:var(--bg);font-weight:600;}
 /* Mobile header bar — frosted glass */
-.mobile-header{position:sticky;top:0;z-index:50;background:rgba(253,252,250,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.mobile-header{position:sticky;top:0;z-index:50;background:rgba(var(--paper),.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .mobile-header-title{font-family:'Cormorant Garamond',serif;font-size:1.15rem;font-weight:500;letter-spacing:-.02em;}
 /* FAB */
 .fab{position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--text);color:var(--bg);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(var(--ink),.25),0 1px 3px rgba(var(--ink),.1);z-index:70;transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
