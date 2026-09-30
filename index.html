@@ -63,7 +63,7 @@
 try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours();var _bhNight=_bhT==='automatico'?(_bhH<8||_bhH>=18):_bhT==='notturno';if(_bhNight)document.documentElement.setAttribute('data-theme','notturno');}catch(e){/*silent-ok: no localStorage (private mode) means no stored preference, and the default IS the paper theme*/}
 </script>
 <style>
-:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--session-accent:#2a7a8c;--accent:#4A3728;--focus-ring:rgba(var(--ink),.18);
+:root{--bg:#F4F1ED;--surface:#FDFCFA;--border:#E8E3DC;--border-2:#D5CCBF;--text:#1C1917;--muted:#736C67;--muted-chip:#6B645F;--session-accent:#2a7a8c;--accent:#4A3728;--focus-ring:rgba(var(--ink),.55);
 /* M1 — tempo ramp. Replaces the 4 medal colours that were hardcoded in the JSX
    (#CD7F32/#94A3B8/#FBBF24/#60A5FA). It is not a gamification rainbow: it is ink
    warming and thickening until it reaches the app's own --accent, which stays
@@ -113,7 +113,7 @@ try{var _bhT=localStorage.getItem('boardhub_theme');var _bhH=new Date().getHours
    pale tint over black turns into noise. */
 :root[data-theme="notturno"]{
 --bg:#17140F;--surface:#211C16;--border:#332B22;--border-2:#4A3F32;
---text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--session-accent:#3a9cb1;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.22);
+--text:#EDE7DE;--muted:#A79B8B;--muted-chip:#A79B8B;--session-accent:#3a9cb1;--accent:#C9A87C;--focus-ring:rgba(237,231,222,.5);
 --tempo-1:#8A7A5E;--tempo-2:#C08F35;--tempo-3:#C27642;--tempo-4:#C9A87C;
 /* The same four pigments seen by candlelight: the background is the earth, the
    text is the pure pigment lightened just enough to read. No neon. */
@@ -184,6 +184,8 @@ h1,h2,h3,.serif{font-family:'Cormorant Garamond',serif;}
 /* Buttons — improved hover lift + press feedback */
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;font-family:'Alegreya Sans',sans-serif;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .18s;border:none;outline:none;position:relative;}
 .btn:focus-visible{box-shadow:0 0 0 2.5px var(--focus-ring);}
+/* --focus-ring is a focus INDICATOR, so it needs 3:1 against the page (WCAG 1.4.11): at the old 18-22% opacity it measured 1.1-1.3:1. The Social composer's borderless textarea had no indicator at all. */
+.social-post-input:focus-visible{box-shadow:inset 0 0 0 2.5px var(--focus-ring);border-radius:8px}
 .btn-dark{background:var(--text);color:var(--bg);}.btn-dark:hover{box-shadow:0 2px 10px rgba(var(--ink),.2);transform:translateY(-1px);}.btn-dark:active{transform:translateY(0);box-shadow:none;opacity:.9;}
 .btn-outline{background:transparent;color:var(--muted);border:1px solid var(--border);}.btn-outline:hover{border-color:var(--text);color:var(--text);}.btn-outline:active{background:var(--bg);}
 .btn-ghost{background:transparent;color:var(--muted);border:none;padding:6px 10px;border-radius:6px;}.btn-ghost:hover{color:var(--text);background:var(--bg);}.btn-ghost:active{background:var(--border);}
@@ -12581,7 +12583,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
             {editId&&<div style={{fontSize:'.75rem',color:'var(--warn-fg)',marginBottom:8,display:'flex',alignItems:'center',gap:6}}>
               <Icon name="pencil" size={11}/> Editando post — <button onClick={cancelEdit} style={{background:'none',border:'none',cursor:'pointer',color:'var(--danger-strong)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.75rem',padding:0}}>cancelar</button>
             </div>}
-            <textarea value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();savePost();}}} aria-label="Texto do post (Ctrl+Enter salva)" placeholder="Escreva seu post..." style={{flex:1,minHeight:180,resize:'none',background:'transparent',border:'none',outline:'none',fontSize:'.95rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',width:'100%',boxSizing:'border-box'}}/>
+            <textarea className="social-post-input" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();savePost();}}} aria-label="Texto do post (Ctrl+Enter salva)" placeholder="Escreva seu post..." style={{flex:1,minHeight:180,resize:'none',background:'transparent',border:'none',outline:'none',fontSize:'.95rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',width:'100%',boxSizing:'border-box'}}/>
             <div style={{borderTop:'1px solid var(--border)',paddingTop:12,marginTop:8,display:'flex',flexDirection:'column',gap:10}}>
               {/* Platform selector */}
               {isMobile?(
