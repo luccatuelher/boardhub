@@ -322,7 +322,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .gallery-chip:hover:not(:disabled){border-color:var(--text);color:var(--text)}
 .gallery-chip:disabled{opacity:.35;cursor:default}
 @media (max-width:768px){.gallery-chip{padding:7px 14px}.gallery-section-tools button{padding:9px}.gallery-sort-select{margin-left:0}}
-.gallery-chip.on{border-color:var(--text);background:var(--text);color:var(--bg)}
+/* :hover is more specific than .on: without the second selector a selected chip's text took the background's color under the pointer. */
+.gallery-chip.on,.gallery-chip.on:hover:not(:disabled){border-color:var(--text);background:var(--text);color:var(--bg)}
 
 /* Gantt styles */
 .gantt-bar{transition:opacity .12s,box-shadow .12s;}.gantt-bar:hover{opacity:.88;}
@@ -9964,8 +9965,10 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
         <input value={selected.title} onChange={e=>upd('title',e.target.value)} aria-label="Título do estudo"
           style={{fontSize:'2rem',fontWeight:400,background:'transparent',outline:'none',border:'none',borderBottom:'1px solid var(--border)',width:'100%',marginBottom:16,paddingBottom:8,color:'var(--text)',fontFamily:'Cormorant Garamond,serif'}}/>
+        {/* Folder, section and date share one row (it wraps only when the window is narrow). */}
+        <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',columnGap:28,rowGap:12,marginBottom:20}}>
         {/* Folder selector */}
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span className="label label-field" style={{flexShrink:0}}>Pasta</span>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             {FOLDERS.map(f=>(
@@ -9979,7 +9982,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         {/* The section (any sort mode). Position stays a matter of the Gallery grid. */}
         {!trash&&folderSections.length>0&&String(selected.folder)===String(activeFolder)&&(()=>{
           const cur=postSection.get(String(selected.id));
-          return <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
+          return <div style={{display:'flex',alignItems:'center',gap:8}}>
             <span className="label label-field" style={{flexShrink:0}}>Seção</span>
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               {[{id:null,label:'Sem seção'},...folderSections].map(sec=>{
@@ -9990,10 +9993,11 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
           </div>;
         })()}
         {/* Date editor */}
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
           <input type="date" value={(selected.date||'').slice(0,10)} onChange={e=>upd('date',e.target.value)} aria-label="Data do estudo"
             style={{border:'1px solid var(--border)',borderRadius:8,padding:'6px 12px',fontSize:'.82rem',outline:'none',color:'var(--text)',backgroundColor:'var(--bg)',cursor:'pointer'}}/>
+        </div>
         </div>
         {selected.linkedTask&&<div className="gallery-linked-note">
           <Icon name="list-checks" size={13} style={{flexShrink:0}}/>
