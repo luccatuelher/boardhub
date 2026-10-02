@@ -2867,12 +2867,32 @@ const BH_SYNC_FIELDS=['projects','clients','mentors','tasks','socialPosts','soci
 const _bhSyncBases=new Map();
 const bhSyncState=state=>Object.fromEntries(BH_SYNC_FIELDS.filter(k=>state?.[k]!==undefined).map(k=>[k,state[k]]));
 const bhEqual=(a,b)=>bhStableStringify(a)===bhStableStringify(b);
-const bhSyncAck=(uid,state)=>{
-  const value=JSON.parse(JSON.stringify(bhSyncState(state)));
+// UTF-8 size of a string, counted in place. Sizes used to be measured with
+// new Blob([text]).size, and every Blob goes through the browser's blob
+// registry (~0.25 ms each): packing a 3 MB state for sync made ~34,000 of them
+// and froze a phone for tens of seconds on every push. Lone surrogates count
+// as U+FFFD (3 bytes), exactly as the Blob conversion encodes them.
+const bhUtf8Bytes=text=>{
+  const s=String(text);let n=s.length;
+  for(let i=0;i<s.length;i++){
+    const c=s.charCodeAt(i);
+    if(c<0x80)continue;
+    if(c<0x800){n++;continue;}
+    if(c>=0xd800&&c<=0xdbff&&i+1<s.length){const d=s.charCodeAt(i+1);if(d>=0xdc00&&d<=0xdfff){n+=2;i++;continue;}}
+    n+=2;
+  }
+  return n;
+};
+const bhJsonBytes=value=>bhUtf8Bytes(JSON.stringify(value)??'');
+// `owned`: the caller hands over a private deep copy (the push's frozen
+// payload), so it is kept as is instead of being serialized a second time.
+const bhSyncAck=(uid,state,{owned=false}={})=>{
+  const value=owned?bhSyncState(state):JSON.parse(JSON.stringify(bhSyncState(state)));
   _bhSyncBases.set(uid,value);
   // A durable three-way baseline distinguishes offline edits from unchanged
   // stale fields after a reload. It is local-only and namespaced by account.
   if(typeof bhMediaCachePut==='function')void bhMediaCachePut('syncbase:'+uid,{version:1,state:value});
+  return value;
 };
 const bhSplitState=state=>{
   const{notes=[],galleryPosts=[],...main}=bhSyncState(state);
@@ -2956,12 +2976,36 @@ const bhSyncNumMap=(local,remote,merged,pick)=>{
   }
   return wrapped?{object:out}:out;
 };
+// Both devices moved the score since their common base. Decay and focus
+// credit are told apart: each side's credit is its score above its own
+// decayed base, and decay is charged once, from the merged ledger (a day both
+// sides settled counts once, at the lower loss). Taking the higher score let a
+// device that had not settled a day yet push its score over the other's decay,
+// and that decay was lost. Credit still takes the higher side, so a push
+// replayed against a stale base never counts the same focus twice. Returns
+// null when the shapes do not allow it (no common base, a ledger reset).
+const bhSyncRankPoints=(base,local,remote,season)=>{
+  if(!bhSyncRec(base)||bhSyncScalar(base.seasonId)!==season||base.points===undefined)return null;
+  const map=v=>{const o=bhSyncObj(v),out={};if(bhSyncRec(o))for(const [k,x] of Object.entries(o)){const n=Number(bhSyncScalar(x));if(Number.isFinite(n))out[k]=Math.max(0,n);}return out;};
+  // What each settled day took: decayLoss when recorded (the score never goes
+  // below zero), else the day's tier.
+  const lossOf=r=>{const tier=map(r.decayApplied),real=map(r.decayLoss),out={};for(const k of Object.keys(tier))out[k]=real[k]!==undefined?real[k]:tier[k];return out;};
+  const b=lossOf(base),l=lossOf(local),r=lossOf(remote);
+  if(Object.keys(b).some(k=>l[k]===undefined||r[k]===undefined))return null;
+  const fresh=x=>Object.keys(x).filter(k=>b[k]===undefined);
+  const pb=Math.max(0,Number(bhSyncScalar(base.points))||0);
+  const credit=(x,points)=>Math.max(0,points-Math.max(0,pb-fresh(x).reduce((n,k)=>n+x[k],0)));
+  const days=new Set([...fresh(l),...fresh(r)]);
+  let decay=0;days.forEach(k=>{decay+=l[k]!==undefined&&r[k]!==undefined?Math.min(l[k],r[k]):(l[k]!==undefined?l[k]:r[k]);});
+  const pl=Math.max(0,Number(bhSyncScalar(local.points))||0),pr=Math.max(0,Number(bhSyncScalar(remote.points))||0);
+  return Math.min(RANK_MAX,Math.max(0,pb-decay)+Math.max(credit(l,pl),credit(r,pr)));
+};
 const bhSyncRankResolve=(base,local,remote,out)=>{
   const season=bhSyncScalar(local.seasonId);
   if(season!==bhSyncScalar(remote.seasonId)||bhSyncScalar(out.seasonId)!==season)return;
   const pl=Number(bhSyncScalar(local.points))||0,pr=Number(bhSyncScalar(remote.points))||0;
   const pb=bhSyncRec(base)&&base.points!==undefined?Number(bhSyncScalar(base.points))||0:NaN;
-  if(pl!==pb&&pr!==pb){const p=Math.max(pl,pr);out.points=bhSyncRec(local.points)?{scalar:p}:p;}
+  if(pl!==pb&&pr!==pb){const p=bhSyncRankPoints(base,local,remote,season)??Math.max(pl,pr);out.points=bhSyncRec(local.points)?{scalar:p}:p;}
   if(out.decayApplied!==undefined)out.decayApplied=bhSyncNumMap(local.decayApplied,remote.decayApplied,out.decayApplied,Math.min);
   if(out.decayLoss!==undefined)out.decayLoss=bhSyncNumMap(local.decayLoss,remote.decayLoss,out.decayLoss,Math.min);
 };
@@ -3029,7 +3073,7 @@ const bhEntityPack=state=>{
   const docs=new Map();
   const emit=(path,value)=>{const id=bhEntityId(path);docs.set(id,{value});return {ref:id};};
   const pack=(value,path)=>{
-    if(typeof value==='string'&&new Blob([value]).size>160000){
+    if(typeof value==='string'&&value.length>53333&&bhUtf8Bytes(value)>160000){
       // Cut every 40,000 characters, but never between the two halves of a
       // surrogate pair (an emoji): a lone half is not valid UTF-8, so storage
       // returned it as U+FFFD and the emoji came back corrupted.
@@ -3059,7 +3103,7 @@ const bhEntityPack=state=>{
   };
   const fields={};for(const [key,value] of Object.entries(bhSyncState(state)))fields[key]=emit([key],pack(value,[key]));
   docs.set('v4_root',{value:{object:fields}});
-  for(const value of docs.values())if(new Blob([JSON.stringify(value)]).size>850000)throw new Error('Entidade excede tamanho seguro; dados locais preservados.');
+  for(const value of docs.values())if(bhJsonBytes(value)>850000)throw new Error('Entidade excede tamanho seguro; dados locais preservados.');
   return docs;
 };
 const bhEntityUnpack=docs=>{
@@ -3098,7 +3142,7 @@ const bhEntityStage=async(state,uid,expected)=>{
   const col=bhEntityCollection(uid),rows=[...docs];
   for(let i=0;i<rows.length;){
     bhEntityAssert(uid);const batch=_fbDb.batch();let count=0,bytes=0;
-    while(i<rows.length&&count<200){const [id,value]=rows[i],data={...value,_bhGeneration:generation,_entityId:id},size=new Blob([JSON.stringify(data)]).size;if(count&&bytes+size>4000000)break;batch.set(col.doc(generation+'_'+id),data);bhDiag.record('writeStarted',size,'entity-migration');bytes+=size;count++;i++;}
+    while(i<rows.length&&count<200){const [id,value]=rows[i],data={...value,_bhGeneration:generation,_entityId:id},size=bhJsonBytes(data);if(count&&bytes+size>4000000)break;batch.set(col.doc(generation+'_'+id),data);bhDiag.record('writeStarted',size,'entity-migration');bytes+=size;count++;i++;}
     await batch.commit();
   }
   // Read back every staged document before publishing the generation pointer.
@@ -3120,20 +3164,27 @@ const bhEntityStage=async(state,uid,expected)=>{
   bhDiag.record('migrationCompleted',docs.size,'entity-v4');
   return generation;
 };
+// The packed form of the last acknowledged base. After a push the base IS the
+// state just packed, so the next push reuses those entities instead of packing
+// the whole state a second time. Keyed by the base object: any other ack
+// (a remote apply, a reload) replaces the base and so misses this cache.
+const _bhEntityPackCache=new Map();
 const bhEntityPush=async(state,uid)=>{
   const mode=bhEntityModes.get(uid);if(!mode)throw new Error('Aguarde carregar o formato de sincronização.');
-  const base=_bhSyncBases.get(uid)||{},before=bhEntityPack(base),local=bhEntityPack(state);
+  const base=_bhSyncBases.get(uid)||{},cached=_bhEntityPackCache.get(uid);
+  const before=cached&&cached.value===base?cached.docs:bhEntityPack(base),local=bhEntityPack(state);
+  const ackPacked=()=>{_bhEntityPackCache.set(uid,{value:bhSyncAck(uid,state,{owned:true}),docs:local});};
   const changes=bhEntityChanges(before,local);
   if(!changes.length){bhDiag.record('writeSkipped',0,'entity-unchanged');return null;}
   // Convert only changed entities, so typing never uploads unrelated media.
   for(const change of changes)if(change.after)change.after=await bhCloudMedia(change.after,uid);
   bhEntityAssert(uid);
-  if(changes.length>350||changes.reduce((sum,c)=>sum+new Blob([JSON.stringify(c.after||{})]).size,0)>4000000){
+  if(changes.length>350||changes.reduce((sum,c)=>sum+bhJsonBytes(c.after||{}),0)>4000000){
     const col=bhEntityCollection(uid),control=await col.doc('sync-v4').get({source:'server'}),expected=control.data();
     const snapshot=await col.where('_bhGeneration','==',expected.generation).get({source:'server'});
     const remote=new Map();snapshot.forEach(doc=>{const data=doc.data();remote.set(data._entityId,data);});
     const merged=bhMergeSync(base,state,bhEntityUnpack(remote));
-    const commit=await bhEntityStage(merged,uid,expected);bhSyncAck(uid,state);return commit;
+    const commit=await bhEntityStage(merged,uid,expected);ackPacked();return commit;
   }
   const col=bhEntityCollection(uid),commit=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);let written=false;
   await _fbDb.runTransaction(async tx=>{
@@ -3146,16 +3197,16 @@ const bhEntityPush=async(state,uid)=>{
       const merged=remote===undefined&&change.before===undefined?change.after:bhMergeSync(change.before,change.after,remote);
       if(bhEqual(merged,remote))continue;
       const payload=merged?{...merged,_bhGeneration:mode.generation,_entityId:change.id,_clientCommit:commit}:{deleted:true,_bhGeneration:mode.generation,_entityId:change.id,_clientCommit:commit};
-      if(new Blob([JSON.stringify(payload)]).size>900000)throw new Error('Entidade excede o tamanho seguro.');
+      if(bhJsonBytes(payload)>900000)throw new Error('Entidade excede o tamanho seguro.');
       pending.push([ref,payload]);
     }
     if(!pending.length)return;
-    for(const [ref,payload] of pending){tx.set(ref,payload);bhDiag.record('writeStarted',new Blob([JSON.stringify(payload)]).size,'changed-entity');}
+    for(const [ref,payload] of pending){tx.set(ref,payload);bhDiag.record('writeStarted',bhJsonBytes(payload),'changed-entity');}
     const recent=[...(control.data().recent||[]),{commit,previous:control.data().commit,ids:pending.map(([,payload])=>payload._entityId)}];
-    while(recent.length>16||recent.length>1&&new Blob([JSON.stringify(recent)]).size>60000)recent.shift();
+    while(recent.length>16||recent.length>1&&bhJsonBytes(recent)>60000)recent.shift();
     tx.update(col.doc('sync-v4'),{commit,recent});written=true;
   });
-  bhSyncAck(uid,state);return written?commit:null;
+  ackPacked();return written?commit:null;
 };
 // Adapter keeps the existing UI/reconciliation contract while network updates
 // contain only changed entities. One legacy query, then one entity query.
@@ -3188,13 +3239,13 @@ const bhSyncCollection=uid=>({onSnapshot(options,next,error){
     if(cursor===mode.commit&&docs.size){
       const list=[...ids];for(let i=0;i<list.length;i+=8)await Promise.all(list.slice(i,i+8).map(async id=>{
         bhDiag.record('readStarted',0,'entity-delta');const snap=await col.doc(mode.generation+'_'+id).get({source:'server'});
-        if(!snap.exists)throw new Error('Entidade ausente; dados locais preservados.');const data=snap.data();docs.set(id,data);bhDiag.record('snapshotDocument',new Blob([JSON.stringify(data)]).size,'entity-delta');
+        if(!snap.exists)throw new Error('Entidade ausente; dados locais preservados.');const data=snap.data();docs.set(id,data);bhDiag.record('snapshotDocument',bhJsonBytes(data),'entity-delta');
       }));
     }else{
       // Cold device or cursor older than the bounded journal: one active generation.
       bhDiag.record('queryStarted',0,'entity-bootstrap');
       const snapshot=await col.where('_bhGeneration','==',mode.generation).get({source:'server'});
-      docs.clear();snapshot.forEach(doc=>{const data=doc.data();docs.set(data._entityId,data);bhDiag.record('snapshotDocument',new Blob([JSON.stringify(data)]).size,'entity-bootstrap');});
+      docs.clear();snapshot.forEach(doc=>{const data=doc.data();docs.set(data._entityId,data);bhDiag.record('snapshotDocument',bhJsonBytes(data),'entity-bootstrap');});
     }
     // Point reads may span a concurrent commit. Never publish a mixed version.
     bhDiag.record('readStarted',0,'entity-verify-control');const check=await col.doc('sync-v4').get({source:'server'});
@@ -3211,7 +3262,7 @@ const bhSyncCollection=uid=>({onSnapshot(options,next,error){
   };
   const unsubControl=col.doc('sync-v4').onSnapshot(options,control=>{
     if(!alive||control.metadata.hasPendingWrites)return;
-    bhDiag.record(control.metadata.fromCache?'snapshotCache':'snapshotDocument',control.exists?new Blob([JSON.stringify(control.data())]).size:0,'entity-control');enqueue(control);
+    bhDiag.record(control.metadata.fromCache?'snapshotCache':'snapshotDocument',control.exists?bhJsonBytes(control.data()):0,'entity-control');enqueue(control);
   },error);
   return()=>{alive=false;clearTimeout(retry);unsubLegacy?.();unsubControl();bhDiag.unlisten(legacyToken);bhEntityModes.delete(uid);};
 }});
@@ -3270,7 +3321,7 @@ const pushState=(state,uid,{migrateMedia=false}={})=>{
           if(!bhEqual(merged,existing[key])&&merged!==undefined)fields[key]=merged;
         }
         if(Object.keys(fields).length){
-          const bytes=new Blob([JSON.stringify({...existing,...fields})]).size;
+          const bytes=bhJsonBytes({...existing,...fields});
           if(bytes>950000)throw new Error('A seção '+item.id+' excede o tamanho seguro de documento. Dados locais preservados; exporte um backup.');
           writes.push({id:item.id,fields});
         }
@@ -3287,14 +3338,14 @@ const pushState=(state,uid,{migrateMedia=false}={})=>{
       for(const {id,fields} of writes){
         const data={...fields,_clientCommit:revision,_updated:firebase.firestore.FieldValue.serverTimestamp()};
         if(id!=='state')data._revision=revision;
-        bhDiag.record('writeStarted',new Blob([JSON.stringify(fields)]).size,'changed-section');
+        bhDiag.record('writeStarted',bhJsonBytes(fields),'changed-section');
         // Explicit mergeFields replaces changed map fields (including removals
         // inside pomoData); ordinary merge:true would retain removed map keys.
         tx.set(refs[id],data,{mergeFields:Object.keys(data)});
         didWrite=true;
       }
     });
-    assertAccount();bhSyncAck(uid,frozen);
+    assertAccount();bhSyncAck(uid,frozen,{owned:true});
     return didWrite?revision:null;
   };
   // Manual sync and the automatic pump share this queue, so an older request
@@ -4692,14 +4743,37 @@ const rankReconcileDecay=(value,days,now=new Date())=>{
   });
   if(carried<=0)return {...value,decayApplied,decayLoss};
   const before=rankPosition(value.points),points=Math.min(RANK_MAX,value.points+carried);
-  const notice={id:'decay-refund-'+today,type:'refund',refund:carried,previousPosition:before,position:rankPosition(points)};
+  // One id per refund (the score it starts from), the same on every device
+  // that computes it: a second refund later the same day is its own notice
+  // instead of replacing, or hiding behind, a first one already dismissed.
+  const notice={id:'decay-refund-'+today+'-'+value.points,type:'refund',refund:carried,previousPosition:before,position:rankPosition(points)};
   return {...value,points,decayApplied,decayLoss,notices:[...(value.notices||[]).filter(n=>n&&n.id!==notice.id),notice]};
+};
+// RANK UPKEEP ON A SYNCED DEVICE. Decay is charged from the focus ledger this
+// device holds, and at boot that ledger can lack what another device logged
+// since this one last synced: the phone charged the full tier for a day that
+// had focus, showed "Decay aplicado", recorded the lower division, and then
+// played a promotion when the cloud brought the points back a second later.
+// A device that has synced an account now waits for its first cloud reconcile
+// (20 s at most, after which it goes on as offline) before any decay, refund
+// or season close; focus credit is not held.
+let _bhRankUpkeepHoldUntil=(()=>{try{return localStorage.getItem(SYNCED_UID_KEY)&&navigator.onLine!==false?Date.now()+20000:0;}catch{return 0;}})();
+const bhRankUpkeepHeld=()=>_bhRankUpkeepHoldUntil>Date.now();
+const bhRankUpkeepRelease=()=>{_bhRankUpkeepHoldUntil=0;};
+// Upkeep (decay, refund, season close) that maintenance performed on a copy
+// that came from the cloud. That is this device's own change to the rank and
+// must be pushed like an edit (see the auto-save effect).
+const pomoRankUpkeepChanged=(before,after)=>{
+  const a=before?.rank||{},b=after?.rank||{};
+  return (Number(a.points)||0)!==(Number(b.points)||0)||a.seasonId!==b.seasonId
+    ||!bhEqual(a.decayApplied||{},b.decayApplied||{})||!bhEqual(a.decayLoss||{},b.decayLoss||{})
+    ||!bhEqual(a.history||[],b.history||[]);
 };
 const pomoRankMaintain=(data,now=new Date())=>{
   const base=pomoNormalize(data,now);
   const current=rankSeasonForDate(now);
   let rank=rankNormalize(base.rank,now);
-  if(rankIsPaused(rank)){
+  if(rankIsPaused(rank)||bhRankUpkeepHeld()){
     const same=JSON.stringify(data&&data.rank||null)===JSON.stringify(rank);
     return same?data:{...base,rank};
   }
@@ -5488,29 +5562,36 @@ const RankSeasonHistory=({rank,onClose})=>{
 // clicking it opens the registration. 'deferred' is the older "Registrar
 // depois" status and reads the same way.
 const bhSessionUnregistered=row=>!!row&&(row.status==='skipped'||row.status==='deferred'||row.status==='abandoned');
+// What a settled day really took: decayLoss when recorded (the score never
+// goes below zero, so a day can take less than its tier), else the tier.
+const rankDecayTaken=(rank,key)=>{const real=rank?.decayLoss?.[key];return Math.max(0,Number(real!==undefined?real:rank?.decayApplied?.[key])||0);};
 const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=[],projects=[],showPoints=true,pomoData=null,todayExtraSecs=0})=>{
   const [histTab,setHistTab]=useState('sessions');
   const rows=[...(rank.sessions||[])].sort((a,b)=>String(b.endedAt||'').localeCompare(String(a.endedAt||'')));
   const [page,setPage]=useState(0);
   const daysPerPage=5;
   const dayGroups=useMemo(()=>{
-    const groups=[];
+    // One group per day. A session's stored day does not always follow the
+    // order of its end time (an abandoned session keeps the day it was given
+    // up), and grouping by runs split one day into two sections with the same
+    // React key.
+    const groups=[],byKey=new Map();
     rows.forEach(row=>{
       const storedKey=typeof row.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(row.date)?row.date:null;
       const parsedDate=new Date(row.endedAt||'');
       const key=storedKey||(!Number.isNaN(parsedDate.getTime())?localDateISO(parsedDate):'sem-data');
-      const date=key==='sem-data'?parsedDate:rankDateFromKey(key);
-      let group=groups[groups.length-1];
-      if(!group||group.key!==key){group={key,date,rows:[]};groups.push(group);}
+      let group=byKey.get(key);
+      if(!group){group={key,date:key==='sem-data'?parsedDate:rankDateFromKey(key),rows:[]};byKey.set(key,group);groups.push(group);}
       group.rows.push(row);
     });
     // Weekdays that ended in decay show up even with no session that day
     // (zero focus is the costliest decay tier).
-    if(showPoints)Object.entries(rank.decayApplied||{}).forEach(([key,loss])=>{
-      if(/^\d{4}-\d{2}-\d{2}$/.test(key)&&Number(loss)>0&&!groups.some(g=>g.key===key))groups.push({key,date:rankDateFromKey(key),rows:[]});
+    if(showPoints)Object.keys(rank.decayApplied||{}).forEach(key=>{
+      if(/^\d{4}-\d{2}-\d{2}$/.test(key)&&rankDecayTaken(rank,key)>0&&!byKey.has(key)){const group={key,date:rankDateFromKey(key),rows:[]};byKey.set(key,group);groups.push(group);}
     });
     return groups.sort((a,b)=>a.key==='sem-data'?1:b.key==='sem-data'?-1:b.key.localeCompare(a.key));
-  },[rank.sessions,rank.decayApplied,showPoints]);
+  },[rank.sessions,rank.decayApplied,rank.decayLoss,showPoints]);
+  const decayShown=key=>rankDecayTaken(rank,key);
   const pageCount=Math.max(1,Math.ceil(dayGroups.length/daysPerPage));
   useEffect(()=>{setPage(current=>Math.min(current,pageCount-1));},[pageCount]);
   const visibleGroups=dayGroups.slice(page*daysPerPage,(page+1)*daysPerPage);
@@ -5523,7 +5604,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
     dayGroups.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
       <>
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
-          <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&Number(rank.decayApplied?.[group.key])>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{Number(rank.decayApplied[group.key]).toLocaleString('pt-BR')} pts</span>}</div>
+          <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&decayShown(group.key)>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{decayShown(group.key).toLocaleString('pt-BR')} pts</span>}</div>
           {group.rows.length===0&&<div className="rank-session-decay-empty">Nenhuma sessão neste dia.</div>}
           {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?(Array.isArray(taskNote.note.images)?taskNote.note.images:[]):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
@@ -14225,6 +14306,8 @@ const App=()=>{
     return null;
   }),[]);
   const _remoteApplyId=useRef(0);
+  const _remotePomoRaw=useRef(null); // the cloud's pomoData as it arrived, before this device's rank upkeep
+  const _ownCommitRef=useRef(null); // the commit of this device's last push: its echo needs no re-ack
   // Shown only while the page is actually on screen.
   const [pageVisible,setPageVisible]=useState(()=>typeof document==='undefined'||document.visibilityState!=='hidden');
   useEffect(()=>{const v=()=>setPageVisible(document.visibilityState!=='hidden');document.addEventListener('visibilitychange',v);return()=>document.removeEventListener('visibilitychange',v);},[]);
@@ -14499,6 +14582,14 @@ const App=()=>{
     });
   },[galleryPosts,projects,taskPostLinks]);
 
+  // The boot hold on rank upkeep (see bhRankUpkeepHeld) ends at the first cloud
+  // reconcile or, failing that, after 20 s: then the upkeep runs on local.
+  useEffect(()=>{
+    const left=_bhRankUpkeepHoldUntil-Date.now();
+    if(left<=0)return;
+    const id=setTimeout(()=>{if(_bhRankUpkeepHoldUntil===0)return;bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));},left+50);
+    return()=>clearTimeout(id);
+  },[]);
   // Daily maintenance also runs at local midnight and on return to the tab.
   // It closes completed weekdays only (through yesterday), so today's focus can
   // never be penalised before the day is over.
@@ -14538,11 +14629,18 @@ const App=()=>{
     if(rankIsPaused(rank))return;
     const current={seasonId:rank.seasonId,...rankPosition(rank.points)};
     rankPosRef.current=current;
+    // While upkeep waits for the cloud the score is provisional: neither a
+    // drop nor a rise is recorded yet.
+    if(bhRankUpkeepHeld())return;
     const seen=bhRankCelebratedLoad();
     // First run on this device, a new season, or a drop (decay): nothing to
     // celebrate, just remember where the rank stands.
     if(!seen||seen.seasonId!==current.seasonId||bhRankLevel(current)<bhRankLevel(seen)){bhRankCelebratedSave(current);return;}
     if(bhRankLevel(current)===bhRankLevel(seen))return;
+    // A decay refund that crosses a division is a correction, not a level
+    // earned: its own notice already names the new level.
+    const refund=(rank.notices||[]).find(n=>n&&n.type==='refund'&&String(n.id).startsWith('decay-refund-'+rankDateKey()));
+    if(refund&&bhRankLevel(refund.position)===bhRankLevel(current)){bhRankCelebratedSave(current);return;}
     setRankPromotion(p=>p&&p.preview?p:{type:current.rankIndex>seen.rankIndex?'rank':'division',position:current,from:seen});
   },[pomoData?.rank?.points,pomoData?.rank?.seasonId,pomoData?.rank?.paused]);
 
@@ -14719,6 +14817,9 @@ const App=()=>{
       let justFirstContact=false;
       if(!_didInitialReconcile.current){
         _didInitialReconcile.current=true;initialRun=true;
+        // The cloud has arrived: rank upkeep may run. Applying the cloud runs it
+        // on the cloud's copy; the branch that keeps local runs it on local.
+        bhRankUpkeepRelease();
         const firstContact=_deviceSyncedUid.current!==fbUser.uid;
         if(firstContact){
           justFirstContact=true;
@@ -14765,6 +14866,7 @@ const App=()=>{
                 setSyncStatus('error');return;
               }
               try{localStorage.setItem(DIRTY_KEY,'1');}catch(e){bhLog('reconcile.marcarSujo',e,'local won this reconcile but is not flagged dirty, so the next boot may let the cloud overwrite it');}
+              setPomoData(prev=>pomoRankMaintain(prev));
               setSyncStatus('synced');
               setSyncTick(t=>t+1);
               return;
@@ -14804,11 +14906,30 @@ const App=()=>{
         }catch(e){_syncBlockedRef.current=true;setSyncStatus('error');bhLog('reconcile.arquivarRemotoConcorrente',e,'cloud push paused because conflict backup failed');}
         return;
       }
+      // PHONES. Routine arrivals are frequent: each flush of a Pomodoro running
+      // on any device brings one, and every push of this device comes back as
+      // its echo. Sections identical to what this device holds are left alone
+      // (no re-render of every view, no re-serializing the whole state), and an
+      // arrival with no difference at all ends here.
+      let unchanged=null;
+      if(!initialRun&&!justFirstContact){
+        unchanged=new Set(BH_SYNC_FIELDS.filter(key=>data[key]!==undefined&&bhStableStringify(data[key])===localSectionText(key)));
+        if(BH_SYNC_FIELDS.every(key=>data[key]===undefined||unchanged.has(key))){
+          if(data._clientCommit!==_ownCommitRef.current&&_latestState.current)bhSyncAck(fbUser.uid,_latestState.current);
+          setSyncDetail('');setSyncStatus('synced');
+          return;
+        }
+      }
+      // A routine arrival reaches this point only with nothing local pending
+      // (that case returned above), so local is what was last synced. A backup
+      // from the last five minutes already covers it; writing a full one on
+      // every arrival froze phones for over a second each time.
+      const routineCovered=!initialRun&&(()=>{const last=bhLastAt();return !!last&&Date.now()-new Date(last).getTime()<5*60*1000;})();
       try{
         const cur=_latestState.current;
         // First contact already archived this exact local state above. Capturing
         // it again here used to turn a harmless dedup into a false failure.
-        if(cur&&!justFirstContact){
+        if(cur&&!justFirstContact&&!routineCovered){
           // F2(A) second half: this snapshot IS the local state about to be
           // replaced by the remote. If it diverges from what arrived and was
           // edited minutes ago, the user just lost live work to another device
@@ -14845,7 +14966,9 @@ const App=()=>{
       // archived for a conflict no longer counts as "I already stored this one".
       _lastRemoteArchivedSig.current='';
       _remoteApplyId.current=_remoteApplyId.current+1;
-      applyStateFields(data);
+      // Nothing set means no render, and the next user edit would be taken for
+      // this remote apply: give the id back.
+      if(!applyStateFields(data,unchanged))_remoteApplyId.current--;
       // Record account ownership; later boots use the durable merge baseline.
       try{localStorage.setItem(DIRTY_KEY,'0');localStorage.setItem(SYNCED_UID_KEY,fbUser.uid);localStorage.setItem(LOCAL_OWNER_UID_KEY,fbUser.uid);localStorage.removeItem(SEEDED_KEY);}catch(e){bhLog('sync.marcarEmDia',e,'the device may repeat the 1st-contact reconcile on the next boot');}
       _deviceSyncedUid.current=fbUser.uid;
@@ -14886,6 +15009,7 @@ const App=()=>{
           _hasPendingLocalEdit.current=false;
           setSyncNotice('Esta conta ainda não tinha dados. O conteúdo local da conta anterior foi guardado no Histórico de Backups e uma área vazia foi aberta para esta conta.');
         }else if(_localHadRealDataAtBoot.current&&(_bootDirty.current||_hasPendingLocalEdit.current)){_hasPendingLocalEdit.current=true;setSyncTick(t=>t+1);}
+        bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));
         _didInitialReconcile.current=true;
         _deviceSyncedUid.current=fbUser.uid;_localOwnerUid.current=fbUser.uid;
         try{localStorage.setItem(DIRTY_KEY,_hasPendingLocalEdit.current?'1':'0');localStorage.setItem(SYNCED_UID_KEY,fbUser.uid);localStorage.setItem(LOCAL_OWNER_UID_KEY,fbUser.uid);localStorage.removeItem(SEEDED_KEY);}catch(e){bhLog('sync.emptyAccountOwner',e);}
@@ -14899,7 +15023,7 @@ const App=()=>{
         if(change.type==='removed')delete _remoteCache[snap.id];
         else{
           const value=snap.data();
-          if(!colSnap._entityVirtual)bhDiag.record(colSnap.metadata.fromCache?'snapshotCache':'snapshotDocument',new Blob([JSON.stringify(value)]).size,'listener');
+          if(!colSnap._entityVirtual)bhDiag.record(colSnap.metadata.fromCache?'snapshotCache':'snapshotDocument',bhJsonBytes(value),'listener');
           if(bhEqual(_remoteCache[snap.id],value))return;
           _remoteCache[snap.id]=value;
         }
@@ -14934,7 +15058,22 @@ const App=()=>{
     _lastSeenApplyId.current=_remoteApplyId.current;
     const state={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
     if(bhPersistenceBusy())return;
-    if(isRemoteTrigger&&fbUser?.uid)bhSyncAck(fbUser.uid,state);
+    if(isRemoteTrigger&&fbUser?.uid){
+      // Rank upkeep run on the cloud's copy as it arrived (decay, refund,
+      // season close) is acknowledged as NOT synced: the base keeps the cloud's
+      // version and the upkeep goes out as an edit. Acknowledging it hid it
+      // from every later push, so the cloud never got the decay, each device
+      // re-applied it on every arrival, and the next push took the cloud's
+      // undecayed score over the points just earned.
+      const raw=_remotePomoRaw.current;_remotePomoRaw.current=null;
+      const upkeep=!!raw&&pomoRankUpkeepChanged(raw,state.pomoData);
+      bhSyncAck(fbUser.uid,upkeep?{...state,pomoData:raw}:state);
+      if(upkeep){
+        _hasPendingLocalEdit.current=true;_editGen.current++;
+        try{localStorage.setItem(DIRTY_KEY,'1');}catch(e){bhLog('sync.rankUpkeep',e);}
+        bhDiag.record('localChange',0,'rank-upkeep');
+      }
+    }
     // PERFORMANCE (phones): whether content changed is decided per section.
     // Only a section whose object changed is serialized again (a note edit
     // re-reads the notes, not the whole multi-MB state as before).
@@ -15019,23 +15158,34 @@ const App=()=>{
   },[projects,galleryPosts,pomoData?.rank?.sessions,fbUser,syncStatus]);
   // Puts an external state (a cloud apply, another tab's save) into the React
   // lists. Only the sections present in `data` are replaced.
-  const applyStateFields=data=>{
-    const A=Array.isArray;
-    if(A(data.projects))setProjects(bhRecordArray(data.projects)); // the open project re-resolves from this list
-    if(A(data.clients))setClients(bhRecordArray(data.clients));
-    if(A(data.mentors))setMentors(bhRecordArray(data.mentors));
-    if(A(data.notes))setNotes(bhRecordArray(data.notes));
-    if(A(data.tasks))setTasks(bhRecordArray(data.tasks));
-    if(A(data.socialPosts))setSocialPosts(bhRecordArray(data.socialPosts));
-    if(A(data.socialTemplates))setSocialTemplatesState(bhRecordArray(data.socialTemplates));
+  // `skip`: sections already identical to the local ones, left untouched so
+  // nothing re-renders for them. Returns how many sections were set.
+  const applyStateFields=(data,skip=null)=>{
+    const A=Array.isArray;let set=0;
+    const take=key=>A(data[key])&&!skip?.has(key)&&++set;
+    if(take('projects'))setProjects(bhRecordArray(data.projects)); // the open project re-resolves from this list
+    if(take('clients'))setClients(bhRecordArray(data.clients));
+    if(take('mentors'))setMentors(bhRecordArray(data.mentors));
+    if(take('notes'))setNotes(bhRecordArray(data.notes));
+    if(take('tasks'))setTasks(bhRecordArray(data.tasks));
+    if(take('socialPosts'))setSocialPosts(bhRecordArray(data.socialPosts));
+    if(take('socialTemplates'))setSocialTemplatesState(bhRecordArray(data.socialTemplates));
     const nextFolders=A(data.galleryFolders)?bhRecordArray(data.galleryFolders):_latestState.current.galleryFolders;
-    const pomoOk=data.pomoData&&typeof data.pomoData==='object'&&!A(data.pomoData);
+    const pomoOk=data.pomoData&&typeof data.pomoData==='object'&&!A(data.pomoData)&&!skip?.has('pomoData');
     const nextPomo=pomoOk?pomoSyncGalleryCategories(pomoRankMaintain(data.pomoData),nextFolders):_latestState.current.pomoData;
-    if(A(data.galleryPosts))setGalleryPosts(repairProjectFocusPostScopes(bhRecordArray(data.galleryPosts).map(normalizeFocusPostCopy),nextPomo?.rank?.sessions));
-    if(A(data.galleryFolders))setGalleryFolders(nextFolders);
-    if(A(data.noteGroups))setNoteGroups(bhRecordArray(data.noteGroups));
-    if(pomoOk)setPomoData(nextPomo);
-    if(data.identity===null||data.identity&&typeof data.identity.hubName==='string'){saveIdentity(data.identity);setIdentity(data.identity);}
+    _remotePomoRaw.current=pomoOk?data.pomoData:null;
+    if(take('galleryPosts'))setGalleryPosts(repairProjectFocusPostScopes(bhRecordArray(data.galleryPosts).map(normalizeFocusPostCopy),nextPomo?.rank?.sessions));
+    if(take('galleryFolders'))setGalleryFolders(nextFolders);
+    if(take('noteGroups'))setNoteGroups(bhRecordArray(data.noteGroups));
+    if(pomoOk){setPomoData(nextPomo);set++;}
+    if(!skip?.has('identity')&&(data.identity===null||data.identity&&typeof data.identity.hubName==='string')){saveIdentity(data.identity);setIdentity(data.identity);set++;}
+    return set;
+  };
+  // The stable serialization of a local section, taken from the auto-save's
+  // cache when that section object has not changed since it was serialized.
+  const localSectionText=key=>{
+    const cur=_latestState.current,seen=_observedSave.current,v=cur?.[key];
+    return seen&&seen.refs.get(key)===v&&seen.text.has(key)?seen.text.get(key):bhStableStringify(v===undefined?null:v);
   };
   // Two tabs of this browser share localStorage but not memory. Each saved its
   // WHOLE state over the other's (every edit and every 5s checkpoint), so the
@@ -15086,6 +15236,7 @@ const App=()=>{
       setSyncStatus('syncing');
       try{
         const committed=await pushState(_latestState.current,fbUser.uid);
+        if(committed)_ownCommitRef.current=committed;
         if(!alive)return;
         _pushBackoff.current={failures:0,retryAt:0};
         if(bhPushSettled(pushedGen,_editGen.current)){
