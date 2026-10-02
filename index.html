@@ -10060,16 +10060,25 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   // Files added while an upload is running (a second paste) wait here, with the post
   // they were meant for, and go up one batch after another.
   const uploadQueueRef=useRef([]);
-  const [queuedUploads,setQueuedUploads]=useState(0);
+  // Running totals of the whole run (all queued batches), so the counter reads 0/1 -> 0/2.
+  const uploadRunRef=useRef({done:0,total:0});
   const addImageFiles=async(rawFiles,target)=>{
     const files=(rawFiles||[]).filter(f=>f&&(/^(image|video)\//.test(f.type)||/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i.test(f.name||'')));
     if(!files.length)return;
     const postId=target?target.postId:selected?.id,linked=target?target.linked:!!selected?.linkedTask;
-    if(uploading){uploadQueueRef.current.push({files,postId,linked});setQueuedUploads(uploadQueueRef.current.length);return;}
+    const run=uploadRunRef.current;
+    if(uploading){
+      uploadQueueRef.current.push({files,postId,linked});
+      run.total+=files.length;
+      setUploadProgress(p=>p?{...p,total:run.total}:p);
+      return;
+    }
+    if(!target){run.done=0;run.total=files.length;}
+    const base=run.done;
     setUploading(true);
-    setUploadProgress({done:0,total:files.length});
+    setUploadProgress({done:base,total:run.total});
     try{
-      const urls=await uploadImages(files,(done,total)=>setUploadProgress({done,total}),(i,pct)=>setUploadProgress(p=>({done:p?.done??i,total:files.length,compact:pct})));
+      const urls=await uploadImages(files,(done)=>setUploadProgress({done:base+done,total:run.total}),(i,pct)=>setUploadProgress(p=>({done:p?.done??base+i,total:run.total,compact:pct})));
       // A post fed by a task: the files go to the task (its frames) and the
       // post shows them from there.
       if(linked){onLinkedPostImages?.(postId,{type:'add',urls});return;}
@@ -10079,14 +10088,14 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       bhLog('gallery.upload',err,'the selected images were not added');
       await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));
     }finally{
-      setUploadProgress(null);
+      run.done=base+files.length;
+      if(!uploadQueueRef.current.length)setUploadProgress(null);
       setUploading(false);
     }
   };
   useEffect(()=>{
     if(uploading||!uploadQueueRef.current.length)return;
     const next=uploadQueueRef.current.shift();
-    setQueuedUploads(uploadQueueRef.current.length);
     addImageFilesRef.current?.(next.files,next);
   },[uploading]);
   const [fileDragOver,setFileDragOver]=useState(false);
@@ -10350,15 +10359,15 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                 <Icon name="star" size={11} style={{fill:selected.bannerImage===img?'white':'none'}}/></button>}
             </div>
           ))}
+          <div className="upload-zone" style={{aspectRatio:'16/9',minHeight:0,opacity:uploading?.6:1,pointerEvents:uploading?'none':'auto'}} onClick={()=>addImgRef.current.click()}>
+            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}</span>
+          </div>
           {removedImg&&String(removedImg.postId)===String(selected.id)&&(
             <div className="post-img-undo" role="status">
               <span>{removedImg.linked?'Imagem tirada do post.':'Imagem removida.'}</span>
               <button type="button" onClick={undoRemoveImg}>Desfazer</button>
             </div>
           )}
-          <div className="upload-zone" style={{aspectRatio:'16/9',minHeight:0,opacity:uploading?.6:1,pointerEvents:uploading?'none':'auto'}} onClick={()=>addImgRef.current.click()}>
-            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}{queuedUploads>0&&` · +${queuedUploads} na fila`}</span>
-          </div>
           {uploadProgress&&uploadProgress.total>1&&(
             <div style={{marginTop:8}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'.72rem',color:'var(--muted)',marginBottom:4}}>
