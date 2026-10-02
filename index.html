@@ -654,7 +654,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .rank-panel-title{display:flex;align-items:baseline;gap:11px;margin:2px 0 10px;font-family:'Cormorant Garamond',serif;line-height:1}
 .rank-panel-title span{font-size:clamp(1.7rem,3vw,2.25rem);font-weight:600;letter-spacing:-.02em;line-height:1}
 .rank-panel-title strong{display:inline-block;text-align:center;min-width:26px;font:600 1.45rem/1 'Cormorant Garamond',serif;color:var(--muted);letter-spacing:.06em}
-.rank-decay-hint{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 8px;border:1px solid rgba(173,104,34,.18);border-radius:7px;background:rgba(190,119,45,.07);color:#965c24;font-size:.66rem;line-height:1.25}.rank-decay-hint strong{font-weight:700}:root[data-theme="notturno"] .rank-decay-hint{color:#e1ad72;background:rgba(190,119,45,.1);border-color:rgba(225,173,114,.18)}
+.rank-decay-hint{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 8px;border:1px solid rgba(173,104,34,.18);border-radius:7px;background:rgba(190,119,45,.07);color:#965c24;font-size:.66rem;line-height:1.25}.rank-decay-hint strong{font-weight:700}
+.rank-session-day{display:flex;align-items:center;justify-content:space-between;gap:8px}.rank-session-decay{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;border:1px solid rgba(173,104,34,.22);background:rgba(190,119,45,.08);color:#965c24;font-size:.68rem;font-weight:700;white-space:nowrap}:root[data-theme="notturno"] .rank-session-decay{color:#e1ad72;background:rgba(190,119,45,.12);border-color:rgba(225,173,114,.2)}.rank-session-decay-empty{padding:8px 2px;color:var(--muted);font-size:.74rem}:root[data-theme="notturno"] .rank-decay-hint{color:#e1ad72;background:rgba(190,119,45,.1);border-color:rgba(225,173,114,.18)}
 .rank-panel-footer{grid-area:footer;display:grid;grid-template-columns:minmax(145px,1fr) minmax(130px,.8fr) auto;align-items:center;gap:18px;padding:11px 20px;border-top:1px solid var(--border);background:rgba(var(--ink),.018)}
 .rank-panel-metric{display:flex;flex-direction:column;gap:1px;min-width:0}.rank-panel-metric>span{font-size:.58rem;font-weight:700;letter-spacing:.075em;text-transform:uppercase;color:var(--muted)}.rank-panel-metric>strong{font:600 1rem 'Cormorant Garamond',serif;color:var(--text)}
 .rank-panel-metric>i{display:block;width:100%;height:3px;margin-top:3px;border-radius:9px;background:rgba(var(--ink),.1);overflow:hidden}.rank-panel-metric>i b{display:block;height:100%;border-radius:inherit;background:#3694a7}
@@ -5442,8 +5443,13 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
       if(!group||group.key!==key){group={key,date,rows:[]};groups.push(group);}
       group.rows.push(row);
     });
-    return groups;
-  },[rank.sessions]);
+    // Weekdays that ended in decay show up even with no session that day
+    // (zero focus is the costliest decay tier).
+    if(showPoints)Object.entries(rank.decayApplied||{}).forEach(([key,loss])=>{
+      if(/^\d{4}-\d{2}-\d{2}$/.test(key)&&Number(loss)>0&&!groups.some(g=>g.key===key))groups.push({key,date:rankDateFromKey(key),rows:[]});
+    });
+    return groups.sort((a,b)=>a.key==='sem-data'?1:b.key==='sem-data'?-1:b.key.localeCompare(a.key));
+  },[rank.sessions,rank.decayApplied,showPoints]);
   const pageCount=Math.max(1,Math.ceil(dayGroups.length/daysPerPage));
   useEffect(()=>{setPage(current=>Math.min(current,pageCount-1));},[pageCount]);
   const visibleGroups=dayGroups.slice(page*daysPerPage,(page+1)*daysPerPage);
@@ -5453,10 +5459,11 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
       {[['sessions','Sessões'],['days','Por dia'],['months','Por mês']].map(([k,l])=><button key={k} type="button" role="tab" aria-selected={histTab===k} className={histTab===k?'on':''} onClick={()=>setHistTab(k)}>{l}</button>)}
     </div>}
     {pomoData&&histTab!=='sessions'?<FocusStatsBody pomoData={pomoData} todayExtraSecs={todayExtraSecs} tab={histTab}/>:
-    rows.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
+    dayGroups.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
       <>
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
-          <div className="rank-session-day">{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</div>
+          <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&Number(rank.decayApplied?.[group.key])>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{Number(rank.decayApplied[group.key]).toLocaleString('pt-BR')} pts</span>}</div>
+          {group.rows.length===0&&<div className="rank-session-decay-empty">Nenhuma sessão neste dia.</div>}
           {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?(Array.isArray(taskNote.note.images)?taskNote.note.images:[]):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
             <div className="rank-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={opens?'image':'minus'} size={14} style={{opacity:.28}}/>}</div>
