@@ -10057,10 +10057,15 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   };
   // Shared by the file picker and by files dropped from the desktop onto the
   // post (images and videos only; anything else is ignored).
-  const addImageFiles=async rawFiles=>{
+  // Files added while an upload is running (a second paste) wait here, with the post
+  // they were meant for, and go up one batch after another.
+  const uploadQueueRef=useRef([]);
+  const [queuedUploads,setQueuedUploads]=useState(0);
+  const addImageFiles=async(rawFiles,target)=>{
     const files=(rawFiles||[]).filter(f=>f&&(/^(image|video)\//.test(f.type)||/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i.test(f.name||'')));
-    if(!files.length||uploading)return;
-    const postId=selected?.id,linked=!!selected?.linkedTask;
+    if(!files.length)return;
+    const postId=target?target.postId:selected?.id,linked=target?target.linked:!!selected?.linkedTask;
+    if(uploading){uploadQueueRef.current.push({files,postId,linked});setQueuedUploads(uploadQueueRef.current.length);return;}
     setUploading(true);
     setUploadProgress({done:0,total:files.length});
     try{
@@ -10078,6 +10083,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       setUploading(false);
     }
   };
+  useEffect(()=>{
+    if(uploading||!uploadQueueRef.current.length)return;
+    const next=uploadQueueRef.current.shift();
+    setQueuedUploads(uploadQueueRef.current.length);
+    addImageFilesRef.current?.(next.files,next);
+  },[uploading]);
   const [fileDragOver,setFileDragOver]=useState(false);
   // Ctrl/Cmd+V with an image on the clipboard (a screenshot, a frame copied
   // from an editor) adds it to the open study. Plain-text paste into the
@@ -10346,7 +10357,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             </div>
           )}
           <div className="upload-zone" style={{aspectRatio:'16/9',minHeight:0,opacity:uploading?.6:1,pointerEvents:uploading?'none':'auto'}} onClick={()=>addImgRef.current.click()}>
-            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}</span>
+            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}{queuedUploads>0&&` · +${queuedUploads} na fila`}</span>
           </div>
           {uploadProgress&&uploadProgress.total>1&&(
             <div style={{marginTop:8}}>
