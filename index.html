@@ -7574,7 +7574,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
     const el=scrollRef.current,prev=prevDayW.current;prevDayW.current=DAY_W;
     if(el&&!thisWeek&&prev>0&&prev!==DAY_W)el.scrollLeft=el.scrollLeft*DAY_W/prev;
   },[DAY_W]);
-  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:Math.max(0,x(today)-3*DAY_W);},[open,start,thisWeek,visibleRows.length>0,scrollW>0]);
+  useEffect(()=>{if(open&&scrollRef.current)scrollRef.current.scrollLeft=thisWeek?0:tlTodayLeft(scrollRef.current,x(today),DAY_W,LEFT_W);},[open,start,thisWeek,visibleRows.length>0,scrollW>0]);
   const bodyH=visibleRows.length*ROW_H;
   // PERFORMANCE (phones): only the rows inside the 320px window (plus a margin)
   // are drawn; spacers keep the full scroll height. Forty projects with their
