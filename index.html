@@ -2963,6 +2963,7 @@ const bhSyncRankResolve=(base,local,remote,out)=>{
   const pb=bhSyncRec(base)&&base.points!==undefined?Number(bhSyncScalar(base.points))||0:NaN;
   if(pl!==pb&&pr!==pb){const p=Math.max(pl,pr);out.points=bhSyncRec(local.points)?{scalar:p}:p;}
   if(out.decayApplied!==undefined)out.decayApplied=bhSyncNumMap(local.decayApplied,remote.decayApplied,out.decayApplied,Math.min);
+  if(out.decayLoss!==undefined)out.decayLoss=bhSyncNumMap(local.decayLoss,remote.decayLoss,out.decayLoss,Math.min);
 };
 const bhSyncPomoResolve=(local,remote,out)=>{
   if(out.days!==undefined)out.days=bhSyncNumMap(local.days,remote.days,out.days,Math.max);
@@ -4554,7 +4555,7 @@ const rankSeasonNext=id=>{
 const rankDefault=(now=new Date(),history=[],sessions=[],notices=[])=>({
   seasonId:rankSeasonForDate(now).id,points:0,cycleDate:rankDateKey(now),cycleSeconds:0,cycleProjectSeconds:0,
   postVictoryPointUnits:0,sessionAwardsVersion:2,
-  decayApplied:{},startedOn:rankDateKey(now),history:Array.isArray(history)?history.slice(-24):[],
+  decayApplied:{},decayLoss:{},startedOn:rankDateKey(now),history:Array.isArray(history)?history.slice(-24):[],
   sessions:Array.isArray(sessions)?sessions:[],
   notices:Array.isArray(notices)?notices.filter(Boolean):[]
 });
@@ -4575,6 +4576,7 @@ const rankNormalize=(value,now=new Date())=>{
     postVictoryPointUnits:sameCycleDay?Math.max(0,Math.min(7199,Math.floor(Number(src.postVictoryPointUnits)||0))):0,
     sessionAwardsVersion:Number(src.sessionAwardsVersion)||fallback.sessionAwardsVersion,
     decayApplied:src.decayApplied&&typeof src.decayApplied==='object'&&!Array.isArray(src.decayApplied)?src.decayApplied:{},
+    decayLoss:src.decayLoss&&typeof src.decayLoss==='object'&&!Array.isArray(src.decayLoss)?src.decayLoss:{},
     startedOn:typeof src.startedOn==='string'?src.startedOn:fallback.startedOn,
     // One row per season (the last one wins): two devices closing the same
     // season with different totals both reach the synced list, which merges
@@ -4621,7 +4623,7 @@ const rankDecayForSeconds=secs=>{
   if(mins<60)return 250;if(mins<75)return 150;if(mins<90)return 100;return 0;
 };
 const rankApplyDecayThrough=(value,days,throughKey)=>{
-  let rank={...value,decayApplied:{...(value.decayApplied||{})}};
+  let rank={...value,decayApplied:{...(value.decayApplied||{})},decayLoss:{...(value.decayLoss||{})}};
   let cursor=rank.startedOn;
   let changed=false,guard=0;
   while(cursor<=throughKey&&guard++<370){
@@ -4629,6 +4631,9 @@ const rankApplyDecayThrough=(value,days,throughKey)=>{
     const weekday=date.getDay();
     if(weekday!==0&&weekday!==6&&!Object.prototype.hasOwnProperty.call(rank.decayApplied,cursor)){
       const loss=rankDecayForSeconds((days||{})[cursor]||0);
+      // decayApplied is the nominal tier; decayLoss is what the score really
+      // lost (the score never goes below zero). The refund below needs both.
+      rank.decayLoss[cursor]=Math.min(rank.points,loss);
       rank.points=Math.max(0,rank.points-loss);
       rank.decayApplied[cursor]=loss;
       changed=true;
@@ -4636,6 +4641,59 @@ const rankApplyDecayThrough=(value,days,throughKey)=>{
     cursor=rankDateAdd(cursor,1);
   }
   return changed?rank:value;
+};
+// DECAY REFUND. A day's decay is charged from the focus ledger of whichever
+// device opens the app first. A device that had not yet received the focus
+// logged elsewhere charged the full tier for a day that really had hours of
+// focus, and the charge stayed in decayApplied forever. This re-derives every
+// settled day from the focus we hold now (day totals or the session log,
+// whichever is larger) and gives back exactly what was wrongly taken.
+// Exactness: the score never goes below zero, so a wrong charge may have taken
+// less than its tier, and returning points changes how much later days (that
+// were clamped at zero) would have taken. decayLoss holds what each day really
+// took; the days are replayed in order carrying the returned balance, so the
+// refund is what the score would hold had every day been charged correctly.
+// Days settled before decayLoss existed are estimated by replaying the session
+// awards from the season start (never above the tier). Re-running is a no-op:
+// corrected days match their truth.
+const rankReconcileDecay=(value,days,now=new Date())=>{
+  const ledger=value.decayApplied||{},today=rankDateKey(now);
+  const dayOf=s=>typeof s.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s.date)?s.date:rankDateKey(new Date(s.endedAt||0));
+  const focus={},credit={};
+  (value.sessions||[]).forEach(s=>{
+    if(!s||typeof s!=='object')return;
+    const key=dayOf(s);
+    focus[key]=(focus[key]||0)+Math.max(0,Number(s.durationSeconds)||0);
+    credit[key]=(credit[key]||0)+Math.max(0,Number(s.pointsAwarded)||0);
+  });
+  const keys=Object.keys(ledger).filter(k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&k<today).sort();
+  const nominal=k=>Math.max(0,Number(ledger[k])||0);
+  const due=k=>Math.min(nominal(k),rankDecayForSeconds(Math.max(Number(days?.[k])||0,focus[k]||0)));
+  if(!keys.some(k=>due(k)<nominal(k)))return value;
+  const known=value.decayLoss||{};
+  let estimate={};
+  if(keys.some(k=>known[k]===undefined)){
+    let balance=0,cursor=rankSeasonStart(value.seasonId),guard=0;
+    while(cursor<=keys[keys.length-1]&&guard++<400){
+      balance+=credit[cursor]||0;
+      if(Object.prototype.hasOwnProperty.call(ledger,cursor)){const took=Math.min(balance,nominal(cursor));balance-=took;estimate[cursor]=took;}
+      cursor=rankDateAdd(cursor,1);
+    }
+  }
+  const decayApplied={...ledger},decayLoss={...known};
+  let carried=0;
+  keys.forEach(k=>{
+    const n=nominal(k),t=due(k);
+    const took=Math.min(n,known[k]!==undefined?Math.max(0,Number(known[k])||0):(estimate[k]||0));
+    // Clamped day (took<n): the score held exactly `took`. Otherwise it held at least n >= t.
+    const should=took<n?Math.min(took+carried,t):t;
+    carried+=took-should;
+    decayApplied[k]=t;decayLoss[k]=should;
+  });
+  if(carried<=0)return {...value,decayApplied,decayLoss};
+  const before=rankPosition(value.points),points=Math.min(RANK_MAX,value.points+carried);
+  const notice={id:'decay-refund-'+today,type:'refund',refund:carried,previousPosition:before,position:rankPosition(points)};
+  return {...value,points,decayApplied,decayLoss,notices:[...(value.notices||[]).filter(n=>n&&n.id!==notice.id),notice]};
 };
 const pomoRankMaintain=(data,now=new Date())=>{
   const base=pomoNormalize(data,now);
@@ -4679,6 +4737,7 @@ const pomoRankMaintain=(data,now=new Date())=>{
       rank={...rank,notices:[...(rank.notices||[]).filter(n=>n&&n.id!==notice.id),notice]};
     }
   }
+  rank=rankReconcileDecay(rank,base.days,now);
   const same=JSON.stringify(data&&data.rank||null)===JSON.stringify(rank);
   return same?data:{...base,rank};
 };
@@ -4837,7 +4896,9 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
     if(incOrd===curOrd&&inc.points>cur.points){
       const ledger={...(inc.decayApplied||{})};
       Object.entries(cur.decayApplied||{}).forEach(([day,loss])=>{ledger[day]=Object.prototype.hasOwnProperty.call(ledger,day)?Math.min(Number(ledger[day])||0,Number(loss)||0):loss;});
-      rank={...rank,points:inc.points,decayApplied:ledger};
+      const lossLedger={...(inc.decayLoss||{})};
+      Object.entries(cur.decayLoss||{}).forEach(([day,loss])=>{lossLedger[day]=Object.prototype.hasOwnProperty.call(lossLedger,day)?Math.min(Number(lossLedger[day])||0,Number(loss)||0):loss;});
+      rank={...rank,points:inc.points,decayApplied:ledger,decayLoss:lossLedger};
     }else if(incOrd<curOrd){
       const existing=[...(cur.history||[]),...(inc.history||[])].find(h=>h&&String(h.seasonId)===String(inc.seasonId));
       if(!existing||Number(existing.points||0)<inc.points){
@@ -5758,16 +5819,17 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
 };
 
 const RankStatusOverlay=({notice,onDone})=>{
-  const isSeason=notice.type==='season';
+  const isSeason=notice.type==='season',isRefund=notice.type==='refund';
   const position=notice.position||rankPosition(0);
-  const seasonLabel=isSeason?rankSeasonDisplay(notice.seasonId):'Fechamento diário';
+  const seasonLabel=isSeason?rankSeasonDisplay(notice.seasonId):isRefund?'Correção de decay':'Fechamento diário';
   return ReactDOM.createPortal(<div className={'rank-promotion '+(isSeason?'rank-promotion-major':'rank-promotion-division')} role="dialog" aria-modal="true" aria-labelledby="rank-status-title">
     <div className="rank-promotion-aura"/>
     <div className="rank-status-card">
       <RankBadge rankIndex={position.rankIndex} size={isSeason?132:100} label={position.rankName}/>
       <span>{seasonLabel}</span>
-      <h2 id="rank-status-title">{isSeason?'Temporada encerrada':notice.relegated?'Rebaixamento por decay':'Decay aplicado'}</h2>
-      {isSeason
+      <h2 id="rank-status-title">{isSeason?'Temporada encerrada':isRefund?'Pontos devolvidos':notice.relegated?'Rebaixamento por decay':'Decay aplicado'}</h2>
+      {isRefund?<><div className="rank-status-loss" style={{color:'#3f9d63'}}>+{Number(notice.refund||0).toLocaleString('pt-BR')} pts</div><p>Alguns dias foram cobrados com decay antes de o foco registrado em outro dispositivo chegar. Os pontos cobrados a mais foram devolvidos{position.rankIndex>(notice.previousPosition?.rankIndex??position.rankIndex)||position.division>(notice.previousPosition?.division??position.division)?<>. Seu nível agora é <strong>{position.rankName} {position.divisionRoman}</strong></>:null}.</p></>:
+      isSeason
         ?<p>Você terminou em <strong>{position.rankName} {position.divisionRoman}</strong> com {Number(notice.points||0).toLocaleString('pt-BR')} pontos. A {rankSeasonDisplay(notice.nextSeasonId)} começa agora com a pontuação zerada.</p>
         :<><div className="rank-status-loss"><Icon name="alert-triangle" size={13}/> −{Number(notice.loss||0).toLocaleString('pt-BR')} pts</div><p>{notice.relegated?<>Seu novo nível é <strong>{position.rankName} {position.divisionRoman}</strong>. </>:null}O decay considera apenas dias úteis e nunca reduz a pontuação abaixo de zero.</p></>}
       <button className="btn btn-dark" onClick={onDone}>{isSeason?'Começar nova temporada':'Continuar'}</button>
