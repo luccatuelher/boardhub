@@ -4669,9 +4669,10 @@ const rankPosition=points=>{
   return {points:pts,rankIndex,rankName:RANK_NAMES[rankIndex],division,divisionRoman:RANK_ROMANS[division],inside,divisionProgress:Math.min(needed,Math.max(0,inside-divisionStart)),needed,isMax:pts>=RANK_MAX};
 };
 // Decay tiers. The top tier was cut from 500 to 250 and the rest scaled with it
-// (halved). Days before RANK_DECAY_HALVED_FROM keep the old tiers: they were
+// (halved), applied from the start of season 2026-3 (refunded retroactively).
+// Days before RANK_DECAY_HALVED_FROM keep the old tiers: they were
 // settled under that rule, and the refund below checks them against it.
-const RANK_DECAY_HALVED_FROM='2026-10-06';
+const RANK_DECAY_HALVED_FROM='2026-09-01';
 const rankDecayForSeconds=(secs,dayKey)=>{
   const mins=Math.max(0,Number(secs)||0)/60;
   const f=dayKey&&dayKey<RANK_DECAY_HALVED_FROM?1:0.5;
