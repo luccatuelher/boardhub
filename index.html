@@ -4668,10 +4668,15 @@ const rankPosition=points=>{
   const needed=division===5?2000:1000;
   return {points:pts,rankIndex,rankName:RANK_NAMES[rankIndex],division,divisionRoman:RANK_ROMANS[division],inside,divisionProgress:Math.min(needed,Math.max(0,inside-divisionStart)),needed,isMax:pts>=RANK_MAX};
 };
-const rankDecayForSeconds=secs=>{
+// Decay tiers. The top tier was cut from 500 to 250 and the rest scaled with it
+// (halved). Days before RANK_DECAY_HALVED_FROM keep the old tiers: they were
+// settled under that rule, and the refund below checks them against it.
+const RANK_DECAY_HALVED_FROM='2026-10-06';
+const rankDecayForSeconds=(secs,dayKey)=>{
   const mins=Math.max(0,Number(secs)||0)/60;
-  if(mins<15)return 500;if(mins<30)return 400;if(mins<45)return 300;
-  if(mins<60)return 250;if(mins<75)return 150;if(mins<90)return 100;return 0;
+  const f=dayKey&&dayKey<RANK_DECAY_HALVED_FROM?1:0.5;
+  if(mins<15)return 500*f;if(mins<30)return 400*f;if(mins<45)return 300*f;
+  if(mins<60)return 250*f;if(mins<75)return 150*f;if(mins<90)return 100*f;return 0;
 };
 const rankApplyDecayThrough=(value,days,throughKey)=>{
   let rank={...value,decayApplied:{...(value.decayApplied||{})},decayLoss:{...(value.decayLoss||{})}};
@@ -4681,7 +4686,7 @@ const rankApplyDecayThrough=(value,days,throughKey)=>{
     const date=rankDateFromKey(cursor);
     const weekday=date.getDay();
     if(weekday!==0&&weekday!==6&&!Object.prototype.hasOwnProperty.call(rank.decayApplied,cursor)){
-      const loss=rankDecayForSeconds((days||{})[cursor]||0);
+      const loss=rankDecayForSeconds((days||{})[cursor]||0,cursor);
       // decayApplied is the nominal tier; decayLoss is what the score really
       // lost (the score never goes below zero). The refund below needs both.
       rank.decayLoss[cursor]=Math.min(rank.points,loss);
@@ -4719,7 +4724,7 @@ const rankReconcileDecay=(value,days,now=new Date())=>{
   });
   const keys=Object.keys(ledger).filter(k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&k<today).sort();
   const nominal=k=>Math.max(0,Number(ledger[k])||0);
-  const due=k=>Math.min(nominal(k),rankDecayForSeconds(Math.max(Number(days?.[k])||0,focus[k]||0)));
+  const due=k=>Math.min(nominal(k),rankDecayForSeconds(Math.max(Number(days?.[k])||0,focus[k]||0),k));
   if(!keys.some(k=>due(k)<nominal(k)))return value;
   const known=value.decayLoss||{};
   let estimate={};
@@ -4733,12 +4738,14 @@ const rankReconcileDecay=(value,days,now=new Date())=>{
   }
   const decayApplied={...ledger},decayLoss={...known};
   let carried=0;
+  const rows=[];
   keys.forEach(k=>{
     const n=nominal(k),t=due(k);
     const took=Math.min(n,known[k]!==undefined?Math.max(0,Number(known[k])||0):(estimate[k]||0));
     // Clamped day (took<n): the score held exactly `took`. Otherwise it held at least n >= t.
     const should=took<n?Math.min(took+carried,t):t;
     carried+=took-should;
+    if(took!==should)rows.push({day:k,charged:took,back:took-should});
     decayApplied[k]=t;decayLoss[k]=should;
   });
   if(carried<=0)return {...value,decayApplied,decayLoss};
@@ -4746,7 +4753,7 @@ const rankReconcileDecay=(value,days,now=new Date())=>{
   // One id per refund (the score it starts from), the same on every device
   // that computes it: a second refund later the same day is its own notice
   // instead of replacing, or hiding behind, a first one already dismissed.
-  const notice={id:'decay-refund-'+today+'-'+value.points,type:'refund',refund:carried,previousPosition:before,position:rankPosition(points)};
+  const notice={id:'decay-refund-'+today+'-'+value.points,type:'refund',refund:carried,days:rows.slice(-40),previousPosition:before,position:rankPosition(points)};
   return {...value,points,decayApplied,decayLoss,notices:[...(value.notices||[]).filter(n=>n&&n.id!==notice.id),notice]};
 };
 // RANK UPKEEP ON A SYNCED DEVICE. Decay is charged from the focus ledger this
@@ -5532,7 +5539,7 @@ const RankBadge=({rankIndex=0,size=72,className='',label})=>{
 };
 const rankSeasonDisplay=id=>{const[y,p]=String(id||'').split('-');return 'Temporada '+(RANK_ROMANS[Number(p)-1]||p)+' · '+y;};
 const RankGuide=({onClose})=>{
-  const decay=[['0–14m','−500'],['15–29m','−400'],['30–44m','−300'],['45–59m','−250'],['60–74m','−150'],['75–89m','−100'],['90m+','0']];
+  const decay=[['0–14m','−250'],['15–29m','−200'],['30–44m','−150'],['45–59m','−125'],['60–74m','−75'],['75–89m','−50'],['90m+','0']];
   return <Modal title="Ranks" onClose={onClose} width={780}>
     <div className="rank-guide">
       <p className="rank-guide-intro">A progressão acompanha suas horas de foco. Cada emblema possui seis divisões, de I a VI, e o rank mais alto é Virtuoso.</p>
@@ -5634,7 +5641,7 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   const seasonDateShort=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
   const seasonDateLong=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'});
   const todayKey=rankDateKey(),todaySecs=Number(pomoData?.days?.[todayKey]||0),weekday=rankDateFromKey(todayKey).getDay();
-  const projectedLoss=(weekday===0||weekday===6)?0:Math.min(rank.points,rankDecayForSeconds(todaySecs));
+  const projectedLoss=(weekday===0||weekday===6)?0:Math.min(rank.points,rankDecayForSeconds(todaySecs,todayKey));
   const projectedPosition=rankPosition(Math.max(0,rank.points-projectedLoss));
   const projectedDrop=projectedLoss>0&&(projectedPosition.rankIndex<pos.rankIndex||projectedPosition.division<pos.division);
   return <>
@@ -5909,7 +5916,8 @@ const RankStatusOverlay=({notice,onDone})=>{
       <RankBadge rankIndex={position.rankIndex} size={isSeason?132:100} label={position.rankName}/>
       <span>{seasonLabel}</span>
       <h2 id="rank-status-title">{isSeason?'Temporada encerrada':isRefund?'Pontos devolvidos':notice.relegated?'Rebaixamento por decay':'Decay aplicado'}</h2>
-      {isRefund?<><div className="rank-status-loss" style={{color:'#3f9d63'}}>+{Number(notice.refund||0).toLocaleString('pt-BR')} pts</div><p>Alguns dias foram cobrados com decay antes de o foco registrado em outro dispositivo chegar. Os pontos cobrados a mais foram devolvidos{position.rankIndex>(notice.previousPosition?.rankIndex??position.rankIndex)||position.division>(notice.previousPosition?.division??position.division)?<>. Seu nível agora é <strong>{position.rankName} {position.divisionRoman}</strong></>:null}.</p></>:
+      {isRefund?<><div className="rank-status-loss" style={{color:'#3f9d63'}}>+{Number(notice.refund||0).toLocaleString('pt-BR')} pts</div><p>Alguns dias foram cobrados com decay antes de o foco registrado em outro dispositivo chegar. Os pontos cobrados a mais foram devolvidos{position.rankIndex>(notice.previousPosition?.rankIndex??position.rankIndex)||position.division>(notice.previousPosition?.division??position.division)?<>. Seu nível agora é <strong>{position.rankName} {position.divisionRoman}</strong></>:null}.</p>
+        {Array.isArray(notice.days)&&notice.days.length>0&&(()=>{const back=notice.days.filter(r=>r.back>0),adjust=notice.days.reduce((sum,r)=>r.back<0?sum+r.back:sum,0);const row={display:'flex',justifyContent:'space-between',gap:10,fontSize:'.76rem',padding:'4px 8px',borderRadius:6,background:'rgba(63,157,99,.08)'};return <div className="rank-refund-list" style={{width:'100%',maxHeight:180,overflowY:'auto',display:'grid',gap:4,margin:'4px 0 2px'}}>{back.map(r=><div key={r.day} style={row}><span>{rankDateFromKey(r.day).toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})} · cobrado −{Number(r.charged||0).toLocaleString('pt-BR')}</span><strong style={{color:'#3f9d63'}}>+{Number(r.back).toLocaleString('pt-BR')}</strong></div>)}{adjust<0&&<div style={{...row,background:'rgba(192,86,43,.08)'}}><span>Dias seguintes que o saldo devolvido passa a cobrir</span><strong style={{color:'#c0562b'}}>−{Math.abs(adjust).toLocaleString('pt-BR')}</strong></div>}</div>;})()}</>:
       isSeason
         ?<p>Você terminou em <strong>{position.rankName} {position.divisionRoman}</strong> com {Number(notice.points||0).toLocaleString('pt-BR')} pontos. A {rankSeasonDisplay(notice.nextSeasonId)} começa agora com a pontuação zerada.</p>
         :<><div className="rank-status-loss"><Icon name="alert-triangle" size={13}/> −{Number(notice.loss||0).toLocaleString('pt-BR')} pts</div><p>{notice.relegated?<>Seu novo nível é <strong>{position.rankName} {position.divisionRoman}</strong>. </>:null}O decay considera apenas dias úteis e nunca reduz a pontuação abaixo de zero.</p></>}
