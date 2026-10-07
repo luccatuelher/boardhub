@@ -86,6 +86,27 @@ Análise de `index.html` (commit `b0fc9a4`, out/2026), revisada por um consultor
 - Datas consistentes (`localDateISO`, `'T12:00:00'`); objectURLs com LRU e revoke; sem vazamento relevante de listeners/timers encontrado.
 - Tema aplicado antes do primeiro paint; cache do bundle compilado com invalidação por hash; 53 `silent-ok` justificados e diagnóstico opt-in.
 
+## Status de aplicação (out/2026)
+
+**Aplicado e verificado em Chromium headless (Playwright):**
+- `navigator.storage.persist()` no boot (exceto Firefox, que mostra prompt) e linha de status + botão "Pedir proteção" em Sincronizar.
+- Cache de mídia: blobs remotos guardados como `{blob,at}` com varredura por orçamento (min. 200 MB / 20% da cota, 60 s após o boot), sem tocar `syncbase:`/`entity-cache:`/`upload:`/`thumb:`; falhas de escrita agora são logadas.
+- `RichEditor`: flush ao desmontar via `useLayoutEffect` (bug reproduzido antes e corrigido).
+- `ErrorBoundary`: log do crash em `boardhub_log` e botão "Baixar cópia dos dados (JSON)" que não depende do App (formato importável em Sincronizar).
+- Splash: o timeout de 12 s passa para 60 s com o texto "Preparando…" quando o bundle é compilado pelo Babel.
+- React/ReactDOM fixados em 18.3.1; override morto `loadFbCfg` removido; falha de `enablePersistence` agora é logada.
+- Imgur: com login ativo, falha de rede/servidor do Storage (offline, `retry-limit-exceeded`, `canceled`, `server-file-wrong-size`) mantém a imagem local (`idb://`) em vez de oferecer o Imgur; erros não classificados seguem o fluxo antigo para não travar o push.
+- Pomodoro: `pageshow` com `persisted` re-persiste a sessão viva (bfcache), quando o timer está montado.
+- Mensagem do erro de 950 KB sugere "Ativar sincronização por item".
+
+**Não aplicado (ficam como próximos passos):** SRI/CSP, regras do Firebase versionadas, sync v4 como padrão, estado primário em IndexedDB, retenção de `rank.sessions`, `crypto.randomUUID`, pré-compilação (Vite), testes unitários.
+
+**Limitações conhecidas do que foi aplicado:**
+- O flush do editor não salva quando o dono do estado também desmonta (editores de projeto salvam via `setLocal` do `ProjectDetail`; fechar o projeto ainda pode perder até 800 ms de digitação).
+- O restore de bfcache do Pomodoro não cobre o caso com o Pomodoro desmontado (o `pagehide` de nível de documento não tem `pageshow` correspondente).
+- A evicção do cache de mídia é por data de download, não por último uso.
+- Não verificados no navegador real: `persist()` em Firefox/Safari, fluxos que dependem do Firebase (fallback do Imgur), bfcache real e download no iOS.
+
 ## Ordem sugerida de execução
 1. **Armazenamento local:** `storage.persist()`, evicção/limite no cache de mídia, separar `syncbase`/entidades, acabar com a cópia integral no localStorage, planejar estado primário no IndexedDB.
 2. **Tornar o sync v4 o padrão**, com detecção de clientes antigos e testes; política de retenção para `rank.sessions`/`pomoData.days`.

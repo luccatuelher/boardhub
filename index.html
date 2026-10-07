@@ -3762,12 +3762,17 @@ const _askImgurConsent=async()=>{
   return _imgurAllowed;
 };
 
-// While signed in, a Storage failure that is not a rule/quota rejection (offline,
-// timeout, 5xx, a dropped connection) is transient: the image is kept locally as
-// idb:// and bhCloudMedia uploads it on the next push. Offering the public Imgur
-// copy for a hiccup would leak the image for no reason. Only a permanent rejection
-// (rules or quota, where the retry can never succeed) reaches the Imgur ladder.
-const bhStorageErrPermanent=e=>{const c=String(e&&e.code||'');return c==='storage/unauthorized'||c==='storage/quota-exceeded';};
+// While signed in, a Storage failure that is clearly a network/server hiccup
+// (offline, timeout, cancelled, dropped connection) keeps the image locally as
+// idb:// and bhCloudMedia uploads it on the next push; offering the public Imgur
+// copy for a hiccup would leak the image for no reason. Anything else (rules,
+// quota, an unclassified error that may never succeed) keeps the old ladder, so a
+// permanently failing upload cannot leave an idb:// that blocks the whole push.
+const bhStorageErrTransient=e=>{
+  if(typeof navigator!=='undefined'&&navigator.onLine===false)return true;
+  const c=String(e&&e.code||'');
+  return c==='storage/retry-limit-exceeded'||c==='storage/canceled'||c==='storage/server-file-wrong-size';
+};
 const _uploadSingle=async(file,onPct)=>{
   file=await bhPrepareMedia(file,onPct);
   if(!_isVideoFile(file))file=await _compressImage(file);
@@ -3775,7 +3780,7 @@ const _uploadSingle=async(file,onPct)=>{
     try{return await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}
     catch(e){
       bhLog('upload.storage',e,e&&e.code);
-      if(!bhStorageErrPermanent(e)){console.warn('[BoardHub] Transient Storage failure; keeping the image locally for the next sync.');return await _storeIdb(file);}
+      if(bhStorageErrTransient(e)){console.warn('[BoardHub] Transient Storage failure; keeping the image locally for the next sync.');return await _storeIdb(file);}
     }
   }
   if(!_isVideoFile(file)&&await _askImgurConsent()){
@@ -3839,7 +3844,7 @@ const reuploadLocalImages=async(state,onProgress)=>{
         const file=new File([blob],key,{type:blob.type||'image/jpeg'});
         let url=null;
         let transient=false;
-        if(_fbReady&&_fbAuth?.currentUser){try{url=await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}catch(e){transient=!bhStorageErrPermanent(e);/*silent-ok: this is the first rung of a deliberate ladder — Imgur is tried next, then local IDB*/}}
+        if(_fbReady&&_fbAuth?.currentUser){try{url=await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}catch(e){transient=bhStorageErrTransient(e);/*silent-ok: this is the first rung of a deliberate ladder — Imgur is tried next, then local IDB*/}}
         if(!url&&!transient&&!_isVideoFile(file)&&await _askImgurConsent()){
           try{url=await _uploadImgur(file);}catch{/*silent-ok: the local IDB reference remains intact*/}
         }
@@ -11286,7 +11291,9 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   // On unmount the passive cleanup above runs after React has already cleared
   // ref.current, so it saves nothing and cancels the pending timer. This layout
   // cleanup runs while the editable is still attached, so up to 800ms of typing
-  // survives leaving the note (back gesture, route change) without a blur.
+  // survives leaving the note (back gesture, route change) without a blur. When
+  // the owner of the saved state unmounts too (closing a project whose notes save
+  // through ProjectDetail's local state), the update still has nowhere to land.
   const flushSaveRef=useRef(flushSave);flushSaveRef.current=flushSave;
   React.useLayoutEffect(()=>()=>{if(pendingSaveRef.current)flushSaveRef.current();},[]);
   // Registered while it is mounted; it only acts when a save is really pending.
@@ -11417,7 +11424,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       try{return await uploadToFirebaseStorage(compressed,_fbAuth.currentUser.uid);}
       catch(e){
         bhLog('upload.noteStorage',e,e&&e.code);
-        if(!bhStorageErrPermanent(e))return await _storeIdb(compressed); // transient: kept locally, uploaded by the next push
+        if(bhStorageErrTransient(e))return await _storeIdb(compressed); // transient: kept locally, uploaded by the next push
       }
     }
     if(!_isVideoFile(compressed))try{
@@ -14216,7 +14223,7 @@ const ShortcutsModal=({onClose})=>{
 // A single render error used to nuke the whole app to a white screen (the
 // window error handler only touched the splash, long removed by then).
 class ErrorBoundary extends React.Component{
-  constructor(props){super(props);this.state={error:null,exporting:false,exportError:''};}
+  constructor(props){super(props);this.state={error:null,exporting:false,exportError:''};this.downloadRecoveryCopy=this.downloadRecoveryCopy.bind(this);}
   static getDerivedStateFromError(error){return{error};}
   componentDidCatch(err,info){
     console.error('[BoardHub] Render error:',err,info);
@@ -14226,7 +14233,7 @@ class ErrorBoundary extends React.Component{
   // Recovery that does not depend on the crashed App: newest readable local copy
   // (localStorage, else the newest IndexedDB backup, else the raw bytes), in the
   // same JSON shape "Exportar JSON" produces, so Sincronizar can import it.
-  downloadRecoveryCopy=async()=>{
+  async downloadRecoveryCopy(){
     if(this.state.exporting)return;
     this.setState({exporting:true,exportError:''});
     try{
@@ -14236,7 +14243,7 @@ class ErrorBoundary extends React.Component{
       if(!state){
         try{
           const metas=await bhIdbAllMeta();
-          const newest=metas.slice().sort((x,y)=>(y.at||0)-(x.at||0))[0];
+          const newest=metas.slice().sort((x,y)=>String(x.at)<String(y.at)?1:-1)[0]; // `at` is an ISO string
           const entry=newest?await bhHistoryGetRecoverable(newest.at):null;
           if(entry&&entry.state)state=entry.state;
         }catch(e){bhLog('render.crash.recovery',e);}
@@ -14252,7 +14259,7 @@ class ErrorBoundary extends React.Component{
       document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
       this.setState({exporting:false});
     }catch(e){bhLog('render.crash.export',e);this.setState({exporting:false,exportError:String(e&&e.message||e)});}
-  };
+  }
   render(){
     if(this.state.error){
       return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',padding:24}},
@@ -14282,7 +14289,8 @@ const App=()=>{
     clearTimeout(window.__splashTimeout);
     const splash=document.getElementById('splash');
     if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),350);}
-    void bhRequestPersist();
+    // Firefox shows a permission prompt for persist(); there it is only asked from the Sync button.
+    if(!/firefox/i.test(navigator.userAgent||''))void bhRequestPersist();
     const sweepTimer=setTimeout(()=>{void bhMediaCacheSweep();},60000);
     window.boardhubDiagnostics&&(window.boardhubDiagnostics.mediaCacheSweep=bhMediaCacheSweep);
     return()=>clearTimeout(sweepTimer);
@@ -15961,7 +15969,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
       clearTimeout(window.__splashTimeout);
       if(window.__bhSplashFail)window.__splashTimeout=setTimeout(window.__bhSplashFail,60000);
       var lbl=document.querySelector('#splash>div:nth-child(2)');
-      if(lbl)lbl.textContent='Preparando o app… (primeira abertura após uma atualização)';
+      if(lbl)lbl.textContent='Preparando…';
     }catch(_){/*silent-ok: splash cosmetics only; the boot continues without the longer budget*/}
     return loadBabel().then(function(){
       // runtime:'classic' EXPLICITLY. In @babel/standalone 7.23.9 the react
