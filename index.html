@@ -44,8 +44,8 @@
 -->
 
 <!-- Critical render-path scripts only -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <!-- Babel does NOT enter the critical path: it is injected on demand by the
      loader at the end of the <body>, and only when the compiled bundle cache
      misses. -->
@@ -863,10 +863,11 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
   </div>
   <style>#splash{transition:opacity .4s ease}@keyframes splashBar{0%{transform:translateX(-100%)}50%{transform:translateX(150%)}100%{transform:translateX(250%)}}</style>
   <script>
-    window.__splashTimeout=setTimeout(function(){
+    window.__bhSplashFail=function(){
       var s=document.getElementById('splash');if(!s)return;
       s.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;font-family:sans-serif;padding:24px;text-align:center"><div style="font-size:2.4rem;font-weight:500;font-family:serif;color:var(--text)">BoardHub</div><div style="font-size:.8rem;color:var(--danger-fg)">Erro ao carregar. Verifique sua conexao e recarregue.</div><button onclick="location.reload()" style="margin-top:8px;padding:8px 20px;background:var(--text);color:var(--bg);border:none;border-radius:8px;cursor:pointer">Recarregar</button></div>';
-    },12000);
+    };
+    window.__splashTimeout=setTimeout(window.__bhSplashFail,12000);
     window.addEventListener('error',function(e){
       clearTimeout(window.__splashTimeout);
       var s=document.getElementById('splash');if(!s)return;
@@ -1070,6 +1071,25 @@ const bhWithRestore=async work=>{
   }
 };
 const LS_KEY = 'boardhub_v2';
+// Asks the browser to keep this origin's storage (localStorage, IndexedDB) out of
+// eviction: Safari clears idle sites after ~7 days and Chrome evicts "best-effort"
+// storage under disk pressure, which is where unsynced local media and the backup
+// history live. Returns 'granted' | 'denied' | 'unsupported'. Asked once per page
+// load unless the user explicitly retries from the Sync screen.
+let _bhPersistPromise=null;
+const bhRequestPersist=force=>{
+  // One in-flight/finished answer per page load, shared by the boot request and
+  // the Sync screen; `force` (the "Pedir proteção" button) asks again.
+  if(!force&&_bhPersistPromise)return _bhPersistPromise;
+  _bhPersistPromise=(async()=>{
+    try{
+      if(!navigator.storage||!navigator.storage.persist)return 'unsupported';
+      if(navigator.storage.persisted&&await navigator.storage.persisted())return 'granted';
+      return (await navigator.storage.persist())?'granted':'denied';
+    }catch(e){bhLog('storage.persist',e);return 'unsupported';}
+  })();
+  return _bhPersistPromise;
+};
 const DIRTY_KEY = 'boardhub_dirty'; // '1' = localStorage holds edits not yet confirmed pushed to cloud
 const LAST_EDIT_KEY = 'boardhub_last_edit_at'; // ISO timestamp of the last USER edit — feeds last-write-wins
 const LOCAL_OWNER_UID_KEY='boardhub_local_owner_uid';
@@ -2775,9 +2795,6 @@ const Vid=({src,...props})=>{
 };
 
 // - FIREBASE CONFIG & INIT -
-const FB_CFG_LS='boardhub_firebase_cfg';
-const loadFbCfg=()=>{try{return JSON.parse(localStorage.getItem(FB_CFG_LS))||{};}catch{return{};}};
-
 let _fbReady=false;
 let _fbAuth=null,_fbDb=null,_fbStorage=null;
 
@@ -2822,15 +2839,13 @@ const initFirebase=async()=>{
   if(_fbReady)return true;
   await _loadFirebaseScripts();
   if(typeof firebase==='undefined')return false;
-  const saved=loadFbCfg();
-  const cfg=saved.apiKey?saved:DEFAULT_FB_CFG;
-  if(!cfg.apiKey)return false;
+  const cfg=DEFAULT_FB_CFG;
   try{
     if(!firebase.apps.length)firebase.initializeApp(cfg);
     _fbAuth=firebase.auth();
     _fbDb=firebase.firestore();
     _fbStorage=firebase.storage();
-    _fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    _fbDb.enablePersistence({synchronizeTabs:true}).catch(e=>bhLog('fb.enablePersistence',e,e&&e.code));
     _fbReady=true;
     return true;
   }catch(e){console.error('[BoardHub] Firebase init:',e);return false;}
@@ -3322,7 +3337,7 @@ const pushState=(state,uid,{migrateMedia=false}={})=>{
         }
         if(Object.keys(fields).length){
           const bytes=bhJsonBytes({...existing,...fields});
-          if(bytes>950000)throw new Error('A seção '+item.id+' excede o tamanho seguro de documento. Dados locais preservados; exporte um backup.');
+          if(bytes>950000)throw new Error('A seção '+item.id+' excede o tamanho seguro de documento. Dados locais preservados; exporte um backup ou use \'Ativar sincronização por item\' em Sincronizar.');
           writes.push({id:item.id,fields});
         }
       }
@@ -3373,7 +3388,47 @@ const bhMediaCacheGet=async key=>{
   });}catch{return undefined;}
 };
 const bhMediaCachePut=async(key,value)=>{
-  try{const db=await bhMediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('cache','readwrite');tx.objectStore('cache').put(value,key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}catch{/* disposable cache; never reject a completed original upload */}
+  try{const db=await bhMediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('cache','readwrite');tx.objectStore('cache').put(value,key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
+  catch(e){
+    // Disposable cache: never reject a completed original upload. But a quota
+    // failure here also hits syncbase:/entity-cache: writes, so say so once per kind.
+    const kind=String(e&&e.name||'error');
+    if(!_bhMediaPutLogged.has(kind)){_bhMediaPutLogged.add(kind);bhLog('mediaCache.put',e,String(key).slice(0,24));}
+  }
+};
+const _bhMediaPutLogged=new Set();
+// Remote-image blobs are the only unbounded entries in this store (syncbase:,
+// entity-cache:, upload: and thumb: are small or bounded). They are stored as
+// {blob,at}; entries written by older builds are a bare Blob and count as at=0.
+// Over budget, the oldest blob: entries go until 80% of it is left. A dropped
+// blob costs one re-download; the other key families are never touched.
+const _bhBlobOf=v=>v instanceof Blob?v:(v&&v.blob instanceof Blob?v.blob:null);
+const bhMediaCacheSweep=async(budgetBytes)=>{
+  try{
+    let budget=budgetBytes;
+    if(budget==null){
+      let quota=0;try{quota=(await navigator.storage.estimate()).quota||0;}catch{/*silent-ok: no estimate means the fixed cap alone applies*/}
+      budget=Math.min(200*1024*1024,quota?Math.floor(quota*0.2):200*1024*1024);
+    }
+    const db=await bhMediaDb();
+    const rows=await new Promise((resolve,reject)=>{
+      const out=[],tx=db.transaction('cache','readonly');
+      const req=tx.objectStore('cache').openCursor(IDBKeyRange.bound('blob:','blob:\uffff'));
+      req.onsuccess=()=>{const c=req.result;if(!c){resolve(out);return;}const v=c.value,b=_bhBlobOf(v);out.push({key:c.key,size:b?b.size:0,at:(v&&v.at)||0});c.continue();};
+      req.onerror=()=>reject(req.error);
+    });
+    let total=rows.reduce((n,r)=>n+r.size,0);
+    if(total<=budget)return{removed:0,total};
+    const target=Math.floor(budget*0.8),doomed=[];
+    for(const r of rows.sort((a,b)=>a.at-b.at)){if(total<=target)break;doomed.push(r.key);total-=r.size;}
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction('cache','readwrite'),os=tx.objectStore('cache');
+      doomed.forEach(k=>os.delete(k));
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+    });
+    bhDiag.record('mediaCacheSwept',doomed.length,'evicted');
+    return{removed:doomed.length,total};
+  }catch(e){bhLog('mediaCache.sweep',e);return{removed:0,total:0,error:true};}
 };
 const bhDigest=async bytes=>{
   if(!globalThis.crypto?.subtle)throw new Error('Este navegador precisa de HTTPS para preservar e identificar os arquivos com segurança.');
@@ -3404,14 +3459,14 @@ const bhRemoteDisplay=async(src,thumb)=>{
   let entry=_bhRemoteUrls.get(target);
   if(!entry){
     if(!_bhRemoteInflight.has(target))_bhRemoteInflight.set(target,(async()=>{
-      let blob=await bhMediaCacheGet('blob:'+target);
+      let blob=_bhBlobOf(await bhMediaCacheGet('blob:'+target));
       if(blob instanceof Blob)bhDiag.record('cacheHit',0,'image');
       else{
         bhDiag.record('cacheMiss',0,'image');bhDiag.record('imageDownloadStarted');
         const res=await fetch(target,{cache:'force-cache'});
         if(!res.ok)throw new Error('Imagem indisponível.');
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
-        await bhMediaCachePut('blob:'+target,blob);
+        await bhMediaCachePut('blob:'+target,{blob,at:Date.now()});
       }
       const value={url:URL.createObjectURL(blob),refs:0,timer:null};_bhRemoteUrls.set(target,value);return value;
     })());
@@ -3707,12 +3762,21 @@ const _askImgurConsent=async()=>{
   return _imgurAllowed;
 };
 
+// While signed in, a Storage failure that is not a rule/quota rejection (offline,
+// timeout, 5xx, a dropped connection) is transient: the image is kept locally as
+// idb:// and bhCloudMedia uploads it on the next push. Offering the public Imgur
+// copy for a hiccup would leak the image for no reason. Only a permanent rejection
+// (rules or quota, where the retry can never succeed) reaches the Imgur ladder.
+const bhStorageErrPermanent=e=>{const c=String(e&&e.code||'');return c==='storage/unauthorized'||c==='storage/quota-exceeded';};
 const _uploadSingle=async(file,onPct)=>{
   file=await bhPrepareMedia(file,onPct);
   if(!_isVideoFile(file))file=await _compressImage(file);
   if(_fbReady&&_fbAuth?.currentUser){
     try{return await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}
-    catch(e){console.warn('[BoardHub] Firebase Storage failed:',e.message);}
+    catch(e){
+      bhLog('upload.storage',e,e&&e.code);
+      if(!bhStorageErrPermanent(e)){console.warn('[BoardHub] Transient Storage failure; keeping the image locally for the next sync.');return await _storeIdb(file);}
+    }
   }
   if(!_isVideoFile(file)&&await _askImgurConsent()){
     try{return await _uploadImgur(file);}catch(e){console.warn('[BoardHub] Imgur failed:',e.message);}
@@ -3774,8 +3838,9 @@ const reuploadLocalImages=async(state,onProgress)=>{
       if(blob){
         const file=new File([blob],key,{type:blob.type||'image/jpeg'});
         let url=null;
-        if(_fbReady&&_fbAuth?.currentUser){try{url=await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}catch{/*silent-ok: this is the first rung of a deliberate ladder — Imgur is tried next, then local IDB*/}}
-        if(!url&&!_isVideoFile(file)&&await _askImgurConsent()){
+        let transient=false;
+        if(_fbReady&&_fbAuth?.currentUser){try{url=await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}catch(e){transient=!bhStorageErrPermanent(e);/*silent-ok: this is the first rung of a deliberate ladder — Imgur is tried next, then local IDB*/}}
+        if(!url&&!transient&&!_isVideoFile(file)&&await _askImgurConsent()){
           try{url=await _uploadImgur(file);}catch{/*silent-ok: the local IDB reference remains intact*/}
         }
         if(url)map['idb://'+key]=url;
@@ -6375,8 +6440,19 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       const abandonedSession=pomoAbandonedFromTimer(snapshot,at);
       if(abandonedSession)pomoTimerSave({isActive:false,mode:'focus',timeLeft:focusMinsRef.current*60,focusMins:focusMinsRef.current,targetKey:targetKeyRef.current||'none',sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:at,abandonedSession});
     };
+    // Back/forward cache: the page comes back alive (refs intact) but pagehide
+    // already stored the session as abandoned. Re-persist the live session so the
+    // stored timer matches what is running; the id guard avoids overwriting a
+    // session another tab already consumed.
+    const restore=e=>{
+      if(!e.persisted||!sessionMetaRef.current)return;
+      const saved=pomoTimerLoad();
+      if(saved&&saved.documentId===POMO_DOCUMENT_ID&&saved.abandonedSession&&saved.abandonedSession.id===sessionMetaRef.current.id)
+        persist(isActiveRef.current,timeLeftRef.current,modeRef.current,focusMinsRef.current);
+    };
     window.addEventListener('pagehide',abandon);
-    return()=>window.removeEventListener('pagehide',abandon);
+    window.addEventListener('pageshow',restore);
+    return()=>{window.removeEventListener('pagehide',abandon);window.removeEventListener('pageshow',restore);};
   },[]);
 
   useEffect(() => {
@@ -11207,6 +11283,12 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   },[onSave,saveTarget,serializedHTML]);
 
   useEffect(()=>()=>{flushSave();clearTimeout(saveTimer.current);},[flushSave]);
+  // On unmount the passive cleanup above runs after React has already cleared
+  // ref.current, so it saves nothing and cancels the pending timer. This layout
+  // cleanup runs while the editable is still attached, so up to 800ms of typing
+  // survives leaving the note (back gesture, route change) without a blur.
+  const flushSaveRef=useRef(flushSave);flushSaveRef.current=flushSave;
+  React.useLayoutEffect(()=>()=>{if(pendingSaveRef.current)flushSaveRef.current();},[]);
   // Registered while it is mounted; it only acts when a save is really pending.
   useEffect(()=>{
     const flusher=()=>{if(pendingSaveRef.current)flushSave();};
@@ -11333,7 +11415,10 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const compressed=_isVideoFile(prepared)?prepared:await _compressImage(prepared);
     if(_fbReady&&_fbAuth?.currentUser){
       try{return await uploadToFirebaseStorage(compressed,_fbAuth.currentUser.uid);}
-      catch(e){console.warn('[BoardHub] Storage upload failed for note media, trying fallback:',e.message);}
+      catch(e){
+        bhLog('upload.noteStorage',e,e&&e.code);
+        if(!bhStorageErrPermanent(e))return await _storeIdb(compressed); // transient: kept locally, uploaded by the next push
+      }
     }
     if(!_isVideoFile(compressed))try{
       if(await _askImgurConsent())return await _uploadImgur(compressed);
@@ -13248,6 +13333,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   // F3.3 — Diagnóstico. The count is read once on mount so the button can show
   // it without keeping the diary in React state; the list is only pulled when
   // the panel is actually opened.
+  const [persistState,setPersistState]=useState('?'); // 'granted' | 'denied' | 'unsupported' | '?'
+  useEffect(()=>{let alive=true;bhRequestPersist().then(r=>{if(alive)setPersistState(r);});return()=>{alive=false;};},[]);
+  const askPersist=async()=>{setPersistState(await bhRequestPersist(true));};
   const [diagOpen,setDiagOpen]=useState(false);
   const [diagLog,setDiagLog]=useState([]);
   const [diagCount,setDiagCount]=useState(()=>{try{return bhLogAll().length;}catch{return 0;}});
@@ -13568,6 +13656,14 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             <button className="btn btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={handleReupload} disabled={loading}>
               <Icon name="cloud-upload" size={14}/> Re-enviar Imagens ({localImgCount})
             </button>
+          )}
+          {persistState!=='?'&&(
+            <div role="status" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',fontSize:'.78rem',color:'var(--muted)',lineHeight:1.5}}>
+              <span>{persistState==='granted'?'Armazenamento protegido: o navegador não apaga estes dados por falta de espaço.'
+                :persistState==='denied'?'O navegador pode apagar os dados locais (falta de espaço ou, no Safari, 7 dias sem uso). Mantenha a sincronização ativa ou exporte um backup.'
+                :'Este navegador não permite proteger o armazenamento local. Exporte backups com frequência.'}</span>
+              {persistState==='denied'&&<button type="button" className="btn btn-outline" onClick={askPersist}>Pedir proteção</button>}
+            </div>
           )}
         </div>
       </div>
@@ -14120,17 +14216,53 @@ const ShortcutsModal=({onClose})=>{
 // A single render error used to nuke the whole app to a white screen (the
 // window error handler only touched the splash, long removed by then).
 class ErrorBoundary extends React.Component{
-  constructor(props){super(props);this.state={error:null};}
+  constructor(props){super(props);this.state={error:null,exporting:false,exportError:''};}
   static getDerivedStateFromError(error){return{error};}
-  componentDidCatch(err,info){console.error('[BoardHub] Render error:',err,info);}
+  componentDidCatch(err,info){
+    console.error('[BoardHub] Render error:',err,info);
+    // Mirrored to boardhub_log, which survives the reload the user is about to do.
+    bhLog('render.crash',err,String(info&&info.componentStack||'').replace(/\s+/g,' ').trim());
+  }
+  // Recovery that does not depend on the crashed App: newest readable local copy
+  // (localStorage, else the newest IndexedDB backup, else the raw bytes), in the
+  // same JSON shape "Exportar JSON" produces, so Sincronizar can import it.
+  downloadRecoveryCopy=async()=>{
+    if(this.state.exporting)return;
+    this.setState({exporting:true,exportError:''});
+    try{
+      let state=null,raw='';
+      const r=lsLoadResult();
+      if(r.status==='valid')state=r.state;else raw=r.raw||'';
+      if(!state){
+        try{
+          const metas=await bhIdbAllMeta();
+          const newest=metas.slice().sort((x,y)=>(y.at||0)-(x.at||0))[0];
+          const entry=newest?await bhHistoryGetRecoverable(newest.at):null;
+          if(entry&&entry.state)state=entry.state;
+        }catch(e){bhLog('render.crash.recovery',e);}
+      }
+      let text;
+      if(state){
+        try{text=await buildSyncPayload(state,true);}
+        catch(e){bhLog('render.crash.payload',e);text=JSON.stringify({...state,_v:'3.0',_exported:new Date().toISOString()});}
+      }else if(raw)text=raw;
+      else throw new Error('Nenhuma cópia local legível foi encontrada.');
+      const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));
+      const a=document.createElement('a');a.href=url;a.download='boardhub-recuperacao-'+localDateISO()+'.json';
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      this.setState({exporting:false});
+    }catch(e){bhLog('render.crash.export',e);this.setState({exporting:false,exportError:String(e&&e.message||e)});}
+  };
   render(){
     if(this.state.error){
       return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',padding:24}},
         React.createElement('div',{style:{maxWidth:440,textAlign:'center',display:'flex',flexDirection:'column',gap:14}},
           React.createElement('div',{style:{fontFamily:'Cormorant Garamond,serif',fontSize:'2.2rem',fontWeight:500,color:'var(--text)'}},'BoardHub'),
           React.createElement('div',{style:{fontSize:'.9rem',color:'var(--danger-fg)',lineHeight:1.6}},'Algo quebrou na interface: '+(this.state.error&&this.state.error.message||'erro desconhecido')),
-          React.createElement('div',{style:{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.6}},'Seus dados locais e o histórico de backups estão preservados. Recarregue para continuar; se o erro persistir após um import, restaure um backup na tela Sincronizar.'),
-          React.createElement('button',{onClick:()=>location.reload(),style:{margin:'6px auto 0',padding:'10px 24px',background:'var(--text)',color:'var(--bg)',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.9rem'}},'Recarregar')
+          React.createElement('div',{style:{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.6}},'Seus dados locais e o histórico de backups estão preservados. Recarregue para continuar. Se o erro persistir, baixe uma cópia dos dados abaixo; ela pode ser importada na tela Sincronizar.'),
+          React.createElement('button',{onClick:()=>location.reload(),style:{margin:'6px auto 0',padding:'10px 24px',background:'var(--text)',color:'var(--bg)',border:'none',borderRadius:8,cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.9rem'}},'Recarregar'),
+          React.createElement('button',{onClick:this.downloadRecoveryCopy,disabled:this.state.exporting,style:{margin:'0 auto',padding:'8px 20px',background:'transparent',color:'var(--text)',border:'1px solid var(--field-border)',borderRadius:8,cursor:this.state.exporting?'wait':'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.85rem'}},this.state.exporting?'Preparando…':'Baixar cópia dos dados (JSON)'),
+          this.state.exportError?React.createElement('div',{role:'alert',style:{fontSize:'.78rem',color:'var(--danger-fg)'}},this.state.exportError):null
         )
       );
     }
@@ -14150,6 +14282,10 @@ const App=()=>{
     clearTimeout(window.__splashTimeout);
     const splash=document.getElementById('splash');
     if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),350);}
+    void bhRequestPersist();
+    const sweepTimer=setTimeout(()=>{void bhMediaCacheSweep();},60000);
+    window.boardhubDiagnostics&&(window.boardhubDiagnostics.mediaCacheSweep=bhMediaCacheSweep);
+    return()=>clearTimeout(sweepTimer);
   },[]);
 
   // IDB garbage collection — delayed so it never competes with startup I/O
@@ -15817,6 +15953,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
   function compileOnly(code){return new Function(code);}
 
   function viaBabel(db){
+    // A cache miss means downloading and running Babel over ~1MB of JSX, which can
+    // legitimately take longer than the 12s "could not load" timeout on a slow
+    // phone. Tell the user what is happening and give the compile a longer budget;
+    // a failed Babel download still goes straight to the error handler below.
+    try{
+      clearTimeout(window.__splashTimeout);
+      if(window.__bhSplashFail)window.__splashTimeout=setTimeout(window.__bhSplashFail,60000);
+      var lbl=document.querySelector('#splash>div:nth-child(2)');
+      if(lbl)lbl.textContent='Preparando o app… (primeira abertura após uma atualização)';
+    }catch(_){/*silent-ok: splash cosmetics only; the boot continues without the longer budget*/}
     return loadBabel().then(function(){
       // runtime:'classic' EXPLICITLY. In @babel/standalone 7.23.9 the react
       // preset's default is already classic, but that default became 'automatic'
