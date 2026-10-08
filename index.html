@@ -2948,7 +2948,13 @@ const bhMergeSync=(base,local,remote)=>{
   if(bhEqual(remote,base)||bhEqual(local,remote))return local;
   if(local===undefined||remote===undefined&&base!==undefined)return undefined;
   const record=v=>v&&typeof v==='object'&&!Array.isArray(v);
-  const keyed=v=>Array.isArray(v)&&v.every(x=>record(x)&&x.id!==undefined)&&new Set(v.map(x=>String(x.id))).size===v.length;
+  // Records are matched by id, and the Nth record carrying the same id is "id#N":
+  // one duplicated id (two devices once created records in the same
+  // millisecond) used to switch the by-id merge off for the whole list, and the
+  // push that followed deleted the other device's additions. Lists with unique
+  // ids get "id#0" for every item, so they merge exactly as before.
+  const keyed=v=>Array.isArray(v)&&v.every(x=>record(x)&&x.id!==undefined);
+  const keysOf=list=>{const seen=new Map();return list.map(x=>{const id=String(x.id),n=seen.get(id)||0;seen.set(id,n+1);return id+'#'+n;});};
   // Lists whose items carry no id (scalars, image URLs, and records such as
   // Social templates or rank season history) merge by VALUE: an item is
   // identified by its content, so additions on both sides survive, a deletion
@@ -2967,9 +2973,9 @@ const bhMergeSync=(base,local,remote)=>{
     else if(record(local)&&record(remote))base={};
   }
   if(keyed(base)&&keyed(local)&&keyed(remote)){
-    const b=new Map(base.map(x=>[String(x.id),x])),l=new Map(local.map(x=>[String(x.id),x])),r=new Map(remote.map(x=>[String(x.id),x]));
-    const localOrder=local.map(x=>String(x.id)),remoteOrder=remote.map(x=>String(x.id));
-    const order=bhEqual(localOrder,base.map(x=>String(x.id)))?remoteOrder.slice():localOrder.slice();
+    const baseOrder=keysOf(base),localOrder=keysOf(local),remoteOrder=keysOf(remote);
+    const b=new Map(base.map((x,i)=>[baseOrder[i],x])),l=new Map(local.map((x,i)=>[localOrder[i],x])),r=new Map(remote.map((x,i)=>[remoteOrder[i],x]));
+    const order=bhEqual(localOrder,baseOrder)?remoteOrder.slice():localOrder.slice();
     for(const id of [...localOrder,...remoteOrder])if(!order.includes(id))order.push(id);
     return order.map(id=>bhMergeSync(b.get(id),l.get(id),r.get(id))).filter(x=>x!==undefined);
   }

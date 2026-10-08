@@ -61,3 +61,8 @@ test('duplicate project: inner notes get fresh unique ids', () => {
   assert.equal(new Set(inner).size, 2);
   assert.ok(!inner.includes(7) && !inner.includes(8));
 });
+
+test('entity pack keeps duplicate-id records through a round trip', () => {
+  const state = { notes: [{ id: 1, t: 'a' }, { id: 1, t: 'dup' }] };
+  assert.deepEqual(bhEntityUnpack(bhEntityPack(state)), state);
+});

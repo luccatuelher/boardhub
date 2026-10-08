@@ -74,11 +74,30 @@ test('merge: local reorder plus a remote addition keeps both', () => {
   assert.deepEqual(ids(out), ['2', '1', '3']);
 });
 
-test('merge: duplicate ids keep the other device\'s addition', { todo: 'keyed() requires unique ids; one duplicate falls back to "local wins"' }, () => {
+test('merge: duplicate ids keep the other device\'s addition', () => {
   const base = [{ id: 1, t: 'a' }];
   const local = [{ id: 1, t: 'a' }, { id: 1, t: 'dup' }];
   const remote = [{ id: 1, t: 'a' }, { id: 2, t: 'new' }];
-  assert.ok(ids(bhMergeSync(base, local, remote)).includes('2'));
+  const out = bhMergeSync(base, local, remote);
+  assert.deepEqual(out.map(x => x.t).sort(), ['a', 'dup', 'new']);
+});
+
+test('merge: a duplicate already in the base merges field by field', () => {
+  const base = [{ id: 1, t: 'a' }, { id: 1, t: 'b' }];
+  const out = bhMergeSync(base, [{ id: 1, t: 'a' }, { id: 1, t: 'B!' }], [{ id: 1, t: 'A!' }, { id: 1, t: 'b' }, { id: 2, t: 'n' }]);
+  assert.deepEqual(out.map(x => x.t), ['A!', 'B!', 'n']);
+});
+
+test('merge: deleting one of two duplicates propagates', () => {
+  const base = [{ id: 1, t: 'a' }, { id: 1, t: 'b' }];
+  const out = bhMergeSync(base, [{ id: 1, t: 'a' }], base);
+  assert.deepEqual(out.map(x => x.t), ['a']);
+});
+
+test('merge: unique-id lists behave as before (order, adds, deletes)', () => {
+  const base = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  const out = bhMergeSync(base, [{ id: 3 }, { id: 1 }, { id: 2 }], [{ id: 1 }, { id: 3 }, { id: 4 }]);
+  assert.deepEqual(ids(out), ['3', '1', '4']);
 });
 
 test('merge: concurrent note edits keep the local HTML (remote text is lost)', () => {
