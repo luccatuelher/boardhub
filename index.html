@@ -12261,6 +12261,26 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     if(e.key==='Escape'){e.preventDefault();clearTimeout(renameRef.current);titleDraftRef.current=null;setLocalTitle(selectedEntry?.title||selectedItem?.title||'');e.currentTarget.blur();}
   };
 
+  // Texts another device wrote at the same time as this one (see
+  // contentConflicts in bhMergeSync): kept so nothing is lost, resolved here.
+  const [editorRev,setEditorRev]=useState(0);
+  const resolveConflict=useCallback((target,key,append)=>{
+    const apply=rec=>{
+      const lost=rec.contentConflicts&&rec.contentConflicts[key];
+      if(lost===undefined)return rec;
+      const {[key]:_dropped,...rest}=rec.contentConflicts;
+      const next={...rec};
+      if(Object.keys(rest).length)next.contentConflicts=rest;else delete next.contentConflicts;
+      if(append)next.content=(rec.content||'')+'<hr><p><em>Versão em conflito de outro dispositivo</em></p>'+sanitizeHTML(lost);
+      return next;
+    };
+    setNotes(p=>p.map(n=>{
+      if(target.kind==='note')return n.id===target.id?apply(n):n;
+      if(n.id!==target.folderId||n.type!=='project')return n;
+      return {...n,entries:(n.entries||[]).map(e=>e.id===target.id?apply(e):e)};
+    }));
+    if(append)setEditorRev(r=>r+1);
+  },[setNotes]);
   const handleContentSave=useCallback((html,target)=>{
     if(target?.kind==='note')setNotes(p=>{
       let changed=false;
@@ -12753,7 +12773,18 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
           <button onClick={()=>{if(selected?.kind==='entry')trashEntry(selected.id,selected.folderId);else trashItem(target.id);}} className="btn btn-ghost" title="Mover para lixeira" aria-label="Mover nota para lixeira" style={{padding:6,color:'var(--muted)'}} onMouseEnter={e=>e.currentTarget.style.color='var(--danger-strong)'} onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}><Icon name="trash-2" size={15}/></button>
         </div>
       </div>
-      <RichEditor key={`${selected.kind}-${selected.id}`} noteId={selected.id} initialHTML={target.content||''} onSave={handleContentSave} saveTarget={selected}/>
+      {target.contentConflicts&&Object.keys(target.contentConflicts).length>0&&<div role="alert" className="card" style={{padding:'10px 12px',marginBottom:10,display:'flex',flexDirection:'column',gap:8,flexShrink:0,maxHeight:'35%',overflowY:'auto'}}>
+        <div style={{fontSize:'.78rem',color:'var(--muted)'}}>Outro dispositivo editou esta anotação ao mesmo tempo. A versão abaixo foi guardada para não se perder:</div>
+        {Object.entries(target.contentConflicts).map(([key,html])=>{
+          const text=String(sanitizeHTML(html)).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+          return <div key={key} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <span style={{flex:1,minWidth:160,fontSize:'.8rem',color:'var(--text)'}}>{text.slice(0,160)||'(vazia)'}{text.length>160?'…':''}</span>
+            <button type="button" className="btn btn-outline" onClick={()=>resolveConflict(selected,key,true)}>Anexar ao fim da nota</button>
+            <button type="button" className="btn btn-ghost" onClick={()=>resolveConflict(selected,key,false)}>Descartar</button>
+          </div>;
+        })}
+      </div>}
+      <RichEditor key={`${selected.kind}-${selected.id}-${editorRev}`} noteId={selected.id} initialHTML={target.content||''} onSave={handleContentSave} saveTarget={selected}/>
     </div>;
   };
 

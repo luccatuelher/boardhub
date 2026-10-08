@@ -168,3 +168,18 @@ test('normalize: garbage input yields a usable default', () => {
 
 function localToday() { return R.localDateISO ? R.localDateISO() : new Date().toLocaleDateString('sv-SE'); }
 
+
+test('retention safety: past-season sessions do not influence maintain or reconcile', pinned(() => {
+  const mk = sessions => ({
+    days: { '2026-10-05': 60 * 60 },
+    allocations: {},
+    rank: rank({ seasonId: '2026-3', points: 1500, startedOn: '2026-10-01', sessions,
+      decayApplied: { '2026-10-05': 100 }, decayLoss: { '2026-10-05': 100 } }),
+  });
+  const past = { id: 'old', seasonId: '2026-2', date: '2026-06-10', durationSeconds: 3600, pointsAwarded: 400 };
+  const cur = { id: 'cur', seasonId: '2026-3', date: '2026-10-05', durationSeconds: 3600, pointsAwarded: 400 };
+  const withPast = pomoRankMaintain(mk([past, cur]), NOW);
+  const withoutPast = pomoRankMaintain(mk([cur]), NOW);
+  for (const k of ['points', 'seasonId', 'decayApplied', 'decayLoss']) assert.deepEqual(withPast.rank[k], withoutPast.rank[k], k);
+  assert.deepEqual(withPast.rank.notices.map(n => n.id), withoutPast.rank.notices.map(n => n.id));
+}));
