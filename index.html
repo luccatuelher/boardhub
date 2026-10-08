@@ -7852,6 +7852,40 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
 // but resets status, dates and timeline — useful for recurring jobs on the same
 // pipeline. Shared by the project cards and the project page (the only way on
 // phones, whose compact list has no card buttons).
+// @bh-test-begin notessec
+// A project can be linked to a section of the Notes screen: a Categoria or a
+// Pasta (project.notesSection = its id). These helpers read the flat `notes`
+// list (types 'category', 'project' = Pasta with `entries`, 'note').
+const bhNotesSectionOptions=notes=>{
+  const list=Array.isArray(notes)?notes.filter(Boolean):[];
+  const byId=new Map(list.map(n=>[String(n.id),n]));
+  const live=n=>n&&!n.deleted;
+  const out=[];
+  list.filter(n=>live(n)&&n.type==='category').forEach(n=>out.push({id:n.id,kind:'category',label:n.title||'Categoria'}));
+  list.filter(n=>live(n)&&n.type==='project').forEach(n=>{
+    const parent=n.parentId!=null?byId.get(String(n.parentId)):null;
+    out.push({id:n.id,kind:'folder',label:(live(parent)&&parent.type==='category'?(parent.title||'Categoria')+' › ':'')+(n.title||'Pasta')});
+  });
+  return out;
+};
+// What the linked section holds, as groups of openable rows. A Categoria lists
+// its notes (ungrouped) and its Pastas (one group each, with their entries); a
+// Pasta lists its entries. null when the section is gone or in the trash.
+const bhNotesSectionItems=(notes,sectionId)=>{
+  if(sectionId==null||sectionId==='')return null;
+  const list=Array.isArray(notes)?notes.filter(Boolean):[];
+  const section=list.find(n=>String(n.id)===String(sectionId));
+  if(!section||section.deleted)return null;
+  const entriesOf=folder=>(folder.entries||[]).filter(e=>e&&!e.deleted).map(e=>({title:e.title||'Sem título',target:{kind:'entry',id:e.id,folderId:folder.id}}));
+  if(section.type==='project')return {section,groups:[{title:'',items:entriesOf(section)}]};
+  if(section.type!=='category')return null;
+  const kids=list.filter(n=>!n.deleted&&n.parentId!=null&&String(n.parentId)===String(section.id));
+  const loose=kids.filter(n=>n.type==='note'||!n.type).map(n=>({title:n.title||'Sem título',target:{kind:'note',id:n.id}}));
+  const groups=[{title:'',items:loose}];
+  kids.filter(n=>n.type==='project').forEach(f=>groups.push({title:f.title||'Pasta',items:entriesOf(f)}));
+  return {section,groups:groups.filter(g=>g.items.length||g.title)};
+};
+// @bh-test-end notessec
 // @bh-test-begin dup
 const bhDuplicateProject=p0=>{
   const sourceTasks=p0.projectTasks||[];
@@ -8479,7 +8513,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -8596,6 +8630,11 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(linked&&!list.some(f=>String(f.id)===linked))list.push({id:linked,label:'Pasta removida',missing:true});
     return list;
   },[galleryFolders,local.galleryFolder]);
+  // Notes-screen section linked to this project (course notes live there; the
+  // project's timeline holds the assignments).
+  const notesSectionOptions=useMemo(()=>bhNotesSectionOptions(notes),[notes]);
+  const linkedNotes=useMemo(()=>bhNotesSectionItems(notes,local.notesSection),[notes,local.notesSection]);
+  const linkedNotesCount=linkedNotes?linkedNotes.groups.reduce((n,g)=>n+g.items.length,0):0;
   // The link can narrow to one section of the folder or one post: the list
   // below and the focus time follow that scope.
   const galleryScope=useMemo(()=>bhProjectGalleryScope(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
@@ -9154,6 +9193,36 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 <RichEditor key={'overview-'+local.id} noteId={'project-'+local.id} initialHTML={bhTextToHTML(local.notes)} onSave={saveOverviewNotes} apiRef={overviewEditorApi}
                   placeholder="Notas de direção, referências, intenções narrativas..."/>
               </div>
+            </div>
+            {/* Linked section of the Notes screen */}
+            <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,gap:10,flexWrap:'wrap'}}>
+                <span className="label label-section"><StaveGlyph name="half"/>Anotações{linkedNotesCount>0?' · '+linkedNotesCount:''}</span>
+                <select value={local.notesSection||''} aria-label="Seção das anotações" onChange={e=>upd('notesSection',e.target.value)} className="input-box" style={{width:'auto',maxWidth:240,padding:'5px 10px',fontSize:'.78rem'}}>
+                  <option value="">Nenhuma seção</option>
+                  {local.notesSection&&!notesSectionOptions.some(o=>String(o.id)===String(local.notesSection))&&<option value={local.notesSection}>Seção removida</option>}
+                  {notesSectionOptions.map(o=><option key={o.id} value={o.id}>{o.kind==='category'?'Categoria: ':'Pasta: '}{o.label}</option>)}
+                </select>
+              </div>
+              {!local.notesSection
+                ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem',lineHeight:1.5}}><Icon name="notebook-pen" size={22} style={{display:'block',margin:'0 auto 8px',opacity:.3}}/>Vincule uma categoria ou pasta da tela Anotações para ver aqui as anotações deste projeto</div>
+                :!linkedNotes
+                  ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem'}}>A seção vinculada não existe mais ou está na lixeira.</div>
+                  :linkedNotesCount===0&&linkedNotes.groups.every(g=>!g.title)
+                    ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem'}}>Nenhuma anotação nesta seção ainda.</div>
+                    :<div style={{display:'flex',flexDirection:'column',gap:10}}>
+                      {linkedNotes.groups.map((g,gi)=>(
+                        <div key={gi} style={{display:'flex',flexDirection:'column',gap:4}}>
+                          {g.title&&<div style={{fontSize:'.7rem',fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)',display:'flex',alignItems:'center',gap:5}}><Icon name="folder" size={11}/>{g.title}</div>}
+                          {g.items.length===0&&<div style={{fontSize:'.78rem',color:'var(--muted)',paddingLeft:2}}>Pasta vazia.</div>}
+                          {g.items.map(it=>(
+                            <button key={String(it.target.kind)+String(it.target.id)} type="button" className="note-result" onClick={()=>onOpenNote&&onOpenNote(it.target)} title="Abrir em Anotações">
+                              <strong>{it.title}</strong>
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>}
             </div>
             {/* Assigned gallery */}
             <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
@@ -15990,7 +16059,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key="project-detail" name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key="project-detail" name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
