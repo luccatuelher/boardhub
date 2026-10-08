@@ -29,7 +29,7 @@ only those regions. Keep them free of JSX and DOM access (the sanitizer region g
 - Storage download URLs carry a token and are readable by anyone who has the URL.
 
 ## Diagnostics and recovery
-- `boardhubDiagnostics` (browser console) dumps the opt-in diagnostic log.
+- `boardhubDiagnostics.enable()` then `.snapshot()` (browser console) is the opt-in diagnostic log.
 - Backups are made automatically and before reset/import; restore them in **Sincronizar**.
 - If the app crashes on startup, the error screen offers "Baixar cópia dos dados (JSON)",
   importable later in **Sincronizar**.
