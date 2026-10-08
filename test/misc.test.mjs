@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhDuplicateProject } = load(['dup']);
+const { bhDuplicateProject } = load(['date', 'dup']);
 const { bhEntityPack, bhEntityUnpack } = load(['stable', 'sync', 'entity']);
 const { bhMergeSync } = load(['stable', 'sync', 'rank', 'date']);
 const { localDateISO } = load(['date']);
@@ -51,4 +51,13 @@ test('mixed numeric and string ids merge as the same record', () => {
   const base = [{ id: 1, t: 'a' }, { id: 'u-1', t: 'b' }];
   const out = bhMergeSync(base, [{ id: 1, t: 'x' }, { id: 'u-1', t: 'b' }], [{ id: 1, t: 'a' }, { id: 'u-1', t: 'y' }, { id: 'u-2', t: 'n' }]);
   assert.deepEqual(out.map(x => [String(x.id), x.t]), [['1', 'x'], ['u-1', 'y'], ['u-2', 'n']]);
+});
+
+test('duplicate project: inner notes get fresh unique ids', () => {
+  const { bhDuplicateProject: dup } = load(['date', 'dup']);
+  const src = { id: 1, title: 'P', projectTasks: [], miniProjects: [{ id: 2, title: 'M', innerNotes: [{ id: 7, t: 'a' }, { id: 8, t: 'b' }] }] };
+  const copy = dup(src);
+  const inner = copy.miniProjects[0].innerNotes.map(n => n.id);
+  assert.equal(new Set(inner).size, 2);
+  assert.ok(!inner.includes(7) && !inner.includes(8));
 });

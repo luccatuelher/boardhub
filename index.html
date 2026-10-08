@@ -7229,7 +7229,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   },[pomoData]);
   const addTask=()=>{
     if(!newTask.trim())return;
-    const id=Date.now();
+    const id=bhNewId();
     setTasks(p=>[...p,{id,text:newTask.trim(),done:false,noteId:null}]);setNewTask('');
     if(taskFilter==='done')setTaskFilter('all');
     setJustAdded(id);
@@ -7241,7 +7241,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   // or deleted, the task kept a ✓ that led nowhere and hid "Salvar como nota"
   // for good. The ✓ now opens the note while it exists.
   const liveNoteIds=useMemo(()=>new Set((notes||[]).filter(n=>n&&!n.deleted).map(n=>String(n.id))),[notes]);
-  const taskToNote=task=>{const n={id:Date.now(),type:'note',parentId:null,title:task.text,content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false};setNotes(p=>[n,...p]);setTasks(p=>p.map(t=>t.id===task.id?{...t,noteId:n.id}:t));};
+  const taskToNote=task=>{const n={id:bhNewId(),type:'note',parentId:null,title:task.text,content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false};setNotes(p=>[n,...p]);setTasks(p=>p.map(t=>t.id===task.id?{...t,noteId:n.id}:t));};
 
   const isSmall = !isMobile && typeof window !== 'undefined' && window.innerHeight < 800;
   const content=(
@@ -7423,7 +7423,7 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const coverRef=useRef();
   const handleCover=e=>bhPickImage(e,url=>set('cover',url),'a capa');
-  const save=()=>{if(!form.title.trim())return;onSave({...form,id:Date.now(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
+  const save=()=>{if(!form.title.trim())return;onSave({...form,id:bhNewId(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
   return(
     <Modal title="Novo Projeto" onClose={onClose} width={isMobile?'100%':520}>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
@@ -7807,18 +7807,16 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
 // phones, whose compact list has no card buttons).
 // @bh-test-begin dup
 const bhDuplicateProject=p0=>{
-  const base=Date.now();
   const sourceTasks=p0.projectTasks||[];
   const sourceMinis=p0.miniProjects||[];
   const allIds=Array.from(new Set([...sourceTasks,...sourceMinis].map(x=>String(x.id))));
-  const idMap=new Map(allIds.map((id,i)=>[id,base+i+1]));
-  let nestedSeq=base+allIds.length+1;
-  return {...p0,id:base,title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
+  const idMap=new Map(allIds.map(id=>[id,bhNewId()]));
+  return {...p0,id:bhNewId(),title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
     startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
     projectTasks:sourceTasks.map(t=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
     // content, and a Gallery post is fed by one task only: neither is copied.
-    miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:nestedSeq++}))}))};
+    miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
 };
 // @bh-test-end dup
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts})=>{
@@ -8050,7 +8048,7 @@ const AddMentorInline=({onAdd})=>{
   );
   const save=()=>{
     if(!name.trim())return;
-    const mentor={id:Date.now(),name:name.trim(),area:area.trim(),medium:'',notes:'',links:'',active:true,main:false,photo:'',photos:[],deleted:false};
+    const mentor={id:bhNewId(),name:name.trim(),area:area.trim(),medium:'',notes:'',links:'',active:true,main:false,photo:'',photos:[],deleted:false};
     onAdd(mentor);
     setName('');setArea('');setOpen(false);
   };
@@ -8233,7 +8231,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const cycleStatus=id=>{onUpdateTasks(ts=>ts.map(t=>String(t.id)===String(id)?{...t,status:PTASK_NEXT[t.status]||'Pendente'}:t));if(editDraft&&String(editDraft.id)===String(id))setEditDraft(d=>({...d,status:PTASK_NEXT[d.status]||'Pendente'}));};
   const addTask=()=>{
     if(!newTaskName.trim())return;
-    const id=Date.now();
+    const id=bhNewId();
     // When "this week" view is active, default to today so the task is visible immediately.
     const s=thisWeek?today:(projectStart||today);
     const e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
@@ -8704,7 +8702,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     return hit?hit.id:((project.researchNotes||[])[0]?.id||null);
   });
   const activeResearch=(local.researchNotes||[]).find(n=>n.id===activeResearchId)||null;
-  const addResearchNote=()=>{const n={id:Date.now(),title:'Nova Pesquisa',content:'',url:'',images:[],date:new Date().toLocaleDateString('pt-BR')};upd('researchNotes',rn=>[...(rn||[]),n]);setActiveResearchId(n.id);};
+  const addResearchNote=()=>{const n={id:bhNewId(),title:'Nova Pesquisa',content:'',url:'',images:[],date:new Date().toLocaleDateString('pt-BR')};upd('researchNotes',rn=>[...(rn||[]),n]);setActiveResearchId(n.id);};
   const updateResearch=(field,val)=>mapResearch(activeResearchId,n=>({...n,[field]:val}));
   const deleteResearch=id=>{upd('researchNotes',rn=>(rn||[]).filter(n=>String(n.id)!==String(id)));setActiveResearchId((local.researchNotes||[]).find(n=>String(n.id)!==String(id))?.id||null);};
   const researchImgRef=useRef();
@@ -8733,7 +8731,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const miniStatusToPTask=s=>({'Em Andamento':'Fazendo','Concluído':'Concluído','Atrasado':'Atrasado'}[s]||'Pendente');
   const ptaskStatusToMini=projectTaskMiniStatus;
   const addMini=()=>{
-    const id=Date.now();
+    const id=bhNewId();
     const n={id,title:'Nova Tarefa',status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};
     const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:local.startDate||todayISO(),dueDate:local.deadline||addDays(todayISO(),7),notes:''};
     edit(prev=>({...prev,miniProjects:[...(prev.miniProjects||[]),n],projectTasks:[...(prev.projectTasks||[]),pt]}));
@@ -8886,7 +8884,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const mapInnerNotes=(miniId,fn)=>mapMini(miniId,m=>({...m,innerNotes:fn(m.innerNotes||[])}));
   const addInnerNote=(miniId=activeMiniId)=>{
     if(miniId==null)return;
-    const n={id:Date.now(),title:'Nova nota',content:'',createdAt:new Date().toLocaleDateString('pt-BR')};
+    const n={id:bhNewId(),title:'Nova nota',content:'',createdAt:new Date().toLocaleDateString('pt-BR')};
     mapInnerNotes(miniId,ns=>[...ns,n]);
     setActiveMiniId(miniId);setActiveInnerNoteId(n.id);
   };
@@ -9994,7 +9992,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     return()=>{cancelAnimationFrame(raf1);if(raf2)cancelAnimationFrame(raf2);};
   },[navTick]);
 
-  const addFolder=()=>{const n={id:'folder-'+Date.now(),label:'Nova Pasta',deleted:false,sortMode:'month',manualOrder:[]};setFolders(p=>[...(p||[]),n]);setActiveFolder(n.id);setEditingFolderId(n.id);setEditingLabel(n.label);};
+  const addFolder=()=>{const n={id:bhNewId('folder-'),label:'Nova Pasta',deleted:false,sortMode:'month',manualOrder:[]};setFolders(p=>[...(p||[]),n]);setActiveFolder(n.id);setEditingFolderId(n.id);setEditingLabel(n.label);};
   const renameFolder=(id,label)=>{if(label.trim())setFolders(p=>p.map(f=>f.id===id?{...f,label:label.trim()}:f));};
   const trashFolder=id=>{setFolders(p=>p.map(f=>f.id===id?{...f,deleted:true,deletedAt:new Date().toISOString()}:f));if(activeFolder===id){const next=liveFolders.find(f=>f.id!==id);setActiveFolder(next?.id||'');}};
   const restoreFolder=id=>setFolders(p=>p.map(f=>f.id===id?{...f,deleted:false,deletedAt:null}:f));
@@ -10517,7 +10515,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             <Icon name="trash-2" size={13}/>{trash?'Sair':'Lixeira'}{!trash&&galleryOnlyPosts.filter(p=>p.deleted).length>0&&` (${galleryOnlyPosts.filter(p=>p.deleted).length})`}
           </button>
           {!trash&&activeFolderData&&<button className="btn btn-dark" onClick={()=>{
-            const n={id:Date.now(),folder:activeFolder,storageScope:'gallery',title:"Novo Estudo",date:localDateISO(),content:"",images:[],deleted:false};
+            const n={id:bhNewId(),folder:activeFolder,storageScope:'gallery',title:"Novo Estudo",date:localDateISO(),content:"",images:[],deleted:false};
             // Manual folders place it at the end of the unsectioned block via
             // galleryMaterializeOrder; no explicit manualOrder write needed.
             setPosts(prev=>[n,...prev]);
@@ -12257,7 +12255,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
 
   // ── CREATE ──
   const newNote=()=>{
-    const n={id:Date.now(),type:'note',title:'Nova Anotação',content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
+    const n={id:bhNewId(),type:'note',title:'Nova Anotação',content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
     newNoteCooldownRef.current=Date.now();
     setNotes(p=>[...p,n]);
     setSelected({kind:'note',id:n.id});
@@ -12265,14 +12263,14 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
     setMobileDetail(true);
   };
   const newFolder=()=>{
-    const n={id:Date.now(),type:'project',title:'Nova Pasta',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,entries:[]};
+    const n={id:bhNewId(),type:'project',title:'Nova Pasta',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,entries:[]};
     setNotes(p=>[...p,n]);
     setExpanded(p=>new Set(p).add(n.id));
     setSelected(null);
     setShowCreateMenu(false);
   };
   const newCategory=()=>{
-    const n={id:Date.now(),type:'category',title:'Nova Categoria',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
+    const n={id:bhNewId(),type:'category',title:'Nova Categoria',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
     setNotes(p=>[...p,n]);
     setExpanded(p=>new Set(p).add(n.id));
     setRenaming({id:n.id,value:n.title});
@@ -12860,7 +12858,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
   const savePost=()=>{
     if(!text.trim())return;
     if(editId){setPosts(p=>p.map(x=>x.id===editId?{...x,text,platform}:x));setEditId(null);}
-    else setPosts(p=>[{id:Date.now(),text,date:new Date().toLocaleDateString('pt-BR'),platform,deleted:false},...p]);
+    else setPosts(p=>[{id:bhNewId(),text,date:new Date().toLocaleDateString('pt-BR'),platform,deleted:false},...p]);
     setText('');setPlatform('Instagram');
   };
   const startEdit=p=>{setText(p.text);setPlatform(p.platform||'Instagram');setEditId(p.id);setTrash(false);};
@@ -13177,7 +13175,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
   const setActiveCat=v=>{setActiveCatRaw(v);try{localStorage.setItem(CAT_KEY,String(v));}catch(e){bhLog('contacts.category',e);}};
   const catId=activeCat!=='all'&&categories.some(c=>String(c.id)===String(activeCat))?String(activeCat):'all';
   const [editingCat,setEditingCat]=useState(null); // {id,label}
-  const addCategory=()=>{const n={id:'ccat-'+Date.now(),kind:'category',name:'Nova categoria',deleted:false};setClients(p=>[...p,n]);setActiveCat(n.id);setEditingCat({id:n.id,label:n.name});};
+  const addCategory=()=>{const n={id:bhNewId('ccat-'),kind:'category',name:'Nova categoria',deleted:false};setClients(p=>[...p,n]);setActiveCat(n.id);setEditingCat({id:n.id,label:n.name});};
   const renameCategory=(id,label)=>{const v=String(label||'').trim();if(v)setClients(p=>p.map(c=>String(c.id)===String(id)?{...c,name:v}:c));};
   const deleteCategory=async id=>{
     const cat=categories.find(c=>String(c.id)===String(id));if(!cat)return;
@@ -13215,7 +13213,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
   const softDelete=()=>{setClients(p=>p.map(c=>c.id===selected.id?{...c,deleted:true,deletedAt:new Date().toISOString()}:c));setSelected(null);};
   const restore=id=>setClients(p=>p.map(c=>c.id===id?{...c,deleted:false,deletedAt:null}:c));
   const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setClients(p=>p.filter(c=>c.id!==id));}}
-  const add=()=>{const n={id:Date.now(),name:'Novo Contato',company:'',email:'',role:'',status:'Lead',notes:'',photo:'',categoryId:catId==='all'?null:catId,deleted:false};setClients(p=>[n,...p]);setSelected(n);};
+  const add=()=>{const n={id:bhNewId(),name:'Novo Contato',company:'',email:'',role:'',status:'Lead',notes:'',photo:'',categoryId:catId==='all'?null:catId,deleted:false};setClients(p=>[n,...p]);setSelected(n);};
   const [clientSort,setClientSort]=useState(()=>{try{return localStorage.getItem('boardhub_clients_sort')||'manual';}catch{return 'manual';}});
   const changeClientSort=v=>{setClientSort(v);try{localStorage.setItem('boardhub_clients_sort',v);}catch(e){bhLog('clients.sort',e);}};
   const CLIENT_STATUS_ORDER=['Ativo','Lead','Inativo','Arquivado'];
@@ -14025,7 +14023,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(dragIdxRef.current!=null&&String(dragIdxRef.current)!==String(id)){reorderMentors(dragIdxRef.current,id);dragIdxRef.current=null;}},
   });
   const add=()=>{
-    const n={id:Date.now(),name:'Novo Mentor',area:'',medium:'',year:currentYear,notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
+    const n={id:bhNewId(),name:'Novo Mentor',area:'',medium:'',year:currentYear,notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
     setMentors(p=>[n,...p]);
     setSelected(n);
   };
@@ -14209,8 +14207,8 @@ const QuickCapture=({type,onClose,onAddTask,onAddNote})=>{
   useEffect(()=>{inputRef.current?.focus();},[]);
   const submit=()=>{
     if(!value.trim()){onClose();return;}
-    if(type==='task'){onAddTask({id:Date.now(),text:value.trim(),done:false,noteId:null});}
-    else{onAddNote({id:Date.now(),type:'note',parentId:null,title:value.trim(),content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false});}
+    if(type==='task'){onAddTask({id:bhNewId(),text:value.trim(),done:false,noteId:null});}
+    else{onAddNote({id:bhNewId(),type:'note',parentId:null,title:value.trim(),content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false});}
     onClose();
   };
   const onKey=e=>{if(e.key==='Enter'){e.preventDefault();submit();}if(e.key==='Escape')onClose();};
@@ -14687,7 +14685,7 @@ const App=()=>{
       const hasTask=id=>id!=null&&[...(project.projectTasks||[]),...(project.miniProjects||[])].some(t=>t&&String(t.id)===String(id));
       if(!session.newTaskName&&!hasTask(session.taskId))throw new Error('a tarefa escolhida não está mais disponível');
       const today=localDateISO(),day=session.date||today;
-      const task=session.newTaskName?{id:Date.now(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''}:null;
+      const task=session.newTaskName?{id:bhNewId(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''}:null;
       const taskId=String(task?task.id:session.taskId);
       const noteId='session-note-'+session.id;
       const images=Array.isArray(session.images)?session.images:[];
@@ -14752,7 +14750,7 @@ const App=()=>{
     let taskId=sessionProjectId&&session.taskId!=null&&session.taskId!==''?String(session.taskId):null;
     if(sessionProjectId&&session.newTaskName){
       const today=localDateISO();
-      const task={id:Date.now(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''};
+      const task={id:bhNewId(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''};
       taskId=String(task.id);
       setProjects(prev=>prev.map(p=>String(p.id)!==sessionProjectId?p:{...p,
         projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
