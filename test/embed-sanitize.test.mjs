@@ -126,7 +126,12 @@ test('sanitizer passes through empty and non-string input', () => {
 });
 
 for (const attr of ['id="x"', 'name="x"', 'srcset="a.png 1x"', 'ping="//evil"']) {
-  test(`sanitizer strips ${attr.split('=')[0]}`, { todo: 'known gap (low risk): DOM clobbering / tracking attributes pass through' }, () => {
+  test(`sanitizer strips ${attr.split('=')[0]}`, () => {
     assert.ok(!new RegExp(attr.split('=')[0] + '=').test(clean(`<a ${attr} href="https://a.com">x</a>`)));
   });
 }
+
+test('sanitizer keeps target=_blank/_self and drops other targets', () => {
+  assert.ok(clean('<a href="https://a.com" target="_blank">x</a>').includes('target="_blank"'));
+  assert.ok(!clean('<a href="https://a.com" target="evilframe">x</a>').includes('target'));
+});

@@ -10962,7 +10962,10 @@ const sanitizeHTML=html=>{
       [...el.attributes].forEach(a=>{
         const n=a.name.toLowerCase();
         const compact=String(a.value||'').replace(/[\u0000-\u0020\u007f-\u009f]/g,'');
-        if(n.startsWith('on')||n==='srcdoc'||n==='formaction'||n==='data-persist-src'||n==='data-note-cap-html'||n==='autoplay')el.removeAttribute(a.name);
+        // id/name: DOM clobbering (a note must not shadow window/document properties);
+        // srcset/ping/poster: loads or beacons the src allowlist below never sees.
+        if(n.startsWith('on')||n==='srcdoc'||n==='formaction'||n==='data-persist-src'||n==='data-note-cap-html'||n==='autoplay'||n==='id'||n==='name'||n==='srcset'||n==='ping'||n==='poster')el.removeAttribute(a.name);
+        else if(n==='target'&&!/^_(?:blank|self)$/i.test(a.value))el.removeAttribute(a.name);
         else if((n==='href'||n==='src'||n==='xlink:href'||n==='action')&&_BAD_PROTO.test(compact))el.removeAttribute(a.name);
         else if(n==='style'){
           // Only BoardHub's proportional image row needs inline CSS. Pasted
