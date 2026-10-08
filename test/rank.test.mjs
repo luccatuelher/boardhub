@@ -107,13 +107,18 @@ test('maintain: a stored season from the past closes into history and restarts a
   assert.ok(out.rank.history.some(h => String(h.seasonId) === '2026-2'));
 });
 
-test('maintain: a stored season one ahead (clock skew) keeps its points and is not closed', () => {
-  const data = { days: {}, allocations: {}, rank: rank({ seasonId: '2027-1', points: 3000, startedOn: '2027-01-02' }) };
-  const out = pomoRankMaintain(data, NOW);
+test('maintain: a season one ahead that starts within a week (clock skew) keeps its points and is not closed', () => {
+  const data = { days: {}, allocations: {}, rank: rank({ seasonId: '2027-1', points: 3000, startedOn: '2027-01-01' }) };
+  const out = pomoRankMaintain(data, new Date('2026-12-30T12:00:00'));
   assert.equal(out.rank.seasonId, '2027-1');
   assert.equal(out.rank.points, 3000);
   assert.deepEqual(out.rank.history, data.rank.history);
   assert.deepEqual(out.rank.decayApplied, {});
+});
+
+test('maintain: a season one ahead that starts more than a week away resets', () => {
+  const data = { days: {}, allocations: {}, rank: rank({ seasonId: '2027-1', points: 3000, startedOn: '2027-01-01' }) };
+  assert.equal(pomoRankMaintain(data, NOW).rank.points, 0);
 });
 
 test('maintain: seasons more than one ahead, or garbage ids, still reset', () => {

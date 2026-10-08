@@ -113,13 +113,16 @@ Análise de `index.html` (commit `b0fc9a4`, out/2026), revisada por um consultor
 - **Tests (item 3):** `package.json`, `test/` (node:test + jsdom), pure regions of `index.html` marked with `@bh-test-begin/end`. Covers merge, rank/decay/refund, season skew, sanitizer, embeds, ids, entity pack/unpack, project duplication.
 - **IDs (item 2):** `bhNewId()`/`bhIdTime()`; all `Date.now()` record ids replaced, recency sorts read the embedded time. Existing ids are never rewritten. The sync merge also tolerates duplicate ids now (`id#occurrence`).
 - **Note conflicts (item 2):** concurrent edits of the same `content` keep the local text and store the other under `contentConflicts` (hash-keyed, convergent, idempotent); the notes screen lists them with "append to note" / "discard".
-- **Clock skew (item 2):** a stored season exactly one ahead is kept instead of reset to 0; farther or invalid ids still reset. Focus earns no points until the real date reaches that season.
+- **Clock skew (item 2):** a stored season exactly one ahead that starts within a week is kept instead of reset to 0; farther or invalid ids still reset. Focus earns no points until the real date reaches that season (at most a week).
 - **Local storage (item 1):** the localStorage emergency/fallback copies yield to the primary state when the quota is spent (dropped, then the state is written once more).
 - **Boot (item 5):** React/ReactDOM/Lucide `defer`red, the loader starts on DOMContentLoaded, fonts non-blocking, Firebase scripts download in parallel with ordered execution.
 - **Safe mode (item 3):** per-screen `ViewBoundary` (retry / back to dashboard / download data copy) on top of the existing global boundary.
 - **Security (item 6):** `firestore.rules` / `storage.rules` / `firebase.json` versioned (not run against the emulator, review before deploying); sanitizer strips `id`, `name`, `srcset`, `ping`, `poster` and restricts `target`; still images over 40 MB are refused; optional precompiled build `npm run build` (`dist/`, no Babel, SRI on the CDN scripts).
 - **A11y (item 8):** command palette has combobox/listbox/option roles and `aria-activedescendant`.
+- **Projects ↔ Notes (new):** a project can link a Categoria or Pasta of the Notes screen; its notes show in Visão Geral between the notes editor and the Gallery.
 - **README.md** added.
+
+**Known limits:** duplicate-id records are matched by position (deleting/reordering one of two duplicates can misroute a concurrent edit); conflict copies are only created for notes and folder entries; stripping `id`/`name` breaks pasted in-note `#anchor` links.
 
 **Not done (need your decision or a real account/device):**
 - **Sync v4 as default.** Needs testing against a real Firebase project and a rollout plan for old clients; nothing here can exercise Firestore.

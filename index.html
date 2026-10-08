@@ -1147,11 +1147,15 @@ const lsSave = s => {
     catch(first){
       // The state is the primary copy; the emergency/fallback copies in this
       // same origin quota are only safety nets (the history lives in IndexedDB).
-      // When the quota is spent, they yield: drop them and write the state once
-      // more. They are rewritten on the next capture if space allows.
+      // When the quota is spent they yield: drop them and write the state once
+      // more. If that write fails too, they are put back untouched.
+      const quota=first&&(first.name==='QuotaExceededError'||first.code===22||first.code===1014||/quota/i.test(String(first.message||'')));
+      if(!quota)throw first;
       bhLog('lsSave.quota',first,'dropping localStorage backup copies to keep the state');
-      localStorage.removeItem(BH_EMERGENCY_KEY);localStorage.removeItem(BH_FALLBACK_KEY);
-      localStorage.setItem(LS_KEY,serialized);
+      const held=[BH_EMERGENCY_KEY,BH_FALLBACK_KEY].map(k=>[k,localStorage.getItem(k)]).filter(([,v])=>v!==null);
+      held.forEach(([k])=>localStorage.removeItem(k));
+      try{localStorage.setItem(LS_KEY,serialized);}
+      catch(second){held.forEach(([k,v])=>{try{localStorage.setItem(k,v);}catch{/*silent-ok: nothing more to try; the original error is reported below*/}});throw second;}
     }
     remember();return {ok:true,stripped:false};
   }
@@ -2955,6 +2959,14 @@ const bhSplitState=state=>{
 // edits; explicit restore from an already-deleted base remains possible.
 // Stable key for a conflicting text: same text, same key, on every device.
 const bhConflictKey=text=>{let h=5381;for(let i=0;i<text.length;i++)h=((h<<5)+h+text.charCodeAt(i))|0;return 'c'+(h>>>0).toString(36)+'_'+text.length;};
+// Only records the Notes screen can resolve keep a conflict copy: notes and
+// folder entries. Gallery posts, research notes, etc. also have `content`, but
+// nothing would ever show or clear a copy there.
+const bhConflictEligible=rec=>{
+  const t=bhSyncScalar(rec.type);
+  if(t!==undefined)return t==='note';
+  return typeof bhSyncScalar(rec.title)==='string'&&rec.folder===undefined&&rec.url===undefined&&rec.images===undefined&&rec.storageScope===undefined;
+};
 const bhMergeSync=(base,local,remote)=>{
   if(bhEqual(local,base))return remote;
   if(bhEqual(remote,base)||bhEqual(local,remote))return local;
@@ -2964,7 +2976,9 @@ const bhMergeSync=(base,local,remote)=>{
   // one duplicated id (two devices once created records in the same
   // millisecond) used to switch the by-id merge off for the whole list, and the
   // push that followed deleted the other device's additions. Lists with unique
-  // ids get "id#0" for every item, so they merge exactly as before.
+  // ids get "id#0" for every item, so they merge exactly as before. Duplicates
+  // are matched by position, so deleting or reordering one of two duplicates can
+  // send a concurrent edit to the other (still better than dropping the list).
   const keyed=v=>Array.isArray(v)&&v.every(x=>record(x)&&x.id!==undefined);
   const keysOf=list=>{const seen=new Map();return list.map(x=>{const id=String(x.id),n=seen.get(id)||0;seen.set(id,n+1);return id+'#'+n;});};
   // Lists whose items carry no id (scalars, image URLs, and records such as
@@ -3006,14 +3020,23 @@ const bhMergeSync=(base,local,remote)=>{
     // The key is a hash of the text, so running the merge again (a transaction
     // retry, or the other device merging the other way round) writes the same
     // key; a copy equal to the winning text is not a conflict and is removed.
-    if(typeof base.content==='string'&&typeof local.content==='string'&&typeof remote.content==='string'
-      &&local.content!==base.content&&remote.content!==base.content&&local.content!==remote.content){
-      const lost=remote.content;
-      out.contentConflicts={...(record(out.contentConflicts)?out.contentConflicts:{}),[bhConflictKey(lost)]:lost};
+    // Also for packed (entity v4) records, where a string is {scalar:"…"}.
+    const text=v=>{const x=bhSyncScalar(v);return typeof x==='string'?x:undefined;};
+    const tb=text(base.content),tl=text(local.content),tr=text(remote.content);
+    if(bhConflictEligible(local)&&tb!==undefined&&tl!==undefined&&tr!==undefined&&tl!==tb&&tr!==tb&&tl!==tr){
+      const packed=bhSyncRec(local.content);
+      const prev=out.contentConflicts===undefined?{}:bhSyncWrapped(out.contentConflicts)?out.contentConflicts.object:record(out.contentConflicts)&&!out.contentConflicts.ref&&!packed?out.contentConflicts:null;
+      if(prev){
+        const merged={...prev,[bhConflictKey(tr)]:packed?{scalar:tr}:tr};
+        out.contentConflicts=packed?{object:merged}:merged;
+      }
     }
-    if(record(out.contentConflicts)&&typeof out.content==='string'){
-      const kept=Object.fromEntries(Object.entries(out.contentConflicts).filter(([,text])=>text!==out.content));
-      if(Object.keys(kept).length)out.contentConflicts=kept;else delete out.contentConflicts;
+    if(record(out.contentConflicts)&&text(out.content)!==undefined){
+      const inner=bhSyncObj(out.contentConflicts);
+      if(record(inner)&&!inner.ref){
+        const kept=Object.fromEntries(Object.entries(inner).filter(([,v])=>text(v)!==text(out.content)));
+        if(Object.keys(kept).length)out.contentConflicts=bhSyncWrapped(out.contentConflicts)?{object:kept}:kept;else delete out.contentConflicts;
+      }
     }
     if(bhSyncIsRank(local)&&bhSyncIsRank(remote))bhSyncRankResolve(base,local,remote,out);
     if(bhSyncIsPomo(local)&&bhSyncIsPomo(remote))bhSyncPomoResolve(local,remote,out);
@@ -3787,7 +3810,7 @@ const bhMediaPrecheck=async file=>{
   if(!_isVideoFile(file)){
     // Originals are stored as they are, and the whole file is read into memory
     // to hash it: a huge image can stall or crash a phone.
-    if(file.size>BH_MEDIA.imageMaxBytes)throw new BhMediaError('A imagem "'+(file.name||'sem nome')+'" tem '+bhFmtMB(file.size)+' e passa do limite de 40 MB. Reduza o tamanho e envie de novo.');
+    if(file.size>BH_MEDIA.imageMaxBytes)throw new BhMediaError('O arquivo "'+(file.name||'sem nome')+'" tem '+bhFmtMB(file.size)+' e passa do limite de 40 MB. Reduza o tamanho e envie de novo.');
     return null;
   }
   const meta=await bhVideoMeta(file).catch(()=>null);
@@ -4942,14 +4965,15 @@ const pomoRankMaintain=(data,now=new Date())=>{
       }
       const notices=lastNotice?[...(seasonRank.notices||[]).filter(n=>n&&(n.dismissed||n.type!=='season')),lastNotice]:seasonRank.notices;
       rank=seasonRank.seasonId===current.id?{...seasonRank,notices}:rankDefault(now,history,rank.sessions,notices);
-    }else if(Number.isFinite(from)&&from===to+1){
-      // The stored season is the NEXT one: a device whose clock ran ahead wrote
-      // it and synced it. Resetting here zeroed every other device's points on
+    }else if(Number.isFinite(from)&&from===to+1&&rankSeasonStart(rank.seasonId)<=rankDateAdd(rankDateKey(now),7)){
+      // The stored season is the NEXT one and starts within a week: a device
+      // whose clock ran a few days ahead closed the season early and synced it. Resetting here zeroed every other device's points on
       // the next push. Leave the rank as it is: no decay (it starts in the
       // future) and no season close; it simply becomes current when the real
       // date arrives. Focus earns no points meanwhile (pomoRankCredit).
     }else{
-      // Invalid ids and seasons more than one ahead: reset safely to the current
+      // Invalid ids, seasons more than one ahead, or one starting more than a
+      // week away (a clock that far off would freeze focus credit for months): reset safely to the current
       // season without manufacturing history entries.
       rank=rankDefault(now,rank.history,rank.sessions,rank.notices);
     }
@@ -12361,12 +12385,17 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
       if(append)next.content=(rec.content||'')+'<hr><p><em>Versão em conflito de outro dispositivo</em></p>'+sanitizeHTML(lost);
       return next;
     };
-    setNotes(p=>p.map(n=>{
+    const run=()=>setNotes(p=>p.map(n=>{
       if(target.kind==='note')return n.id===target.id?apply(n):n;
       if(n.id!==target.folderId||n.type!=='project')return n;
       return {...n,entries:(n.entries||[]).map(e=>e.id===target.id?apply(e):e)};
     }));
-    if(append)setEditorRev(r=>r+1);
+    if(!append){run();return;}
+    // Remounting the editor flushes what was typed in the last moments (its
+    // unmount save); append only after that, on the newest text, then remount
+    // once more so the editor opens with the appended version.
+    setEditorRev(r=>r+1);
+    setTimeout(()=>{run();setEditorRev(r=>r+1);},60);
   },[setNotes]);
   const handleContentSave=useCallback((html,target)=>{
     if(target?.kind==='note')setNotes(p=>{
@@ -16059,7 +16088,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key="project-detail" name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
@@ -16202,6 +16231,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
 
   var db=null;
   function start(){
+  // The deferred CDN scripts have now run: give the boot its own full budget.
+  try{clearTimeout(window.__splashTimeout);if(window.__bhSplashFail)window.__splashTimeout=setTimeout(window.__bhSplashFail,12000);}catch(_){/*silent-ok: splash cosmetics only*/}
   openDb().then(function(d){db=d;return get(d,KEY);},function(){return null;})
   .then(function(rec){
     var code=rec&&rec.v===CACHE_V&&typeof rec.code==='string'&&rec.code.length>1000?rec.code:null;

@@ -101,20 +101,20 @@ test('merge: unique-id lists behave as before (order, adds, deletes)', () => {
 });
 
 test('merge: concurrent note edits keep the local HTML (remote text is lost)', () => {
-  const base = [{ id: 1, content: '<p>a</p>' }];
-  const out = bhMergeSync(base, [{ id: 1, content: '<p>local</p>' }], [{ id: 1, content: '<p>remote</p>' }]);
+  const base = [{ id: 1, title: 't', content: '<p>a</p>' }];
+  const out = bhMergeSync(base, [{ id: 1, title: 't', content: '<p>local</p>' }], [{ id: 1, title: 't', content: '<p>remote</p>' }]);
   assert.equal(out[0].content, '<p>local</p>');
 });
 
 test('merge: the losing note version is preserved in contentConflicts', () => {
-  const out = bhMergeSync([{ id: 1, content: 'a' }], [{ id: 1, content: 'L' }], [{ id: 1, content: 'R' }]);
+  const out = bhMergeSync([{ id: 1, title: 't', content: 'a' }], [{ id: 1, title: 't', content: 'L' }], [{ id: 1, title: 't', content: 'R' }]);
   assert.equal(out[0].content, 'L');
   assert.deepEqual(Object.values(out[0].contentConflicts), ['R']);
 });
 
 test('merge: note conflicts converge across two devices and are idempotent', () => {
-  const base = [{ id: 1, content: 'a' }];
-  const A = [{ id: 1, content: 'L' }], B = [{ id: 1, content: 'R' }];
+  const base = [{ id: 1, title: 't', content: 'a' }];
+  const A = [{ id: 1, title: 't', content: 'L' }], B = [{ id: 1, title: 't', content: 'R' }];
   const mergedA = bhMergeSync(base, A, B);          // device A merges B's push
   const mergedB = bhMergeSync(base, B, mergedA);    // device B merges A's result the other way round
   assert.equal(mergedB[0].content, 'R');
@@ -126,16 +126,16 @@ test('merge: note conflicts converge across two devices and are idempotent', () 
 });
 
 test('merge: no conflict copy when only one side edited, or both wrote the same text', () => {
-  const base = [{ id: 1, content: 'a' }];
-  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, content: 'L' }], base)[0]));
-  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, content: 'S' }], [{ id: 1, content: 'S' }])[0]));
+  const base = [{ id: 1, title: 't', content: 'a' }];
+  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, title: 't', content: 'L' }], base)[0]));
+  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, title: 't', content: 'S' }], [{ id: 1, title: 't', content: 'S' }])[0]));
 });
 
 test('merge: a conflict copy equal to the winning text is dropped; discarding a copy propagates', () => {
-  const key = Object.keys(bhMergeSync([{ id: 1, content: 'a' }], [{ id: 1, content: 'L' }], [{ id: 1, content: 'R' }])[0].contentConflicts)[0];
-  const base = [{ id: 1, content: 'L', contentConflicts: { [key]: 'R' } }];
+  const key = Object.keys(bhMergeSync([{ id: 1, title: 't', content: 'a' }], [{ id: 1, title: 't', content: 'L' }], [{ id: 1, title: 't', content: 'R' }])[0].contentConflicts)[0];
+  const base = [{ id: 1, title: 't', content: 'L', contentConflicts: { [key]: 'R' } }];
   // the user discards the stored copy on device A while device B edits something else
-  const out = bhMergeSync(base, [{ id: 1, content: 'L' }], [{ id: 1, content: 'L', contentConflicts: { [key]: 'R' }, title: 't' }]);
+  const out = bhMergeSync(base, [{ id: 1, title: 't', content: 'L' }], [{ id: 1, title: 't', content: 'L', contentConflicts: { [key]: 'R' }, title: 't' }]);
   assert.ok(!('contentConflicts' in out[0]));
   assert.equal(out[0].title, 't');
 });
@@ -191,9 +191,9 @@ test('clock skew: a remote season in the future is adopted when local is unchang
 });
 
 test('sync plan: no change is empty, notes-only change touches only the notes doc', () => {
-  const state = { projects: [{ id: 1 }], notes: [{ id: 1, content: 'a' }], galleryPosts: [] };
+  const state = { projects: [{ id: 1 }], notes: [{ id: 1, title: 't', content: 'a' }], galleryPosts: [] };
   assert.deepEqual(bhSyncPlan(state, state), []);
-  const plan = bhSyncPlan(state, { ...state, notes: [{ id: 1, content: 'b' }] });
+  const plan = bhSyncPlan(state, { ...state, notes: [{ id: 1, title: 't', content: 'b' }] });
   assert.deepEqual(plan.map(p => p.id), ['notes']);
   assert.ok(Object.keys(plan[0].fields).includes('notes'));
 });
@@ -208,4 +208,26 @@ test('split state routes notes and gallery out of the main doc', () => {
   assert.ok(state.projects && !state.notes && !state.galleryPosts);
   assert.ok(notes.notes);
   assert.ok(gallery && Object.keys(gallery).length);
+});
+
+test('merge: note conflicts are kept for packed (entity v4) records too', () => {
+  const rec = (content, extra = {}) => ({ object: { id: { scalar: 1 }, title: { scalar: 't' }, content: { scalar: content }, ...extra } });
+  const out = bhMergeSync({ value: rec('a') }, { value: rec('L') }, { value: rec('R') }).value.object;
+  assert.deepEqual(out.content, { scalar: 'L' });
+  assert.deepEqual(Object.values(out.contentConflicts.object), [{ scalar: 'R' }]);
+  // idempotent, and a copy equal to the winning text is dropped
+  const again = bhMergeSync({ value: rec('a') }, { value: rec('L') }, { value: rec('R') });
+  assert.deepEqual(again.value.object, out);
+  const back = bhMergeSync({ value: rec('a') }, { value: rec('R') }, { value: { object: { ...out } } }).value.object;
+  assert.deepEqual(back.content, { scalar: 'R' });
+  assert.deepEqual(Object.values(back.contentConflicts.object), [{ scalar: 'L' }]);
+});
+
+test('merge: records that are not notes (gallery posts, research notes) get no conflict copy', () => {
+  for (const extra of [{ folder: 'f' }, { url: 'u' }, { images: [] }, { type: 'category' }]) {
+    const out = bhMergeSync([{ id: 1, title: 't', content: 'a', ...extra }], [{ id: 1, title: 't', content: 'L', ...extra }], [{ id: 1, title: 't', content: 'R', ...extra }]);
+    assert.ok(!('contentConflicts' in out[0]), JSON.stringify(extra));
+  }
+  const note = bhMergeSync([{ id: 1, type: 'note', content: 'a' }], [{ id: 1, type: 'note', content: 'L' }], [{ id: 1, type: 'note', content: 'R' }]);
+  assert.ok('contentConflicts' in note[0]);
 });
