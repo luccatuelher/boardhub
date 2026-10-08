@@ -3,10 +3,15 @@
   "private": true,
   "description": "Dev-only tooling. The app itself is the single static index.html (no build step).",
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "build": "node tools/build.mjs"
   },
   "devDependencies": {
-    "jsdom": "^25.0.1"
+    "jsdom": "^25.0.1",
+    "@babel/standalone": "7.23.9",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "lucide": "0.460.0"
   },
   "engines": {
     "node": ">=21"

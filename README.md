@@ -20,6 +20,12 @@ sanitizer, embeds, ids — without a browser or a build. Pure blocks are wrapped
 only those regions. Keep them free of JSX and DOM access (the sanitizer region gets a jsdom
 `document`). Known bugs are encoded as `todo` tests, which flip to normal tests when fixed.
 
+## Optional precompiled build
+`npm run build` writes `dist/index.html` (git-ignored): the same app with the JSX compiled once at
+build time, no Babel and no `new Function`, and SRI hashes on the React/ReactDOM/Lucide CDN
+scripts. The root `index.html` remains the deployable no-build file; deploy `dist/` instead if you
+want the precompiled variant (it is also the prerequisite for a CSP without `'unsafe-eval'`).
+
 ## Firebase
 - Firestore data: `users/{uid}/boardhub/*` (legacy docs `state`, `notes`, `gallery`; v4 docs
   `sync-v4` and `v4_*` entities). Storage: `users/{uid}/images/sha256_<digest>_<mime>`.
