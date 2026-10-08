@@ -107,6 +107,28 @@ Análise de `index.html` (commit `b0fc9a4`, out/2026), revisada por um consultor
 - A evicção do cache de mídia é por data de download, não por último uso.
 - Não verificados no navegador real: `persist()` em Firefox/Safari, fluxos que dependem do Firebase (fallback do Imgur), bfcache real e download no iOS.
 
+## Status update (second pass, out/2026)
+
+**Done and pushed** (unit tests: `npm test`, 85 passing, 0 todo; UI changes verified in headless Chromium):
+- **Tests (item 3):** `package.json`, `test/` (node:test + jsdom), pure regions of `index.html` marked with `@bh-test-begin/end`. Covers merge, rank/decay/refund, season skew, sanitizer, embeds, ids, entity pack/unpack, project duplication.
+- **IDs (item 2):** `bhNewId()`/`bhIdTime()`; all `Date.now()` record ids replaced, recency sorts read the embedded time. Existing ids are never rewritten. The sync merge also tolerates duplicate ids now (`id#occurrence`).
+- **Note conflicts (item 2):** concurrent edits of the same `content` keep the local text and store the other under `contentConflicts` (hash-keyed, convergent, idempotent); the notes screen lists them with "append to note" / "discard".
+- **Clock skew (item 2):** a stored season exactly one ahead is kept instead of reset to 0; farther or invalid ids still reset. Focus earns no points until the real date reaches that season.
+- **Local storage (item 1):** the localStorage emergency/fallback copies yield to the primary state when the quota is spent (dropped, then the state is written once more).
+- **Boot (item 5):** React/ReactDOM/Lucide `defer`red, the loader starts on DOMContentLoaded, fonts non-blocking, Firebase scripts download in parallel with ordered execution.
+- **Safe mode (item 3):** per-screen `ViewBoundary` (retry / back to dashboard / download data copy) on top of the existing global boundary.
+- **Security (item 6):** `firestore.rules` / `storage.rules` / `firebase.json` versioned (not run against the emulator, review before deploying); sanitizer strips `id`, `name`, `srcset`, `ping`, `poster` and restricts `target`; still images over 40 MB are refused; optional precompiled build `npm run build` (`dist/`, no Babel, SRI on the CDN scripts).
+- **A11y (item 8):** command palette has combobox/listbox/option roles and `aria-activedescendant`.
+- **README.md** added.
+
+**Not done (need your decision or a real account/device):**
+- **Sync v4 as default.** Needs testing against a real Firebase project and a rollout plan for old clients; nothing here can exercise Firestore.
+- **IndexedDB as primary state.** Touches boot and every save path; risky without device testing.
+- **Retention of `rank.sessions`.** Sessions of past seasons feed visible numbers (history, task focus totals, post totals) and are merged back by `pomoMergeProgress`; safe pruning needs a schema change (aggregates plus a compaction watermark). `pomoData.days` is only ~9 KB/year and was left alone.
+- **Rank credit while the season is ahead (clock skew).** A device whose clock was ahead earns no points until the real date catches up; allowing credit means deciding how sessions (which carry the real season id) should count.
+- **CSP.** Only meaningful on the precompiled `dist/` and needs the exact host list (Firebase, Imgur, Unsplash, embeds); not enabled.
+- Click-only `div`/`span` elements without role/tabIndex, unit tests for UI code, Prettier/ESLint, mixed PT/EN identifiers.
+
 ## Ordem sugerida de execução
 1. **Armazenamento local:** `storage.persist()`, evicção/limite no cache de mídia, separar `syncbase`/entidades, acabar com a cópia integral no localStorage, planejar estado primário no IndexedDB.
 2. **Tornar o sync v4 o padrão**, com detecção de clientes antigos e testes; política de retenção para `rank.sessions`/`pomoData.days`.
