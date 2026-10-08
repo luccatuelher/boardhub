@@ -1,0 +1,11 @@
+{
+  "name": "boardhub",
+  "private": true,
+  "description": "Dev-only tooling. The app itself is the single static index.html (no build step).",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

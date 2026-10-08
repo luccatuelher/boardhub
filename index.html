@@ -928,10 +928,12 @@ const bhUiReplace=(key,value)=>{
 // 21:00 local is already *tomorrow* — pomodoro logged to the wrong day, deadline
 // chips off-by-one at night, daily backup landing in the wrong weekday slot.
 // Every "today" in the app must go through localDateISO().
+// @bh-test-begin date
 const localDateISO=(d=new Date())=>{
   const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
   return y+'-'+m+'-'+dd;
 };
+// @bh-test-end date
 
 // - F3: FAILURE DIARY -
 // There were 54 empty `catch{}` in this file. Most are legitimate — showPicker(),
@@ -1437,6 +1439,7 @@ if(!persisted){try{localStorage.setItem(SEEDED_KEY,'1');}catch(e){bhLog('seed.ma
 //   • quota-safe: drops oldest entries (and strips base64) before giving up
 // F1: the history lives in IndexedDB, in ITS OWN DATABASE. The key below is only
 // the migration SOURCE — once migrated and verified, it ceases to exist.
+// @bh-test-begin stable
 const bhCanonicalState=s=>{
   const {_v,_revision,_updated,_exported,_clientCommit,...rest}=s||{};
   return rest;
@@ -1457,6 +1460,7 @@ const bhStableStringify=value=>{
   };
   return JSON.stringify(walk(value));
 };
+// @bh-test-end stable
 const bhBackupSig=s=>{
   const str=bhStableStringify(bhCanonicalState(s));let h=5381;
   for(let i=0;i<str.length;i++)h=((h<<5)+h+str.charCodeAt(i))|0;
@@ -2878,6 +2882,7 @@ const getGalleryRef=uid=>{
 //   gallery → galleryPosts array (300KB+ with metadata)
 let _fbPushChain=Promise.resolve();
 const _bhPushActive=new Set();
+// @bh-test-begin sync
 const BH_SYNC_FIELDS=['projects','clients','mentors','tasks','socialPosts','socialTemplates','pomoData','identity','noteGroups','galleryFolders','notes','galleryPosts'];
 const _bhSyncBases=new Map();
 const bhSyncState=state=>Object.fromEntries(BH_SYNC_FIELDS.filter(k=>state?.[k]!==undefined).map(k=>[k,state[k]]));
@@ -3037,6 +3042,7 @@ const bhSyncPlan=(base,local)=>{
   }
   return plan;
 };
+// @bh-test-end sync
 const BH_INLINE_MEDIA_RE=/data:(?:image|video)\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi;
 const _inlineCloudCache=new Map();
 const inlineMediaFile=value=>{
@@ -3079,6 +3085,7 @@ const hasInlineMedia=obj=>{
 // Entity transport v4. Legacy documents are immutable rollback inputs after activation.
 const bhEntityModes=new Map();
 const bhEntityCollection=uid=>_fbDb.collection('users').doc(uid).collection('boardhub');
+// @bh-test-begin entity
 const bhEntityId=path=>{
   const id='v4_'+btoa(unescape(encodeURIComponent(JSON.stringify(path)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   if(id.length>1300)throw new Error('Identificador excessivamente longo; dados preservados.');
@@ -3147,6 +3154,7 @@ const bhEntityUnpack=docs=>{
   };
   return unpack({ref:'v4_root'});
 };
+// @bh-test-end entity
 const bhEntityChanges=(before,after)=>[...new Set([...before.keys(),...after.keys()])].filter(id=>!bhEqual(before.get(id),after.get(id))).map(id=>({id,before:before.get(id),after:after.get(id)}));
 const bhEntityAssert=uid=>{if(!_fbDb||_fbAuth?.currentUser?.uid!==uid)throw new Error('Conta alterada; operação cancelada.');};
 const bhEntityStage=async(state,uid,expected)=>{
@@ -3794,6 +3802,7 @@ const uploadImage=file=>_uploadSingle(file);
 // User-typed links → a safe http(s) href, or null. Raw values went straight
 // into href, so a synced or imported "javascript:…" would run on click, and
 // "www.site.com" became a broken relative link.
+// @bh-test-begin safehref
 const safeHref=raw=>{
   const v=String(raw||'').trim();
   if(!v)return null;
@@ -3801,6 +3810,7 @@ const safeHref=raw=>{
   if(/^[\w-]+(\.[\w-]+)+([/?#].*)?$/i.test(v))return 'https://'+v;
   return null;
 };
+// @bh-test-end safehref
 const linkLabel=href=>{try{const u=new URL(href);return u.hostname.replace(/^www\./,'')+(u.pathname.length>1?u.pathname:'');}catch{return href;}};
 // One picked file from an <input type=file> change event → uploaded URL handed
 // to `apply`. The bare `await uploadImage()` handlers left a failed upload as
@@ -4639,6 +4649,7 @@ const bhRankReceiptRemember=(uid,id)=>{
 
 // RANKED FOCUS — one season is four months, with three seasons per calendar year.
 // A rank contains five 1,000-point divisions followed by a 2,000-point Division VI.
+// @bh-test-begin rank
 const RANK_NAMES=['Principiante','Allievo','Apprendista','Esecutore','Interprete','Musicista','Solista','Concertista','Maestro','Virtuoso'];
 const RANK_ROMANS=['I','II','III','IV','V','VI'];
 const RANK_SIZE=7000;
@@ -5062,6 +5073,7 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
 };
+// @bh-test-end rank
 const pomoSyncGalleryCategories=(data,folders)=>{
   const base=pomoNormalize(data);
   const live=(Array.isArray(folders)?folders:[]).filter(f=>f&&!f.deleted&&!f.archived&&f.id!=null).map(f=>({id:f.id,name:String(f.label||'Sem nome'),source:'gallery'}));
@@ -7775,6 +7787,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
 // but resets status, dates and timeline — useful for recurring jobs on the same
 // pipeline. Shared by the project cards and the project page (the only way on
 // phones, whose compact list has no card buttons).
+// @bh-test-begin dup
 const bhDuplicateProject=p0=>{
   const base=Date.now();
   const sourceTasks=p0.projectTasks||[];
@@ -7789,6 +7802,7 @@ const bhDuplicateProject=p0=>{
     // content, and a Gallery post is fed by one task only: neither is copied.
     miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:nestedSeq++}))}))};
 };
+// @bh-test-end dup
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts})=>{
   // Dates edited on the Projects-page timeline go straight into the project.
   // A patch that carries a status (a drag that changed the task's phase) is
@@ -10769,6 +10783,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
 // nothing else: the address is checked against host AND path, the iframe is
 // rebuilt with fixed attributes (sandbox included) and every other iframe is
 // dropped, so pasted/synced HTML cannot smuggle in an arbitrary page.
+// @bh-test-begin embed
 const BH_EMBED_ALLOW=[
   {host:/^(www\.)?youtube-nocookie\.com$/,path:/^\/embed\/[\w-]{1,64}$/},
   {host:/^(www\.)?youtube\.com$/,path:/^\/embed\/[\w-]{1,64}$/},
@@ -10911,6 +10926,7 @@ const sanitizeHTML=html=>{
     return t.innerHTML;
   }catch{return String(html).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 };
+// @bh-test-end embed
 
 // Note-image grids are driven directly by drag/drop, without React selection
 // state. That keeps contentEditable's DOM and caret stable while images move.
