@@ -14258,6 +14258,55 @@ const ShortcutsModal=({onClose})=>{
 // - ERROR BOUNDARY -
 // A single render error used to nuke the whole app to a white screen (the
 // window error handler only touched the splash, long removed by then).
+// Recovery that does not depend on the App: newest readable local copy
+// (localStorage, else the newest IndexedDB backup, else the raw bytes), in the
+// same JSON shape "Exportar JSON" produces, so Sincronizar can import it.
+const bhDownloadRecoveryCopy=async()=>{
+  let state=null,raw='';
+  const r=lsLoadResult();
+  if(r.status==='valid')state=r.state;else raw=r.raw||'';
+  if(!state){
+    try{
+      const metas=await bhIdbAllMeta();
+      const newest=metas.slice().sort((x,y)=>String(x.at)<String(y.at)?1:-1)[0]; // `at` is an ISO string
+      const entry=newest?await bhHistoryGetRecoverable(newest.at):null;
+      if(entry&&entry.state)state=entry.state;
+    }catch(e){bhLog('render.crash.recovery',e);}
+  }
+  let text;
+  if(state){
+    try{text=await buildSyncPayload(state,true);}
+    catch(e){bhLog('render.crash.payload',e);text=JSON.stringify({...state,_v:'3.0',_exported:new Date().toISOString()});}
+  }else if(raw)text=raw;
+  else throw new Error('Nenhuma cópia local legível foi encontrada.');
+  const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='boardhub-recuperacao-'+localDateISO()+'.json';
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+};
+// One boundary per screen: a crash in a view leaves the sidebar, the running
+// timer and the rest of the App alone. `key` is the view, so navigating away
+// and back remounts it.
+class ViewBoundary extends React.Component{
+  constructor(props){super(props);this.state={error:null,exporting:false,exportError:''};}
+  static getDerivedStateFromError(error){return{error};}
+  componentDidCatch(err,info){
+    console.error('[BoardHub] View render error ('+this.props.name+'):',err,info);
+    bhLog('render.crash.view',err,this.props.name+' '+String(info&&info.componentStack||'').replace(/\s+/g,' ').trim());
+  }
+  render(){
+    if(!this.state.error)return this.props.children;
+    const {name,onHome}=this.props,st=this.state;
+    return React.createElement('div',{role:'alert',className:'card',style:{maxWidth:520,margin:'48px auto',padding:24,display:'flex',flexDirection:'column',gap:12,textAlign:'center'}},
+      React.createElement('div',{style:{fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',color:'var(--text)'}},'Esta tela quebrou'),
+      React.createElement('div',{style:{fontSize:'.85rem',color:'var(--danger-fg)',lineHeight:1.5}},name+': '+(st.error&&st.error.message||'erro desconhecido')),
+      React.createElement('div',{style:{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.6}},'O resto do app continua funcionando e seus dados estão preservados. Você pode tentar de novo, voltar ao painel ou baixar uma cópia dos dados.'),
+      st.exportError&&React.createElement('div',{style:{fontSize:'.78rem',color:'var(--danger-fg)'}},st.exportError),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}},
+        React.createElement('button',{className:'btn btn-dark',onClick:()=>this.setState({error:null})},'Tentar de novo'),
+        React.createElement('button',{className:'btn btn-outline',onClick:()=>{this.setState({error:null});onHome&&onHome();}},'Ir para o painel'),
+        React.createElement('button',{className:'btn btn-outline',disabled:st.exporting,onClick:async()=>{this.setState({exporting:true,exportError:''});try{await bhDownloadRecoveryCopy();this.setState({exporting:false});}catch(e){this.setState({exporting:false,exportError:String(e&&e.message||e)});}}},st.exporting?'Preparando…':'Baixar cópia dos dados')));
+  }
+}
 class ErrorBoundary extends React.Component{
   constructor(props){super(props);this.state={error:null,exporting:false,exportError:''};this.downloadRecoveryCopy=this.downloadRecoveryCopy.bind(this);}
   static getDerivedStateFromError(error){return{error};}
@@ -14266,35 +14315,11 @@ class ErrorBoundary extends React.Component{
     // Mirrored to boardhub_log, which survives the reload the user is about to do.
     bhLog('render.crash',err,String(info&&info.componentStack||'').replace(/\s+/g,' ').trim());
   }
-  // Recovery that does not depend on the crashed App: newest readable local copy
-  // (localStorage, else the newest IndexedDB backup, else the raw bytes), in the
-  // same JSON shape "Exportar JSON" produces, so Sincronizar can import it.
   async downloadRecoveryCopy(){
     if(this.state.exporting)return;
     this.setState({exporting:true,exportError:''});
-    try{
-      let state=null,raw='';
-      const r=lsLoadResult();
-      if(r.status==='valid')state=r.state;else raw=r.raw||'';
-      if(!state){
-        try{
-          const metas=await bhIdbAllMeta();
-          const newest=metas.slice().sort((x,y)=>String(x.at)<String(y.at)?1:-1)[0]; // `at` is an ISO string
-          const entry=newest?await bhHistoryGetRecoverable(newest.at):null;
-          if(entry&&entry.state)state=entry.state;
-        }catch(e){bhLog('render.crash.recovery',e);}
-      }
-      let text;
-      if(state){
-        try{text=await buildSyncPayload(state,true);}
-        catch(e){bhLog('render.crash.payload',e);text=JSON.stringify({...state,_v:'3.0',_exported:new Date().toISOString()});}
-      }else if(raw)text=raw;
-      else throw new Error('Nenhuma cópia local legível foi encontrada.');
-      const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));
-      const a=document.createElement('a');a.href=url;a.download='boardhub-recuperacao-'+localDateISO()+'.json';
-      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      this.setState({exporting:false});
-    }catch(e){bhLog('render.crash.export',e);this.setState({exporting:false,exportError:String(e&&e.message||e)});}
+    try{await bhDownloadRecoveryCopy();this.setState({exporting:false});}
+    catch(e){bhLog('render.crash.export',e);this.setState({exporting:false,exportError:String(e&&e.message||e)});}
   }
   render(){
     if(this.state.error){
@@ -15886,15 +15911,15 @@ const App=()=>{
         :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
       }
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
-        <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></div>
-        {view==='projects'       &&<ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/>}
-        {view==='project-detail' &&selectedProject&&<ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/>} 
-        {view==='gallery'        &&<Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/>}
-        {view==='ideas'          &&<IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/>}
-        {view==='mentors'        &&<MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/>}
-        {view==='social'         &&<Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/>} 
-        {view==='clients'        &&<Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/>}
-        {view==='sync'           &&<SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/>}
+        <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
+        {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key="project-detail" name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/></ViewBoundary>}
+        {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
+        {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
+        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/></ViewBoundary>}
       </main>
     </div>
   );
