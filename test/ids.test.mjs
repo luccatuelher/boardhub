@@ -38,6 +38,6 @@ test('bhNewId falls back when crypto.randomUUID is unavailable (plain-http LAN, 
       Object.defineProperty(globalThis, 'crypto', { value: fake, configurable: true });
       assert.match(bhNewId(), /^\d{13}-[0-9a-f]{12}$/);
     }
-  } finally { Object.defineProperty(globalThis, 'crypto', real); }
+  } finally { if (real) Object.defineProperty(globalThis, 'crypto', real); else delete globalThis.crypto; }
 });
 function crypto_fill(a) { for (let i = 0; i < a.length; i++) a[i] = (i * 37 + 11) & 255; return a; }

@@ -4911,9 +4911,15 @@ const pomoRankMaintain=(data,now=new Date())=>{
       }
       const notices=lastNotice?[...(seasonRank.notices||[]).filter(n=>n&&(n.dismissed||n.type!=='season')),lastNotice]:seasonRank.notices;
       rank=seasonRank.seasonId===current.id?{...seasonRank,notices}:rankDefault(now,history,rank.sessions,notices);
+    }else if(Number.isFinite(from)&&from===to+1){
+      // The stored season is the NEXT one: a device whose clock ran ahead wrote
+      // it and synced it. Resetting here zeroed every other device's points on
+      // the next push. Leave the rank as it is: no decay (it starts in the
+      // future) and no season close; it simply becomes current when the real
+      // date arrives. Focus earns no points meanwhile (pomoRankCredit).
     }else{
-      // Invalid/future season ids can happen after a clock correction. Reset
-      // safely to the current season without manufacturing history entries.
+      // Invalid ids and seasons more than one ahead: reset safely to the current
+      // season without manufacturing history entries.
       rank=rankDefault(now,rank.history,rank.sessions,rank.notices);
     }
   }

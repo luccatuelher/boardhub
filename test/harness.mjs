@@ -6,7 +6,8 @@
 // so stack traces point at the real index.html lines) and the rest is compiled
 // with vm.compileFunction in THIS realm, which mirrors how the app runs the
 // Babel output inside `new Function`. A region must stay free of JSX.
-process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
+// Forced: with TZ=UTC the local-date tests could not tell localDateISO from toISOString.
+process.env.TZ = 'America/Sao_Paulo';
 
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';

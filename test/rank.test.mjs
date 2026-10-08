@@ -107,10 +107,22 @@ test('maintain: a stored season from the past closes into history and restarts a
   assert.ok(out.rank.history.some(h => String(h.seasonId) === '2026-2'));
 });
 
-test('maintain: a stored season in the future (clock skew) keeps its points', { todo: 'a "future" seasonId is treated as stale and reset to rankDefault' }, () => {
+test('maintain: a stored season one ahead (clock skew) keeps its points and is not closed', () => {
   const data = { days: {}, allocations: {}, rank: rank({ seasonId: '2027-1', points: 3000, startedOn: '2027-01-02' }) };
-  assert.equal(pomoRankMaintain(data, NOW).rank.points, 3000);
+  const out = pomoRankMaintain(data, NOW);
+  assert.equal(out.rank.seasonId, '2027-1');
+  assert.equal(out.rank.points, 3000);
+  assert.deepEqual(out.rank.history, data.rank.history);
+  assert.deepEqual(out.rank.decayApplied, {});
 });
+
+test('maintain: seasons more than one ahead, or garbage ids, still reset', () => {
+  for (const seasonId of ['2027-2', '2030-1', 'x', '']) {
+    const data = { days: {}, allocations: {}, rank: rank({ seasonId, points: 3000, startedOn: '2027-01-02' }) };
+    assert.equal(pomoRankMaintain(data, NOW).rank.points, 0, seasonId);
+  }
+});
+
 
 test('merge progress: an empty current state adopts the incoming one', pinned(() => {
   const incoming = { days: { '2026-10-07': 1800 }, allocations: {}, rank: rank({ points: 1500, startedOn: '2026-10-08' }) };
@@ -146,7 +158,7 @@ test('merge progress: an older incoming season goes to history without lowering 
   const out = pomoMergeProgress(cur, inc);
   const row = out.rank.history.find(h => String(h.seasonId) === '2025-1');
   assert.ok(row);
-  assert.equal(Number(row.points ?? 9000), 9000);
+  assert.equal(row.points, 9000);
 }));
 
 test('normalize: garbage input yields a usable default', () => {
