@@ -43,13 +43,15 @@
   em documentos menores requer migração coordenada de schema e regras Firebase.
 -->
 
-<!-- Critical render-path scripts only -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<!-- Critical render-path scripts only. They are `defer`red so the splash in the
+     <body> paints first; deferred scripts run, in order, before DOMContentLoaded,
+     and the bundle loader at the end of the <body> waits for that event. -->
+<script defer src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script defer src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <!-- Babel does NOT enter the critical path: it is injected on demand by the
      loader at the end of the <body>, and only when the compiled bundle cache
      misses. -->
-<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script defer src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 <!-- Firebase loaded LAZILY after first paint — see _lazyFirebase() below -->
 <!-- M4-typography: Figtree left, Alegreya Sans came in. SAME origin, SAME link,
      same number of requests — it is not a new dependency (protocol #7), it is a
@@ -57,7 +59,8 @@
      the 600 the CSS asked for in 8 places does not exist in Alegreya Sans and the
      browser resolves it to 700, which is the desired behaviour in a humanist with
      a lighter stroke than Figtree. -->
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Alegreya+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Alegreya+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Alegreya+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet"></noscript>
 <script>
 /* M3 — the theme has to be applied BEFORE the first paint. Waiting for React
    would make notturno users see a flash of light paper on EVERY open, and here
@@ -2843,14 +2846,15 @@ const _loadFirebaseScripts=()=>{
     'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js',
     'https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js',
   ];
-  // Load sequentially — each script depends on the previous
-  _fbScriptsPromise=urls.reduce((chain,src)=>
-    chain.then(()=>new Promise((res,rej)=>{
+  // Download in parallel but execute in order: script elements inserted from
+  // JS are async by default, and async=false keeps insertion-order execution
+  // (each compat script needs the previous one) without waiting for each
+  // download to finish before starting the next.
+  _fbScriptsPromise=Promise.all(urls.map(src=>new Promise((res,rej)=>{
       const s=document.createElement('script');
-      s.src=src;s.onload=res;s.onerror=rej;
+      s.src=src;s.async=false;s.onload=res;s.onerror=rej;
       document.head.appendChild(s);
-    }))
-  ,Promise.resolve()).then(()=>{_fbScriptsLoaded=true;}).catch(e=>{
+    }))).then(()=>{_fbScriptsLoaded=true;}).catch(e=>{
     console.warn('[BoardHub] Firebase scripts failed to load:',e);
     _fbScriptsPromise=null; // allow retry
   });
@@ -16026,6 +16030,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
   };
 
   var db=null;
+  function start(){
   openDb().then(function(d){db=d;return get(d,KEY);},function(){return null;})
   .then(function(rec){
     var code=rec&&rec.v===CACHE_V&&typeof rec.code==='string'&&rec.code.length>1000?rec.code:null;
@@ -16061,6 +16066,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App/
     console.error('[BoardHub] boot falhou:',e);
     window.dispatchEvent(new ErrorEvent('error',{message:'Falha ao inicializar: '+(e&&e.message||e)}));
   });
+  }
+  // React/ReactDOM/Lucide are deferred (see the <head>): start once they ran.
+  if(window.React&&window.ReactDOM)start();
+  else document.addEventListener('DOMContentLoaded',start);
 })();
 </script>
 </body>
