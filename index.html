@@ -4389,13 +4389,13 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       <div className="cmd-palette" onKeyDown={onKey}>
         <div className="cmd-input-wrap">
           <Icon name="search" size={18} style={{color:'var(--muted)',flexShrink:0}}/>
-          <input ref={inputRef} className="cmd-input" placeholder="Buscar projetos, notas, mentores..." value={query} onChange={e=>setQuery(e.target.value)}/>
+          <input ref={inputRef} className="cmd-input" placeholder="Buscar projetos, notas, mentores..." value={query} onChange={e=>setQuery(e.target.value)} role="combobox" aria-label="Buscar" aria-autocomplete="list" aria-expanded="true" aria-controls="cmd-results" aria-activedescendant={results[activeIdx]?'cmd-opt-'+activeIdx:undefined}/>
           <span className="cmd-kbd">ESC</span>
         </div>
-        <div className="cmd-results">
-          {results.length===0&&<div className="cmd-empty"><Icon name="search" size={24} style={{opacity:.3,marginBottom:4}}/><div>Nenhum resultado</div></div>}
+        <div className="cmd-results" id="cmd-results" role="listbox" aria-label="Resultados">
+          {results.length===0&&<div className="cmd-empty" role="status"><Icon name="search" size={24} style={{opacity:.3,marginBottom:4}}/><div>Nenhum resultado</div></div>}
           {results.map((item,i)=>(
-            <div key={i} className={'cmd-item'+(i===activeIdx?' cmd-active':'')} onClick={()=>run(i)} onMouseEnter={()=>setActiveIdx(i)}>
+            <div key={i} id={'cmd-opt-'+i} role="option" aria-selected={i===activeIdx} className={'cmd-item'+(i===activeIdx?' cmd-active':'')} onClick={()=>run(i)} onMouseEnter={()=>setActiveIdx(i)}>
               <div className="cmd-item-icon"><Icon name={item.icon} size={15}/></div>
               <div style={{flex:1,minWidth:0}}>
                 <div className="cmd-item-title">{item.title}</div>
