@@ -1143,7 +1143,17 @@ const lsSave = s => {
     const serialized=JSON.stringify(s);
     const remember=()=>{_lsLastRefs=new Map(keys.map(k=>[k,s[k]]));_lsLastSerialized=serialized;};
     if(_lsLastSerialized!=null?_lsLastSerialized===serialized:localStorage.getItem(LS_KEY)===serialized){remember();return {ok:true,stripped:false,unchanged:true};}
-    localStorage.setItem(LS_KEY,serialized);remember();return {ok:true,stripped:false};
+    try{localStorage.setItem(LS_KEY,serialized);}
+    catch(first){
+      // The state is the primary copy; the emergency/fallback copies in this
+      // same origin quota are only safety nets (the history lives in IndexedDB).
+      // When the quota is spent, they yield: drop them and write the state once
+      // more. They are rewritten on the next capture if space allows.
+      bhLog('lsSave.quota',first,'dropping localStorage backup copies to keep the state');
+      localStorage.removeItem(BH_EMERGENCY_KEY);localStorage.removeItem(BH_FALLBACK_KEY);
+      localStorage.setItem(LS_KEY,serialized);
+    }
+    remember();return {ok:true,stripped:false};
   }
   catch(e) {
     // Never replace a complete save with an image-stripped "success".
