@@ -2943,6 +2943,8 @@ const bhSplitState=state=>{
 // Three-way merge: unchanged local fields adopt remote data. Independently
 // edited records survive concurrent writes. A concurrent deletion wins over
 // edits; explicit restore from an already-deleted base remains possible.
+// Stable key for a conflicting text: same text, same key, on every device.
+const bhConflictKey=text=>{let h=5381;for(let i=0;i<text.length;i++)h=((h<<5)+h+text.charCodeAt(i))|0;return 'c'+(h>>>0).toString(36)+'_'+text.length;};
 const bhMergeSync=(base,local,remote)=>{
   if(bhEqual(local,base))return remote;
   if(bhEqual(remote,base)||bhEqual(local,remote))return local;
@@ -2989,6 +2991,20 @@ const bhMergeSync=(base,local,remote)=>{
       const v=bhMergeSync(base[key],local[key],remote[key]);if(v!==undefined)out[key]=v;
     }
     if(base.deleted!==true&&(local.deleted===true||remote.deleted===true))out.deleted=true;
+    // Both devices rewrote the same text: the local text stays, and the other
+    // device's version is kept under contentConflicts instead of being dropped.
+    // The key is a hash of the text, so running the merge again (a transaction
+    // retry, or the other device merging the other way round) writes the same
+    // key; a copy equal to the winning text is not a conflict and is removed.
+    if(typeof base.content==='string'&&typeof local.content==='string'&&typeof remote.content==='string'
+      &&local.content!==base.content&&remote.content!==base.content&&local.content!==remote.content){
+      const lost=remote.content;
+      out.contentConflicts={...(record(out.contentConflicts)?out.contentConflicts:{}),[bhConflictKey(lost)]:lost};
+    }
+    if(record(out.contentConflicts)&&typeof out.content==='string'){
+      const kept=Object.fromEntries(Object.entries(out.contentConflicts).filter(([,text])=>text!==out.content));
+      if(Object.keys(kept).length)out.contentConflicts=kept;else delete out.contentConflicts;
+    }
     if(bhSyncIsRank(local)&&bhSyncIsRank(remote))bhSyncRankResolve(base,local,remote,out);
     if(bhSyncIsPomo(local)&&bhSyncIsPomo(remote))bhSyncPomoResolve(local,remote,out);
     return out;

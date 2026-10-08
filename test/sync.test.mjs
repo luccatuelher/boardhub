@@ -106,9 +106,38 @@ test('merge: concurrent note edits keep the local HTML (remote text is lost)', (
   assert.equal(out[0].content, '<p>local</p>');
 });
 
-test('merge: the losing note version is preserved somewhere', { todo: 'conflicting content is silently dropped' }, () => {
+test('merge: the losing note version is preserved in contentConflicts', () => {
   const out = bhMergeSync([{ id: 1, content: 'a' }], [{ id: 1, content: 'L' }], [{ id: 1, content: 'R' }]);
-  assert.ok(JSON.stringify(out).includes('R'));
+  assert.equal(out[0].content, 'L');
+  assert.deepEqual(Object.values(out[0].contentConflicts), ['R']);
+});
+
+test('merge: note conflicts converge across two devices and are idempotent', () => {
+  const base = [{ id: 1, content: 'a' }];
+  const A = [{ id: 1, content: 'L' }], B = [{ id: 1, content: 'R' }];
+  const mergedA = bhMergeSync(base, A, B);          // device A merges B's push
+  const mergedB = bhMergeSync(base, B, mergedA);    // device B merges A's result the other way round
+  assert.equal(mergedB[0].content, 'R');
+  assert.deepEqual(Object.values(mergedB[0].contentConflicts), ['L']);
+  // Re-running a merge changes nothing.
+  assert.deepEqual(bhMergeSync(base, A, B), mergedA);
+  // A device whose local state is unchanged since its last ack adopts the other side as it is.
+  assert.deepEqual(bhMergeSync(mergedA, mergedA, mergedB), mergedB);
+});
+
+test('merge: no conflict copy when only one side edited, or both wrote the same text', () => {
+  const base = [{ id: 1, content: 'a' }];
+  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, content: 'L' }], base)[0]));
+  assert.ok(!('contentConflicts' in bhMergeSync(base, [{ id: 1, content: 'S' }], [{ id: 1, content: 'S' }])[0]));
+});
+
+test('merge: a conflict copy equal to the winning text is dropped; discarding a copy propagates', () => {
+  const key = Object.keys(bhMergeSync([{ id: 1, content: 'a' }], [{ id: 1, content: 'L' }], [{ id: 1, content: 'R' }])[0].contentConflicts)[0];
+  const base = [{ id: 1, content: 'L', contentConflicts: { [key]: 'R' } }];
+  // the user discards the stored copy on device A while device B edits something else
+  const out = bhMergeSync(base, [{ id: 1, content: 'L' }], [{ id: 1, content: 'L', contentConflicts: { [key]: 'R' }, title: 't' }]);
+  assert.ok(!('contentConflicts' in out[0]));
+  assert.equal(out[0].title, 't');
 });
 
 const pomo = (days, rank) => ({ days, allocations: {}, rank: { seasonId: '2026-3', points: 0, decayApplied: {}, ...rank } });
