@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Uploads are content-addressed: users/{uid}/images/sha256_<digest>_<mime>
+// (plus "_thumb480" derivatives). Limits mirror BH_MEDIA in index.html:
+// images are kept as uploaded, GIF <= 15 MB, video <= 60 MB.
+//
+// NOTE: getDownloadURL() links carry an access token and are readable by
+// anyone who has the URL, regardless of the `read` rule below. The rule only
+// protects direct SDK reads. Treat the URLs as secrets and consider App Check.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/images/{file} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && file.matches('sha256_[0-9a-f]{64}_.*')
+        && request.resource.size <= 60 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType.matches('video/.*')
+            // uploadToFirebaseStorage() falls back to this when the browser
+            // reports no type for a file.
+            || request.resource.contentType == 'application/octet-stream');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

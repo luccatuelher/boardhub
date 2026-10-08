@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// BoardHub keeps everything under users/{uid}/boardhub/* (legacy docs `state`,
+// `notes`, `gallery`, the v4 control doc `sync-v4` and the v4 entity docs).
+// Only the signed-in owner may touch them; nothing else is readable.
+// Firestore itself caps a document at 1 MiB, which the app already respects
+// (950 KB legacy / 850 KB per v4 entity).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/boardhub/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
