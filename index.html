@@ -3660,7 +3660,7 @@ const _compressImage=async(file)=>{
 //  - Refused, with a message, when longer than 3 minutes or still over 60 MB:
 //    better than silently filling the storage quota.
 // Cloud objects are content-addressed (SHA-256), so a repeated file costs once.
-const BH_MEDIA={gifMaxBytes:15*1048576,videoPassBytes:8*1048576,videoMaxSide:720,videoBps:2000000,audioBps:96000,videoMaxSeconds:180,videoMaxBytes:60*1048576};
+const BH_MEDIA={gifMaxBytes:15*1048576,videoPassBytes:8*1048576,videoMaxSide:720,videoBps:2000000,audioBps:96000,videoMaxSeconds:180,videoMaxBytes:60*1048576,imageMaxBytes:40*1048576};
 class BhMediaError extends Error{}
 const bhFmtMB=b=>(b/1048576).toFixed(1).replace('.',',')+' MB';
 const _isGifFile=f=>/^image\/gif$/i.test(f?.type||'')||/\.gif$/i.test(f?.name||'');
@@ -3784,7 +3784,12 @@ const bhMediaPrecheck=async file=>{
     if(file.size>BH_MEDIA.gifMaxBytes)throw new BhMediaError('O GIF "'+(file.name||'sem nome')+'" tem '+bhFmtMB(file.size)+' e passa do limite de 15 MB. Converta em vídeo (ocupa bem menos espaço) e envie de novo.');
     return null;
   }
-  if(!_isVideoFile(file))return null;
+  if(!_isVideoFile(file)){
+    // Originals are stored as they are, and the whole file is read into memory
+    // to hash it: a huge image can stall or crash a phone.
+    if(file.size>BH_MEDIA.imageMaxBytes)throw new BhMediaError('A imagem "'+(file.name||'sem nome')+'" tem '+bhFmtMB(file.size)+' e passa do limite de 40 MB. Reduza o tamanho e envie de novo.');
+    return null;
+  }
   const meta=await bhVideoMeta(file).catch(()=>null);
   if(meta&&meta.duration>BH_MEDIA.videoMaxSeconds){
     const m=Math.floor(meta.duration/60),s=String(Math.round(meta.duration%60)).padStart(2,'0');
