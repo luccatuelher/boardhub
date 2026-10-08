@@ -20,7 +20,7 @@ const BEGIN = /^\s*\/\/ @bh-test-begin (\S+)\s*$/;
 const END = /^\s*\/\/ @bh-test-end (\S+)\s*$/;
 
 export const EXPECTED = {
-  date: ['localDateISO'],
+  date: ['localDateISO', 'bhNewId', 'bhIdTime'],
   stable: ['bhCanonicalState', 'bhStableStringify'],
   sync: ['bhEqual', 'bhMergeSync', 'bhSyncRankPoints', 'bhSyncPlan', 'bhSplitState', 'bhUtf8Bytes'],
   entity: ['bhEntityPack', 'bhEntityUnpack'],

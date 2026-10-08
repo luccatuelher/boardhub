@@ -933,6 +933,24 @@ const localDateISO=(d=new Date())=>{
   const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
   return y+'-'+m+'-'+dd;
 };
+// New record ids. Date.now() alone collided when two records were created in
+// the same millisecond (and across devices), and one duplicated id turns off
+// the by-id sync merge for the whole list. The id stays a string that starts
+// with the creation time, so bhIdTime() keeps "most recent" sorting working for
+// old numeric ids and new ones alike. Existing ids are never rewritten.
+const _bhRand12=()=>{
+  try{
+    if(typeof crypto!=='undefined'){
+      if(typeof crypto.randomUUID==='function')return crypto.randomUUID().replace(/-/g,'').slice(0,12);
+      if(typeof crypto.getRandomValues==='function'){const a=new Uint8Array(6);crypto.getRandomValues(a);return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');}
+    }
+  }catch{}
+  return (Math.random().toString(16).slice(2)+'000000000000').slice(0,12);
+};
+const bhNewId=(prefix='')=>prefix+Date.now()+'-'+_bhRand12();
+// Creation time (ms) embedded in an id: numeric Date.now() ids, "<prefix><ms>-<rand>"
+// ids and old "task-post-<ms>-xxxx" ids. 0 when the id carries none.
+const bhIdTime=id=>{const m=/\d{12,}/.exec(String(id??''));return m?Number(m[0]):0;};
 // @bh-test-end date
 
 // - F3: FAILURE DIARY -
@@ -7161,7 +7179,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
     // appended, reordering the tree moves them), so the first three were the
     // OLDEST ones and a new note never showed up here. Ids are creation
     // timestamps; there is no edit stamp to sort by.
-    return result.sort((a,b)=>(Number(b.id)||0)-(Number(a.id)||0)).slice(0,3);
+    return result.sort((a,b)=>bhIdTime(b.id)-bhIdTime(a.id)).slice(0,3);
   },[notes]);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
@@ -7824,7 +7842,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
     const cmp={
       // Finished work has no "next" deadline: it goes after everything open.
       deadline:(a,b)=>{const done=x=>x.status==='Concluído'||x.status==='Cancelado'?1:0;return done(a)-done(b)||(a.deadline?0:1)-(b.deadline?0:1)||String(a.deadline||'').localeCompare(String(b.deadline||''))||byTitle(a,b);},
-      recent:(a,b)=>(Number(b.id)||0)-(Number(a.id)||0),
+      recent:(a,b)=>bhIdTime(b.id)-bhIdTime(a.id),
       title:byTitle,
       status:(a,b)=>{const i=x=>{const k=PROJECT_STATUS_ORDER.indexOf(x.status);return k<0?99:k;};return i(a)-i(b)||byTitle(a,b);},
     }[projSort];
@@ -12097,7 +12115,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
 // time in the id, so show that date instead.
 const noteDateLabel=n=>{
   const d=n&&n.date;
-  if(d==='Agora'&&Number(n.id)>1e12)return new Date(Number(n.id)).toLocaleDateString('pt-BR');
+  if(d==='Agora'&&bhIdTime(n.id)>1e12)return new Date(bhIdTime(n.id)).toLocaleDateString('pt-BR');
   return d||'';
 };
 const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
@@ -12622,7 +12640,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   const changeNoteSort=v=>{setNoteSort(v);try{localStorage.setItem('boardhub_notes_sort',v);}catch(err){bhLog('notes.sort',err);}};
   const noteDrag=noteSort==='manual';
   const byNoteTitle=(a,b)=>String(a.title||'').localeCompare(String(b.title||''),'pt-BR',{sensitivity:'base',numeric:true});
-  const byNoteRecent=(a,b)=>(Number(b.id)||0)-(Number(a.id)||0);
+  const byNoteRecent=(a,b)=>bhIdTime(b.id)-bhIdTime(a.id);
   const sortItems=list=>{
     if(noteSort==='manual')return list;
     const rank=x=>isCategory(x)?0:isFolder(x)?1:2;
@@ -12864,7 +12882,7 @@ const Social=React.memo(({posts,setPosts,templates,setTemplates,isMobile})=>{
   const changePostSort=v=>{setPostSort(v);try{localStorage.setItem(SOCIAL_SORT_KEY,v);}catch(e){bhLog('social.sort',e,'the chosen order lasts only for this session');}};
   const displayed=useMemo(()=>{
     const base=(trash?trashedPosts:activePosts).filter(p=>platformFilter==='all'||(p.platform||'Instagram')===platformFilter);
-    const created=p=>Number(p.id)||0;
+    const created=p=>bhIdTime(p.id);
     return [...base].sort((a,b)=>{
       if(postSort==='oldest')return created(a)-created(b);
       if(postSort==='platform')return SOCIAL_PLATFORMS.indexOf(a.platform||'Instagram')-SOCIAL_PLATFORMS.indexOf(b.platform||'Instagram')||created(b)-created(a);
