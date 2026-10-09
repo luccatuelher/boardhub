@@ -23,7 +23,7 @@ test('loads thumbnail and full view of every live post image once, newest posts 
   ];
   const progress = [];
   const r = await W.bhPreloadAllPosts(posts, (d, t) => progress.push([d, t]), () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 0, cors: false });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 0, cors: false, already: 0, all: 3 });
   assert.deepEqual(W.calls.filter(c => c[1] === 'thumb').map(c => c[0]).sort(), [fb(1), fb(2), fb(3)].sort());
   assert.deepEqual(W.calls.filter(c => c[1] === 'disp').length, 3);
   assert.equal(W.released, 6, 'every handle is released');
@@ -48,5 +48,27 @@ test('a failing image is counted and the rest go on', async () => {
     bhRemoteDisplay: async src => { if (src === 'bad') throw new Error('x'); return { url: '', release() {} }; },
   } });
   const r = await bhPreloadAllPosts([{ images: ['a', 'bad', 'c'] }], () => {}, () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 1, cors: false });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 1, cors: false, already: 0, all: 3 });
+});
+
+test('images already on this computer are skipped up front: the count is what is left', async () => {
+  const W = world();
+  const posts = [{ id: 1, date: 'x', images: [fb(1), fb(2), fb(3)] }];
+  const progress = [];
+  const r = await W.bhPreloadAllPosts(posts, (d, t) => progress.push([d, t]), () => false, new Set([fb(1), fb(3)]));
+  assert.deepEqual(W.calls.map(c => c[0]), [fb(2), fb(2)]);
+  assert.deepEqual(progress, [[1, 1]]);
+  assert.equal(r.already, 2);
+  assert.equal(r.all, 3);
+});
+
+test('local = thumbnail cached and the full view (display copy when known, else original) cached', () => {
+  const { bhImageIsLocal } = load(['preloadall'], { stubs: { bhIsFirebaseImage: () => true, isVideoSrc: () => false, bhRemoteDisplay: async () => ({}) } });
+  const rec = (blobs, thumbs, disps = {}) => ({ blobs: new Set(blobs), thumbs: new Map(Object.entries(thumbs)), disps: new Map(Object.entries(disps)) });
+  assert.equal(bhImageIsLocal('s', rec(['t', 's'], { s: 't' })), true, 'thumb + original');
+  assert.equal(bhImageIsLocal('s', rec(['t', 'd'], { s: 't' }, { s: { url: 'd' } })), true, 'thumb + display copy');
+  assert.equal(bhImageIsLocal('s', rec(['t', 's'], { s: 't' }, { s: { url: 'd' } })), false, 'the full view would fetch the display copy');
+  assert.equal(bhImageIsLocal('s', rec(['s'], { s: 's' }, { s: { none: 'small' } })), true, 'no separate thumbnail: the original is both');
+  assert.equal(bhImageIsLocal('s', rec(['s'], {})), false, 'thumbnail never looked up');
+  assert.equal(bhImageIsLocal('s', rec(['t'], { s: 't' }, { s: { none: 'missing' } })), false, 'original not cached');
 });

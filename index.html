@@ -4158,11 +4158,27 @@ const _lbThumb=src=>{
 // (thumbnail for the grids + display copy/original for the full view) into the
 // persistent cache, 8 at a time, most recent posts first. Returns counts.
 // @bh-test-begin preloadall
-const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
+// Every live Gallery post's cloud images, newest posts first, each once.
+const bhPreloadList=posts=>{
   const list=(Array.isArray(posts)?posts:[]).filter(p=>p&&!p.deleted)
     .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   const seen=new Set(),srcs=[];
   for(const p of list)for(const src of (p.images||[]))if(typeof src==='string'&&!seen.has(src)&&bhIsFirebaseImage(src)&&!isVideoSrc(src)){seen.add(src);srcs.push(src);}
+  return srcs;
+};
+// Is src fully on this computer: its grid thumbnail and what the full view
+// shows (the display copy when one is known, else the original)?
+// rec: {blobs:Set of cached URLs, thumbs:Map src->thumb url, disps:Map src->record}
+const bhImageIsLocal=(src,rec)=>{
+  const t=rec.thumbs.get(src);
+  if(typeof t!=='string'||!t||!rec.blobs.has(t))return false;
+  const d=rec.disps.get(src);
+  return rec.blobs.has(d&&d.url?d.url:src);
+};
+// have: srcs already local (bhLocalImageSet), skipped without any request.
+const bhPreloadAllPosts=async(posts,onProgress,isCancelled,have=null)=>{
+  const all=bhPreloadList(posts);
+  const srcs=have?all.filter(s=>!have.has(s)):all;
   let next=0,done=0,failed=0;
   const worker=async()=>{
     while(next<srcs.length&&!isCancelled()&&!(typeof bhCorsBlocked==='function'&&bhCorsBlocked())){
@@ -4182,9 +4198,23 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
   // Bound by round trips to the bucket, not by bandwidth: 8 at a time.
   await Promise.all(Array.from({length:8},()=>worker()));
   try{if(typeof _bhPendingPuts!=='undefined')await _bhPendingPuts.flush();}catch{/*silent-ok*/}
-  return {total:srcs.length,done,failed,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked()};
+  return {total:srcs.length,done,failed,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked(),already:all.length-srcs.length,all:all.length};
 };
 // @bh-test-end preloadall
+// Which of srcs are already fully in the image cache (one pass over its keys).
+const bhLocalImageSet=async srcs=>{
+  try{
+    const db=await bhMediaDb();
+    const scan=(prefix,withValues)=>new Promise((resolve,reject)=>{
+      const out=new Map(),req=db.transaction('cache','readonly').objectStore('cache')[withValues?'openCursor':'openKeyCursor'](IDBKeyRange.bound(prefix,prefix+'\uffff'));
+      req.onsuccess=()=>{const c=req.result;if(!c){resolve(out);return;}out.set(String(c.key).slice(prefix.length),withValues?c.value:true);c.continue();};
+      req.onerror=()=>reject(req.error);
+    });
+    const [blobs,thumbs,disps]=await Promise.all([scan('blob:',false),scan('thumb:',true),scan('disp:',true)]);
+    const rec={blobs:new Set(blobs.keys()),thumbs,disps};
+    return new Set((srcs||[]).filter(s=>bhImageIsLocal(s,rec)));
+  }catch{return new Set();}
+};
 // One run at a time, independent of the screen (leaving Sincronizar does not
 // stop it; coming back shows its progress).
 const _bhPreloadRun={state:null,cancel:false,listeners:new Set(),result:null};
@@ -4193,7 +4223,9 @@ const bhPreloadAllStart=posts=>{
   if(_bhPreloadRun.state)return;
   _bhPreloadRun.cancel=false;_bhPreloadRun.result=null;_bhPreloadRun.state={done:0,total:0};_bhPreloadEmit();
   const failsBefore=_bhMediaPutFail.n;
-  bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel)
+  // Images already here are skipped up front, so the count is what is left.
+  bhLocalImageSet(bhPreloadList(posts))
+    .then(have=>bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel,have))
     .then(r=>{_bhPreloadRun.result={...r,cancelled:_bhPreloadRun.cancel,notSaved:_bhMediaPutFail.n-failsBefore,saveErr:_bhMediaPutFail.last};},e=>{_bhPreloadRun.result={error:String(e&&e.message||e)};})
     .finally(()=>{_bhPreloadRun.state=null;_bhPreloadEmit();});
 };
@@ -14535,7 +14567,11 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const localImgCount=collectIdbKeys(appState).size;
   const imgurCount=useMemo(()=>bhCollectImgur(appState).size,[appState]);
   // Offline images: every Gallery post's images kept on this computer.
-  const cloudImgCount=useMemo(()=>{const set=new Set();(appState?.galleryPosts||[]).forEach(p=>{if(p&&!p.deleted)(p.images||[]).forEach(src=>{if(bhIsFirebaseImage(src)&&!isVideoSrc(src))set.add(src);});});return set.size;},[appState]);
+  const cloudImgList=useMemo(()=>bhPreloadList(appState?.galleryPosts),[appState?.galleryPosts]);
+  const cloudImgCount=cloudImgList.length;
+  const [localImgs,setLocalImgs]=useState(null); // how many of them are already on this computer
+  const refreshLocalImgs=()=>{bhLocalImageSet(cloudImgList).then(set=>setLocalImgs(set.size));};
+  useEffect(()=>{if(!_bhPreloadRun.state)refreshLocalImgs();},[cloudImgList]);// eslint-disable-line react-hooks/exhaustive-deps
   const [keepAll,setKeepAll]=useState(bhMediaKeepAll);
   const [cacheBytes,setCacheBytes]=useState(null);
   const [preload,setPreload]=useState(()=>_bhPreloadRun.state); // {done,total} while a run is going
@@ -14559,13 +14595,14 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
         _bhPreloadRun.result=null;
         bhMediaCacheSize().then(bytes=>{
           setCacheBytes(bytes);
-          refreshStoreInfo();
+          refreshStoreInfo();refreshLocalImgs();
           if(r.error)showStatus('err','Falha: '+r.error);
           else if(r.cors)showStatus('err','O Firebase Storage não está liberando a leitura das imagens para este site (falta a configuração de CORS do bucket). As imagens aparecem normalmente, mas não podem ser guardadas neste computador. Configure o CORS (arquivo cors.json no repositório) e tente de novo.');
           else if(r.notSaved)showStatus('err',`O navegador recusou guardar ${r.notSaved} imagens neste computador (${r.saveErr||'erro desconhecido'}). Elas abrem normalmente pela internet, mas não ficam salvas. Veja se há espaço livre no disco e se o navegador não está em modo privado.`);
           else if(r.done-r.failed>=20&&bytes<1024*1024)showStatus('err',`As imagens foram baixadas, mas o navegador não as manteve (agora: ${bhFmtMB(bytes)}). Confira nas configurações do navegador se ele apaga cookies e dados de sites ao fechar, ou se está em modo privado; abra uma exceção para este site.`);
-          else if(r.cancelled)showStatus('ok',`Parado. ${r.done} de ${r.total} imagens já estão neste computador.`);
-          else showStatus(r.failed?'err':'ok',r.failed?`${r.done-r.failed} imagens baixadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens neste computador (${bhFmtMB(bytes)}). Abrir e passar as imagens dos posts fica imediato.`);
+          else if(r.cancelled)showStatus('ok',`Parado. ${r.done-r.failed} imagens baixadas agora; faltam ${Math.max(0,r.total-r.done+r.failed)}.`);
+          else if(!r.total)showStatus('ok',`✓ Nada novo: as ${r.all} imagens já estavam neste computador.`);
+          else showStatus(r.failed?'err':'ok',r.failed?`${r.done-r.failed} imagens baixadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens novas baixadas; todas as ${r.all} estão neste computador (${bhFmtMB(bytes)}).`);
         });
       }
     };
@@ -14891,7 +14928,8 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             <div style={{display:'flex',flexDirection:'column',gap:6,padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}>
               <div style={{fontSize:'.82rem',fontWeight:600}}>Imagens neste computador</div>
               <div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>
-                Baixa as imagens de todos os posts da Galeria ({cloudImgCount}) para este computador. Depois disso, abrir qualquer post e passar as imagens é imediato, sem esperar a internet.
+                Baixa as imagens de todos os posts da Galeria para este computador. Depois disso, abrir qualquer post e passar as imagens é imediato, sem esperar a internet.
+                {localImgs!=null&&<> <strong style={{color:'var(--text)'}}>Já neste computador: {Math.min(localImgs,cloudImgCount).toLocaleString('pt-BR')} de {cloudImgCount.toLocaleString('pt-BR')} imagens.</strong></>}
                 {cacheBytes!=null&&<> Agora: {bhFmtMB(cacheBytes)}{keepAll?' (mantendo tudo)':' (limite normal: 200 MB)'}.</>}
                 {storeInfo&&<> Espaço do navegador para este site: {bhFmtMB(storeInfo.usage)} de {storeInfo.quota?bhFmtMB(storeInfo.quota):'?'}{storeInfo.persisted===true?', protegido contra limpeza automática':storeInfo.persisted===false?', sem proteção contra limpeza automática':''}.</>}
               </div>
