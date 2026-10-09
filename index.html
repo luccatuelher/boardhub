@@ -2398,11 +2398,15 @@ const _touchThumb=key=>{
 // instead of 100. Nothing on a grid pins a full-res blob anymore.
 const OBJURL_CAP=12;
 const _objUrlOrder=new Map(); // key -> true, least-recently-used first
+// Keys the lightbox preloader is holding: never evicted (and revoked) while pinned.
+const _objUrlPins=new Set();
 const _touchObjUrl=key=>{
   _objUrlOrder.delete(key);
   _objUrlOrder.set(key,true);
   while(_objUrlOrder.size>OBJURL_CAP){
-    const old=_objUrlOrder.keys().next().value;
+    let old=null;
+    for(const k of _objUrlOrder.keys())if(k!==key&&!_objUrlPins.has(k)){old=k;break;}
+    if(old===null)break;
     _objUrlOrder.delete(old);
     if(old!==key&&_objUrlCache[old]){URL.revokeObjectURL(_objUrlCache[old]);delete _objUrlCache[old];}
   }
@@ -2491,6 +2495,47 @@ const _httpThumb=url=>{
     return url.replace(/([?&]w=)\d+/,'$1640').replace(/([?&]q=)\d+/,'$170');
   return url;
 };
+// @bh-test-begin preload
+// Lightbox preloading: which images to keep ready around the one on screen.
+// Indices in priority order: the current one, the next, the previous, then the
+// rest of the way ahead, then the rest behind. `dir` is the direction of travel
+// (+1 forward, -1 backward): "ahead" always means that way.
+const bhPreloadWindow=(index,len,ahead,behind,dir=1)=>{
+  if(!(len>0)||!Number.isInteger(index)||index<0||index>=len)return [];
+  const s=dir<0?-1:1,out=[index],seen=new Set(out);
+  const add=i=>{if(i>=0&&i<len&&!seen.has(i)){seen.add(i);out.push(i);}};
+  if(ahead>=1)add(index+s);
+  if(behind>=1)add(index-s);
+  for(let k=2;k<=ahead;k++)add(index+s*k);
+  for(let k=2;k<=behind;k++)add(index-s*k);
+  return out;
+};
+// How much to preload for this connection/device.
+const bhPreloadBudget=(net={})=>{
+  const type=String(net.effectiveType||'');
+  let b;
+  if(net.saveData||/(^|-)2g$/.test(type))b={ahead:1,behind:0,conc:1};
+  else if(type==='3g')b={ahead:2,behind:1,conc:2};
+  else b={ahead:4,behind:2,conc:3};
+  if(net.deviceMemory&&net.deviceMemory<=4)b={...b,ahead:Math.min(b.ahead,2)};
+  return b;
+};
+// entries: [{key,wanted,dist,bytes}]. Returns the keys to drop: everything
+// outside the window first, then the farthest ones while over the caps. The
+// entry on screen (dist 0) is never dropped.
+const bhEvictPlan=(entries,maxCount,maxBytes)=>{
+  const drop=[],keep=[];
+  entries.forEach(e=>(e.wanted?keep:drop).push(e));
+  let bytes=keep.reduce((n,e)=>n+(e.bytes||0),0);
+  keep.sort((a,b)=>b.dist-a.dist);
+  for(const e of keep){
+    if(keep.length-drop.filter(d=>d.wanted).length<=maxCount&&bytes<=maxBytes)break;
+    if(e.dist===0)continue;
+    drop.push(e);bytes-=e.bytes||0;
+  }
+  return drop.map(e=>e.key);
+};
+// @bh-test-end preload
 // Preload a URL off-DOM, deduped. Hover/open warmers and lightbox neighbour
 // prefetch all share this map, so the same network image is never requested twice.
 const _netPreload=new Map();
@@ -2792,6 +2837,27 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
   return <img alt="" {...props} ref={setRef} src={url} loading={priority||local?'eager':'lazy'}
     fetchpriority={priority?'high':'auto'} decoding={priority?'sync':'async'} onError={onErr}
     style={local?props.style:{...props.style,animation:'imgFadeIn .12s ease'}}/>;
+};
+
+// Full-view image for the lightboxes. ONE persistent <img>: the previous frame
+// stays on screen until the next image is resolved and decoded (bhLb*), then the
+// src is swapped to an image that is already hot — no blank frame, no refade.
+// The very first image (or one the preloader cannot load) uses <Img>, which has
+// the thumbnail-first path and the "missing file" placeholder.
+const LightboxImage=({src,srcs,index,onClick})=>{
+  const [,bump]=React.useState(0);
+  const lastUrl=React.useRef('');
+  const dir=React.useRef(1),prev=React.useRef(index);
+  if(prev.current!==index){dir.current=index>prev.current?1:-1;prev.current=index;}
+  React.useEffect(()=>{_lb.listener=()=>bump(n=>n+1);return()=>{_lb.listener=null;};},[]);
+  React.useEffect(()=>{bhLbSetWindow(srcs,index,dir.current,bhLbBudget());},[srcs,index]);
+  React.useEffect(()=>bhLbIdleWarm(srcs),[srcs]);
+  React.useEffect(()=>()=>bhLbDispose(),[]);
+  const ready=bhLbPeek(src);
+  if(ready)lastUrl.current=ready.url;
+  const url=ready?ready.url:lastUrl.current;
+  if(!url||(!ready&&bhLbFailed(src)))return <Img src={src} full priority onClick={onClick} alt=""/>;
+  return <img alt="" src={url} onClick={onClick} decoding="sync" style={{animation:'none'}}/>;
 };
 
 // BgImg: a <div> whose background-image auto-resolves idb:// refs (thumbnail by default).
@@ -3565,6 +3631,93 @@ const bhRemoteDisplay=async(src,thumb)=>{
       if(!entry.refs){URL.revokeObjectURL(entry.url);_bhRemoteUrls.delete(target);}
     },30000);
   }};
+};
+// ── LIGHTBOX PRELOADER ──────────────────────────────────────────────
+// Keeps the images around the one on screen resolved AND decoded, so flipping
+// to the next one paints at once. One entry per src: queued -> loading -> ready
+// (or failed). Entries outside the window are released: object-URL pins and
+// remote refcounts go back, so nothing leaks after the lightbox closes.
+const _lb={entries:new Map(),queue:[],active:0,conc:3,listener:null,idleToken:0};
+const bhLbBudget=()=>{
+  try{const c=navigator.connection||{};return bhPreloadBudget({saveData:c.saveData,effectiveType:c.effectiveType,deviceMemory:navigator.deviceMemory});}
+  catch{return bhPreloadBudget();}
+};
+const _lbResolve=async src=>{
+  if(src.startsWith('idb://')){
+    const key=src.slice(6);_objUrlPins.add(key);
+    const url=await _warmFull(key);
+    return {url,release:()=>{_objUrlPins.delete(key);}};
+  }
+  if(bhIsFirebaseImage(src))return bhRemoteDisplay(src,false);
+  return {url:src,release:()=>{}};
+};
+// An <Image> that has finished decoding keeps its pixels hot while we hold it.
+const _lbDecode=url=>new Promise(res=>{
+  const img=new Image();img.decoding='async';
+  img.onerror=()=>res(null);
+  img.src=url;
+  (img.decode?img.decode():Promise.resolve()).then(()=>res(img),()=>res(img.complete&&img.naturalWidth?img:null));
+});
+const _lbKill=(src,e)=>{e.dead=true;if(e.release){try{e.release();}catch{/*silent-ok: releasing a handle twice is harmless*/}e.release=null;}_lb.entries.delete(src);};
+const _lbPump=()=>{
+  while(_lb.active<_lb.conc&&_lb.queue.length){
+    const src=_lb.queue.shift(),e=_lb.entries.get(src);
+    if(!e||e.state!=='queued')continue;
+    e.state='loading';_lb.active++;
+    (async()=>{
+      let res=null;
+      try{res=await _lbResolve(src);}catch{/*silent-ok: a failed preload just leaves the normal loading path*/}
+      const img=res&&res.url?await _lbDecode(res.url):null;
+      _lb.active--;
+      if(e.dead||!img){
+        if(res&&res.release){try{res.release();}catch{/*silent-ok*/}}
+        if(!e.dead)e.state='failed';
+      }else{
+        e.url=res.url;e.img=img;e.release=res.release;e.bytes=(img.naturalWidth||0)*(img.naturalHeight||0)*4;e.state='ready';
+      }
+      _lbPump();
+      if(_lb.listener)_lb.listener();
+    })();
+  }
+};
+const bhLbSetWindow=(srcs,index,dir,budget)=>{
+  const list=Array.isArray(srcs)?srcs:[];
+  const order=bhPreloadWindow(index,list.length,budget.ahead,budget.behind,dir)
+    .filter(i=>typeof list[i]==='string'&&list[i]&&!isVideoSrc(list[i]));
+  const wanted=new Map();order.forEach((i,p)=>{if(!wanted.has(list[i]))wanted.set(list[i],{idx:i,pos:p});});
+  _lb.conc=budget.conc;
+  const plan=bhEvictPlan([..._lb.entries].map(([key,e])=>{const w=wanted.get(key);return {key,wanted:!!w,dist:w?Math.abs(w.idx-index):Infinity,bytes:e.bytes||0};}),order.length+1,160*1024*1024);
+  plan.forEach(key=>{const e=_lb.entries.get(key);if(e)_lbKill(key,e);});
+  for(const [src] of wanted)if(!_lb.entries.has(src))_lb.entries.set(src,{state:'queued',url:'',img:null,release:null,bytes:0,dead:false});
+  _lb.queue=[...wanted.keys()].filter(src=>_lb.entries.get(src)?.state==='queued');
+  _lbPump();
+};
+const bhLbPeek=src=>{const e=_lb.entries.get(src);return e&&e.state==='ready'?e:null;};
+const bhLbFailed=src=>_lb.entries.get(src)?.state==='failed';
+const bhLbDispose=()=>{
+  _lb.idleToken++;_lb.listener=null;_lb.queue=[];
+  for(const [src,e] of [..._lb.entries])_lbKill(src,e);
+};
+// Opening a post also warms the REST of its cloud images into the persistent
+// blob cache (no decoding, one at a time, when the browser is idle), so the next
+// time the post opens nothing waits on the network. Desktop, no Save-Data.
+const bhLbIdleWarm=srcs=>{
+  try{
+    const c=navigator.connection||{};
+    if(c.saveData||/(^|-)[23]g$/.test(String(c.effectiveType||''))||(window.matchMedia&&!window.matchMedia('(min-width: 769px)').matches))return ()=>{};
+  }catch{return ()=>{};}
+  const token=++_lb.idleToken;
+  const todo=(Array.isArray(srcs)?srcs:[]).filter(s=>typeof s==='string'&&bhIsFirebaseImage(s)&&!isVideoSrc(s)).slice(0,30);
+  const idle=window.requestIdleCallback||(f=>setTimeout(f,200));
+  const t=setTimeout(async()=>{
+    for(const src of todo){
+      if(_lb.idleToken!==token)return;
+      await new Promise(r=>idle(r));
+      if(_lb.idleToken!==token)return;
+      try{const r=await bhRemoteDisplay(src,false);r.release();}catch{/*silent-ok: best-effort warm-up*/}
+    }
+  },2000);
+  return ()=>{clearTimeout(t);if(_lb.idleToken===token)_lb.idleToken++;};
 };
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
 // are NEVER re-encoded. Thumbnails are separate optional derivatives.
@@ -10419,15 +10572,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   const canLightboxNext=lightboxIndex>=0&&lightboxIndex<lightboxImages.length-1;
   const goLightboxPrev=()=>{if(canLightboxPrev)setLightbox(lightboxImages[lightboxIndex-1]);};
   const goLightboxNext=()=>{if(canLightboxNext)setLightbox(lightboxImages[lightboxIndex+1]);};
-  useEffect(()=>{
-    if(lightboxIndex<0)return;
-    const neighbours=[lightboxImages[lightboxIndex-1],lightboxImages[lightboxIndex+1]].filter(Boolean);
-    for(const src of neighbours){
-      if(typeof src!=='string')continue;
-      if(src.startsWith('idb://')){try{_warmFull(src.slice(6));}catch{}}
-      else if(/^https?:\/\//.test(src))_preload(src,'high');
-    }
-  },[lightboxIndex,lightboxImages]);
   const softDelete=id=>setPosts(p=>p.map(x=>String(x.id)===String(id)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
   // A post whose folder is itself in the trash or archived used to come back
   // into no visible folder at all. Send it to a live folder and say where.
@@ -10536,7 +10680,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         </>
       )}
       <div className="lightbox-stage" onClick={()=>setLightbox(null)}>
-        <Img src={lightbox} full priority onClick={e=>e.stopPropagation()} alt=""/>
+        <LightboxImage src={lightbox} srcs={lightboxImages} index={lightboxIndex} onClick={e=>e.stopPropagation()}/>
       </div>
       <button onClick={()=>setLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
@@ -12160,7 +12304,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         <div style={{position:'fixed',left:'50%',bottom:18,transform:'translateX(-50%)',padding:'6px 12px',borderRadius:999,background:'rgba(0,0,0,.4)',color:'white',fontSize:'.78rem',fontWeight:600,zIndex:201,pointerEvents:'none'}}>{noteLightbox.index+1} / {noteLightbox.images.length}</div>
       </>}
       <div className="lightbox-stage" onClick={()=>setNoteLightbox(null)}>
-        <Img src={lightboxSrc} full priority onClick={e=>e.stopPropagation()} alt=""/>
+        <LightboxImage src={lightboxSrc} srcs={noteLightbox?.images} index={noteLightbox?.index??0} onClick={e=>e.stopPropagation()}/>
       </div>
       <button onClick={()=>setNoteLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}><Icon name="x" size={20}/></button>
