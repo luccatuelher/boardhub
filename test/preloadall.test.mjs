@@ -23,7 +23,7 @@ test('loads thumbnail and full view of every live post image once, newest posts 
   ];
   const progress = [];
   const r = await W.bhPreloadAllPosts(posts, (d, t) => progress.push([d, t]), () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 0, cors: false, already: 0, all: 3 });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 0, converted: 0, cors: false, already: 0, all: 3 });
   assert.deepEqual(W.calls.filter(c => c[1] === 'thumb').map(c => c[0]).sort(), [fb(1), fb(2), fb(3)].sort());
   assert.deepEqual(W.calls.filter(c => c[1] === 'disp').length, 3);
   assert.equal(W.released, 6, 'every handle is released');
@@ -48,7 +48,7 @@ test('a failing image is counted and the rest go on', async () => {
     bhRemoteDisplay: async src => { if (src === 'bad') throw new Error('x'); return { url: '', release() {} }; },
   } });
   const r = await bhPreloadAllPosts([{ images: ['a', 'bad', 'c'] }], () => {}, () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 1, cors: false, already: 0, all: 3 });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 1, converted: 0, cors: false, already: 0, all: 3 });
 });
 
 test('images already on this computer are skipped up front: the count is what is left', async () => {
@@ -93,4 +93,27 @@ test('cloud image detection: content-addressed, image extensions, and older img_
   assert.equal(bhIsFirebaseImage(u('clip.mp4')), false);
   assert.equal(bhIsFirebaseImage(u('notes.bin')), false);
   assert.equal(bhIsFirebaseImage('https://example.com/a.png'), false);
+});
+
+test('conversion: called with the full-view bytes of each image, made ones counted', async () => {
+  const W = world();
+  const seen = [];
+  const posts = [{ id: 1, date: 'x', images: [fb(1), fb(2)] }];
+  const r = await W.bhPreloadAllPosts(posts, () => {}, () => false, null, async (src, full) => { seen.push([src, full.url]); return src === fb(1) ? 'made' : 'small'; });
+  assert.deepEqual(seen.map(x => x[0]).sort(), [fb(1), fb(2)].sort());
+  assert.ok(seen.every(x => x[1] === 'blob:x'));
+  assert.equal(r.converted, 1);
+});
+
+test('local while the HD copy is pending: the older copy counts; HD settled only under current rules', () => {
+  const { bhImageIsLocal, bhImageHdSettled } = load(['preloadall'], { stubs: { bhIsFirebaseImage: () => true, isVideoSrc: () => false, bhRemoteDisplay: async () => ({}) } });
+  const ca = 'users/u/images/sha256_' + 'b'.repeat(64) + '_image_png';
+  const rec = (blobs, disps) => ({ blobs: new Set(blobs), thumbs: new Map([[ca, 't']]), disps: new Map(Object.entries(disps)) });
+  assert.equal(bhImageIsLocal(ca, rec(['t', 'old'], { [ca]: { none: 'missing', v: 4, at: 1, old: 'old' } })), true);
+  assert.equal(bhImageIsLocal(ca, rec(['t', 'old'], { [ca]: { url: 'old' } })), true, 'a record from older rules still names its copy');
+  assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { url: 'old' } }), 4), false);
+  assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { none: 'missing', v: 4, at: 1 } }), 4), false);
+  assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { url: 'hd', v: 4 } }), 4), true);
+  assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { none: 'small', v: 4, at: 1 } }), 4), true);
+  assert.equal(bhImageHdSettled('https://x/img_1_a.img', rec([], {}), 4), true, 'older uploads cannot get one');
 });

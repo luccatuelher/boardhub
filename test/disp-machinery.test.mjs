@@ -36,11 +36,11 @@ function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = '
 const file = (size, type = 'image/jpeg') => new Blob([new Uint8Array(size)], { type });
 
 test('lookup: asks Storage once, caches the url, then answers from memory', async () => {
-  const W = world({ objects: { [PATH + '_disp2880']: 1 } });
-  assert.equal(await W.api._bhDispLookup(SRC), 'https://dl/' + PATH + '_disp2880');
-  assert.equal(await W.api._bhDispLookup(SRC), 'https://dl/' + PATH + '_disp2880');
+  const W = world({ objects: { [PATH + '_disp1280']: 1 } });
+  assert.equal(await W.api._bhDispLookup(SRC), 'https://dl/' + PATH + '_disp1280');
+  assert.equal(await W.api._bhDispLookup(SRC), 'https://dl/' + PATH + '_disp1280');
   assert.equal(W.calls.get.length, 1);
-  assert.deepEqual(W.cache.get('disp:' + SRC), { url: 'https://dl/' + PATH + '_disp2880' });
+  assert.deepEqual(W.cache.get('disp:' + SRC), { url: 'https://dl/' + PATH + '_disp1280', v: 4 });
 });
 
 test('lookup: a missing derivative is remembered as missing; other errors are not cached', async () => {
@@ -72,29 +72,29 @@ test('run: generates, uploads once as webp, caches url and blob', async () => {
   const W = world();
   await W.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
   assert.equal(W.calls.put.length, 1);
-  assert.deepEqual([W.calls.put[0].name, W.calls.put[0].type], [PATH + '_disp2880', 'image/webp']);
-  assert.equal(W.cache.get('disp:' + SRC).url, 'https://dl/' + PATH + '_disp2880');
-  assert.ok(W.cache.get('blob:https://dl/' + PATH + '_disp2880').blob);
+  assert.deepEqual([W.calls.put[0].name, W.calls.put[0].type], [PATH + '_disp1280', 'image/webp']);
+  assert.equal(W.cache.get('disp:' + SRC).url, 'https://dl/' + PATH + '_disp1280');
+  assert.ok(W.cache.get('blob:https://dl/' + PATH + '_disp1280').blob);
   assert.equal(W.api._bhDisp.done, 1);
 });
 
 test('run: an existing derivative is reused, nothing is uploaded or decoded', async () => {
-  const W = world({ objects: { [PATH + '_disp2880']: 1 } });
+  const W = world({ objects: { [PATH + '_disp1280']: 1 } });
   await W.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
   assert.equal(W.calls.put.length, 0);
   assert.equal(W.calls.decode, 0);
-  assert.equal(W.cache.get('disp:' + SRC).url, 'https://dl/' + PATH + '_disp2880');
+  assert.equal(W.cache.get('disp:' + SRC).url, 'https://dl/' + PATH + '_disp1280');
 });
 
-test('run: small images and non-lighter results are cached as such, with no upload', async () => {
-  const small = world({ w: 1600, h: 900 });
+test('run: images already about HD are recorded as such, with no upload; a smaller copy is kept even when heavier', async () => {
+  const small = world({ w: 1400, h: 788 });
   await small.api._bhDispRun({ src: SRC, blob: file(300 * 1024) });
   assert.equal(small.calls.put.length, 0);
   assert.equal(small.cache.get('disp:' + SRC).none, 'small');
-  const heavy = world({ outSize: 5 * MB });
-  await heavy.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
-  assert.equal(heavy.calls.put.length, 0);
-  assert.equal(heavy.cache.get('disp:' + SRC).none, 'notSmaller');
+  // Fewer pixels is what counts (decode time): a heavier result is still kept.
+  const heavy = world({ outSize: 7 * MB });
+  assert.equal(await heavy.api._bhDispRun({ src: SRC, blob: file(6 * MB) }), 'made');
+  assert.equal(heavy.calls.put.length, 1);
 });
 
 test('run: refuses another account\'s path, a signed-out session and unsafe devices', async () => {
@@ -137,7 +137,7 @@ test('enqueue: ignores non-cloud sources, gif/svg, and a full queue; never throw
 test('run: records saying "no derivative needed/possible" stop the run before any Storage call or decode', async () => {
   for (const none of ['small', 'notSmaller', 'failed']) {
     const W = world();
-    W.cache.set('disp:' + SRC, { none, at: Date.now(), v: 3 });
+    W.cache.set('disp:' + SRC, { none, at: Date.now(), v: 4 });
     await W.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
     assert.equal(W.calls.get.length, 0, none);
     assert.equal(W.calls.decode, 0, none);

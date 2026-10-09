@@ -68,8 +68,8 @@ test('new file: the display copy goes up with the original and is recorded, no l
   const url = await W.api.uploadToFirebaseStorage(img(1), 'u1');
   assert.equal(W.calls.put, 3);
   assert.ok(W.calls.peak >= 2, 'the display copy goes up while the original does');
-  assert.deepEqual(W.cache.get('disp:' + url), { url: url + '_disp2880' });
-  assert.ok(W.cache.get('blob:' + url + '_disp2880'), 'display copy is in the local cache');
+  assert.deepEqual(W.cache.get('disp:' + url), { url: url + '_disp1280', v: 4 });
+  assert.ok(W.cache.get('blob:' + url + '_disp1280'), 'display copy is in the local cache');
 });
 
 test('new file that needs no display copy: remembered, nothing extra uploaded', async () => {

@@ -2542,18 +2542,19 @@ const bhPreloadFit=(sizes,maxBytes,minKeep=2)=>{
 };
 // @bh-test-end preload
 // @bh-test-begin disp
-// Display-size derivative of a cloud image (`<original path>_disp2880`): the
-// original is never touched; this is an extra, lighter copy for the full view
-// so every image downloads and decodes in about the same time. 2880 px is the
-// width of the lightbox stage on a retina display.
-const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=500*1024,BH_DISP_MIN_BYTES_PNG=300*1024;
-// Version of these rules: 'small'/'notSmaller' records written under older rules
-// are looked at again (v2 lowered the PNG threshold, v3 the JPEG/WebP one).
-const BH_DISP_RULES=3;
+// Display-size derivative of a cloud image (`<original path>_disp1280`): the
+// original is never touched; this is an extra WebP copy at HD for the full view
+// (owner, 2026-10-09): it fits inside 1280×720 (720×1280 for a portrait image)
+// with the aspect ratio kept, so 3840×1634 scope becomes 1280×545. An image that
+// is already about HD gets no copy and is shown as it is.
+const BH_DISP_BOX=[1280,720],BH_DISP_SLACK=1.15,BH_DISP_SUFFIX='_disp1280';
+// Version of these rules. Every 'disp:' record carries it; a record from older
+// rules (v3 and before: 2880 px copies, byte thresholds) is looked at again.
+const BH_DISP_RULES=4;
 const bhDispName=path=>{
   const p=String(path||'');
   if(!/\/sha256_[0-9a-f]{64}_[a-z0-9_]+$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
-  return p+'_disp'+BH_DISP_MAX;
+  return p+BH_DISP_SUFFIX;
 };
 // Does this image need a derivative, and how big/what type? info: {w,h,bytes,type,animated,alpha}
 const bhDispPlan=info=>{
@@ -2562,15 +2563,16 @@ const bhDispPlan=info=>{
   if(!(w>0&&h>0))return no('size');
   if(!/^image\//.test(String(type||''))||/^image\/(?:gif|svg|avif)/.test(type))return no('type');
   if(animated)return no('animated');
-  const long=Math.max(w,h);
-  const min=/png/i.test(type)?BH_DISP_MIN_BYTES_PNG:BH_DISP_MIN_BYTES;
-  if(long<=BH_DISP_MAX&&!(bytes>min))return no('small');
-  const r=Math.min(1,BH_DISP_MAX/long);
+  const long=Math.max(w,h),short=Math.min(w,h),[boxL,boxS]=BH_DISP_BOX;
+  // About HD already (up to 15% over, e.g. 1366×768 or 1400×788): kept as it is.
+  if(long<=boxL*BH_DISP_SLACK&&short<=boxS*BH_DISP_SLACK)return no('small');
+  const r=Math.min(1,boxL/long,boxS/short);
   // PNGs are usually drawings: a higher quality keeps thin lines clean.
-  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.92:0.85,reason:''};
+  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.92:0.9,reason:''};
 };
-// Only keep a derivative that is clearly lighter than the original.
-const bhDispAccept=(origBytes,outBytes)=>outBytes>0&&outBytes<origBytes*0.7;
+// Keep the copy when it has fewer pixels (cheaper to decode, whatever the
+// bytes) or, at the same size, when it is lighter.
+const bhDispAccept=(origBytes,outBytes,reduced=false)=>outBytes>0&&(reduced||outBytes<origBytes);
 // Animated PNG (acTL before the first IDAT) or animated WebP (VP8X flag).
 const bhIsAnimated=(bytes,mime)=>{
   const b=bytes||[];
@@ -2590,15 +2592,21 @@ const bhIsAnimated=(bytes,mime)=>{
 // What the persistent cache says about an image's derivative.
 // rec: undefined | {url} | {none:'missing'|'failed'|'small'|'notSmaller'|'broken',at}
 const BH_DISP_TTL={missing:3*864e5,failed:864e5,broken:864e5};
+// `old`: a copy made under older rules (the 2880 px one). Until the HD copy
+// exists it is still better than the original, and a device that saved it for
+// offline use keeps working.
 const bhDispCacheState=(rec,now)=>{
   if(!rec)return {state:'lookup'};
+  const stale=(rec.v||1)<BH_DISP_RULES,old=(stale?rec.url||rec.old:rec.old)||'';
+  const out=o=>old?{...o,old}:o;
+  // Written under older rules (a 2880 px copy, other thresholds): ask again.
+  if(stale)return out({state:'lookup'});
   if(rec.url)return {state:'url',url:rec.url};
   if(rec.none){
-    if((rec.none==='small'||rec.none==='notSmaller')&&(rec.v||1)<BH_DISP_RULES)return {state:'lookup'};
     const ttl=BH_DISP_TTL[rec.none];
-    return ttl&&now-(rec.at||0)>=ttl?{state:'lookup'}:{state:'skip'};
+    return out(ttl&&now-(rec.at||0)>=ttl?{state:'lookup'}:{state:'skip'});
   }
-  return {state:'lookup'};
+  return out({state:'lookup'});
 };
 // @bh-test-end disp
 // @bh-test-begin holds
@@ -3825,24 +3833,26 @@ const _bhPendingPuts={set:new Set(),add(p){this.set.add(p);p.finally(()=>this.se
 const _bhDispUrls=new Map(),_bhDispInflight=new Map(),_bhNoDeriv=new Set(); // _bhNoDeriv: 'd:'/'t:'+src that Storage refuses for this session
 // URL of src's display copy, or '' (use the original). Needs a signed-in
 // session to ask Storage; a cached answer works offline.
+// While there is no HD copy yet, an older (2880 px) copy is returned instead;
+// it never goes into _bhDispUrls, so the HD one is still asked for.
 const _bhDispLookup=async src=>{
   if(typeof src!=='string'||!bhIsFirebaseImage(src))return '';
   const mem=_bhDispUrls.get(src);if(mem)return mem;
-  if(_bhNoDeriv.has('d:'+src))return '';
-  const st=bhDispCacheState(await bhMediaCacheGet('disp:'+src),Date.now());
+  const st=bhDispCacheState(await bhMediaCacheGet('disp:'+src),Date.now()),old=st.old||'';
   if(st.state==='url'){_bhDispUrls.set(src,st.url);return st.url;}
-  if(st.state==='skip')return '';
-  if(!_fbStorage||!_fbAuth?.currentUser)return '';
+  if(st.state==='skip'||_bhNoDeriv.has('d:'+src))return old;
+  if(!_fbStorage||!_fbAuth?.currentUser)return old;
+  const keep=old?{old}:{};
   if(!_bhDispInflight.has(src))_bhDispInflight.set(src,(async()=>{
     try{
       const name=bhDispName(_fbStorage.refFromURL(src).fullPath);
-      if(!name){await bhMediaCachePut('disp:'+src,{none:'small',at:Date.now(),v:BH_DISP_RULES});return '';}
+      if(!name){await bhMediaCachePut('disp:'+src,{none:'small',at:Date.now(),v:BH_DISP_RULES,...keep});return old;}
       const url=await _fbStorage.ref(name).getDownloadURL();
-      await bhMediaCachePut('disp:'+src,{url});_bhDispUrls.set(src,url);return url;
+      await bhMediaCachePut('disp:'+src,{url,v:BH_DISP_RULES});_bhDispUrls.set(src,url);return url;
     }catch(e){
-      if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('disp:'+src,{none:'missing',at:Date.now()});
+      if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('disp:'+src,{none:'missing',at:Date.now(),v:BH_DISP_RULES,...keep});
       else if(e&&(e.code==='storage/unauthorized'||e.code==='storage/unauthenticated'))_bhNoDeriv.add('d:'+src);
-      return '';
+      return old;
     }finally{_bhDispInflight.delete(src);}
   })());
   return _bhDispInflight.get(src);
@@ -3852,21 +3862,32 @@ const _bhDecodeBmp=async blob=>{
   catch{return await createImageBitmap(blob);}
 };
 // One decode: {blob} for the derivative, or {none:reason}.
-const _makeDisplayBlob=async file=>{
+// typeHint: the original's type when `file` is an older copy of it (a PNG
+// drawing keeps its higher quality even when made from the 2880 px WebP).
+const _makeDisplayBlob=async(file,typeHint)=>{
   if(typeof createImageBitmap!=='function')return {none:'failed'};
   let bmp=null;
   try{
     const head=new Uint8Array(await file.slice(0,262144).arrayBuffer());
     const animated=bhIsAnimated(head,file.type);
     bmp=await _bhDecodeBmp(file);
-    const plan=bhDispPlan({w:bmp.width,h:bmp.height,bytes:file.size,type:file.type,animated});
+    const plan=bhDispPlan({w:bmp.width,h:bmp.height,bytes:file.size,type:typeHint||file.type,animated});
     if(!plan.needed)return {none:plan.reason==='small'?'small':plan.reason==='animated'||plan.reason==='type'?'small':'failed'};
+    // Halve step by step, then the last step: one big bilinear jump (4K → HD)
+    // drops thin pencil lines.
+    let from=bmp,w=bmp.width,h=bmp.height;
+    while(w>plan.targetW*2&&h>plan.targetH*2){
+      const half=document.createElement('canvas');half.width=Math.ceil(w/2);half.height=Math.ceil(h/2);
+      const hx=half.getContext('2d');hx.imageSmoothingEnabled=true;hx.imageSmoothingQuality='high';
+      hx.drawImage(from,0,0,half.width,half.height);
+      from=half;w=half.width;h=half.height;
+    }
     const c=document.createElement('canvas');c.width=plan.targetW;c.height=plan.targetH;
     const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
-    cx.drawImage(bmp,0,0,plan.targetW,plan.targetH);
+    cx.drawImage(from,0,0,plan.targetW,plan.targetH);
     const out=await new Promise(res=>c.toBlob(b=>res(b),plan.mime,plan.quality));
     if(!out||out.type!==plan.mime)return {none:'failed'};
-    if(!bhDispAccept(file.size,out.size))return {none:'notSmaller'};
+    if(!bhDispAccept(file.size,out.size,plan.targetW*plan.targetH<bmp.width*bmp.height))return {none:'notSmaller'};
     return {blob:out};
   }catch{return {none:'failed'};}
   finally{if(bmp&&bmp.close)bmp.close();}
@@ -3886,15 +3907,18 @@ const _bhDispAllowed=()=>{
       &&(!navigator.deviceMemory||navigator.deviceMemory>=4)&&(!window.matchMedia||window.matchMedia('(min-width: 769px)').matches);
   }catch{return false;}
 };
-const bhDispMaybeEnqueue=(src,blob)=>{
+// from: the URL whose bytes were fetched (the original, or an older copy).
+const bhDispMaybeEnqueue=(src,blob,from=src)=>{
   try{
     if(typeof src!=='string'||!bhIsFirebaseImage(src)||!(blob instanceof Blob))return;
     if(!/^image\//.test(blob.type)||/^image\/(?:gif|svg)/.test(blob.type))return;
-    if(_bhDisp.done>=(typeof _bhPreloadRun!=='undefined'&&_bhPreloadRun.state?5000:200)||_bhDisp.q.length>=200||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
-    // No Blob in the queue: the original was just stored in the persistent cache
-    // ('blob:'+src) and is read back when the job runs, so a whole post can wait
-    // here without holding its originals in memory.
-    _bhDisp.q.push({src});_bhDispPump();
+    // "Baixar todas as imagens" converts inline while it runs.
+    if(typeof _bhPreloadRun!=='undefined'&&_bhPreloadRun.state)return;
+    if(_bhDisp.done>=200||_bhDisp.q.length>=200||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
+    // No Blob in the queue: the bytes were just stored in the persistent cache
+    // ('blob:'+from) and are read back when the job runs, so a whole post can
+    // wait here without holding its originals in memory.
+    _bhDisp.q.push({src,from});_bhDispPump();
   }catch{/*silent-ok: a background optimisation never breaks viewing*/}
 };
 const bhDispEnqueueUpload=(src,path,blob)=>{
@@ -3907,39 +3931,57 @@ const _bhDispPump=()=>{
   const idle=window.requestIdleCallback?f=>window.requestIdleCallback(f,{timeout:8000}):f=>setTimeout(f,500);
   idle(async()=>{
     const job=_bhDisp.q.shift();
-    try{await _bhDispRun(job);}catch(e){bhLog('disp.job',e);}
+    try{await _bhDispRunOnce(job);}catch(e){bhLog('disp.job',e);}
     _bhDisp.running=false;_bhDispPump();
   });
 };
+// Returns what happened: 'made' (new HD copy uploaded and cached), 'exists'
+// (another device made it), 'small'/'notSmaller'/'failed' (no copy), or ''
+// (not possible now: not allowed, no bytes, offline).
 const _bhDispRun=async job=>{
-  if(!_bhDispAllowed())return;
+  if(!_bhDispAllowed())return '';
   const uid=_fbAuth.currentUser.uid;
   const path=job.path||_fbStorage.refFromURL(job.src).fullPath;
-  if(!path.startsWith('users/'+uid+'/'))return;
-  const name=bhDispName(path);if(!name)return;
+  if(!path.startsWith('users/'+uid+'/'))return '';
+  const name=bhDispName(path);if(!name)return '';
   // Already known: a derivative exists, or this image does not need / cannot get
   // one ('small', 'notSmaller', 'failed'). Only 'missing' and 'broken' (and no
   // record at all) are worth a Storage round trip and a decode.
   const known=await bhMediaCacheGet('disp:'+job.src),knownState=bhDispCacheState(known,Date.now());
-  if(knownState.state==='url')return;
-  if(knownState.state==='skip'&&known.none!=='missing'&&known.none!=='broken')return;
+  if(knownState.state==='url')return 'exists';
+  if(knownState.state==='skip'&&known.none!=='missing'&&known.none!=='broken')return known.none;
+  const keep=knownState.old?{old:knownState.old}:{};
   const ref=_fbStorage.ref(name);
-  let url='';
-  try{url=await ref.getDownloadURL();}
-  catch(e){if(!e||e.code!=='storage/object-not-found')return;/* transient: try again another time */}
-  if(!url){
-    const source=job.blob||_bhBlobOf(await bhMediaCacheGet('blob:'+job.src));
-    if(!(source instanceof Blob))return; // evicted meanwhile: retried the next time it is fetched
-    const made=await _makeDisplayBlob(source);
-    if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now(),v:BH_DISP_RULES});return;}
-    if(_fbAuth?.currentUser?.uid!==uid)return;
-    bhDiag.record('uploadStarted',made.blob.size,'display');
-    await ref.put(made.blob,{contentType:made.blob.type,cacheControl:'private,max-age=31536000,immutable'});
-    url=await ref.getDownloadURL();
-    await bhMediaCachePut('blob:'+url,{blob:made.blob,at:Date.now()});
-    _bhDisp.done++;
+  let url='',made=null;
+  // A 'missing' answer from the last two minutes (the lookup that just ran)
+  // needs no second round trip.
+  if(!(known&&known.none==='missing'&&knownState.state==='skip'&&Date.now()-(known.at||0)<120000)){
+    try{url=await ref.getDownloadURL();}
+    catch(e){if(!e||e.code!=='storage/object-not-found')return '';/* transient: try again another time */}
   }
-  await bhMediaCachePut('disp:'+job.src,{url});_bhDispUrls.set(job.src,url);
+  if(!url){
+    const from=job.from||job.src;
+    const source=job.blob||_bhBlobOf(await bhMediaCacheGet('blob:'+from));
+    if(!(source instanceof Blob))return ''; // evicted meanwhile: retried the next time it is fetched
+    const hint=(path.match(/sha256_[0-9a-f]{64}_(image_[a-z0-9_]+)$/i)||[])[1];
+    made=await _makeDisplayBlob(source,hint?hint.replace(/^image_/,'image/').replace(/_/g,'+'):undefined);
+    if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now(),v:BH_DISP_RULES,...keep});return made.none||'failed';}
+    if(_fbAuth?.currentUser?.uid!==uid)return '';
+    bhDiag.record('uploadStarted',made.blob.size,'display');
+    // Create-only rule: if another tab or device got there first, use theirs.
+    try{await ref.put(made.blob,{contentType:made.blob.type,cacheControl:'private,max-age=31536000,immutable'});}
+    catch(e){if(!(e&&e.code==='storage/unauthorized'))throw e;made=null;}
+    url=await ref.getDownloadURL();
+    if(made){await bhMediaCachePut('blob:'+url,{blob:made.blob,at:Date.now()});_bhDisp.done++;}
+  }
+  await bhMediaCachePut('disp:'+job.src,{url,v:BH_DISP_RULES});_bhDispUrls.set(job.src,url);
+  return made?'made':'exists';
+};
+// One run per image at a time (the background queue and the preload can meet).
+const _bhDispRunning=new Map();
+const _bhDispRunOnce=job=>{
+  if(!_bhDispRunning.has(job.src))_bhDispRunning.set(job.src,_bhDispRun(job).finally(()=>_bhDispRunning.delete(job.src)));
+  return _bhDispRunning.get(job.src);
 };
 // @bh-test-end dispmach
 // variant: 'disp' (display-size derivative, falls back to the original), true or
@@ -3988,9 +4030,10 @@ const bhRemoteDisplay=async(src,variant)=>{
         // Not awaited: the image shows now; the local copy is written meanwhile.
         _bhPendingPuts.add(bhMediaCachePut('blob:'+target,{blob,at:Date.now()}));
       }
-      // An original we hold and have no display copy for: make one in the background.
-      if(target===src&&(variant==='disp'||variant===false||variant===undefined)&&!thumb)bhDispMaybeEnqueue(src,blob);
-      const value={url:URL.createObjectURL(blob),refs:0,timer:null};_bhRemoteUrls.set(target,value);return value;
+      // An original (or an older copy) we hold and have no HD copy for: make one
+      // in the background.
+      if(!thumb&&(variant==='disp'||variant===false||variant===undefined)&&target!==_bhDispUrls.get(src))bhDispMaybeEnqueue(src,blob,target);
+      const value={url:URL.createObjectURL(blob),blob,refs:0,timer:null};_bhRemoteUrls.set(target,value);return value;
     })());
     try{entry=await _bhRemoteInflight.get(target);}
     catch(e){
@@ -3999,7 +4042,7 @@ const bhRemoteDisplay=async(src,variant)=>{
         _bhDispUrls.delete(src);_bhRemoteInflight.delete(target);
         // Only a copy that is really gone/unreadable is marked broken; offline or a
         // 5xx just uses the original this time.
-        if(e&&(e.status===403||e.status===404))await bhMediaCachePut('disp:'+src,{none:'broken',at:Date.now()});
+        if(e&&(e.status===403||e.status===404))await bhMediaCachePut('disp:'+src,{none:'broken',at:Date.now(),v:BH_DISP_RULES});
         return bhRemoteDisplay(src,false);
       }
       throw e;
@@ -4007,7 +4050,7 @@ const bhRemoteDisplay=async(src,variant)=>{
   }else bhDiag.record('cacheHit',0,'image-memory');
   clearTimeout(entry.timer);entry.refs++;
   let released=false;
-  return {url:entry.url,release:()=>{
+  return {url:entry.url,blob:entry.blob,target,release:()=>{
     if(released)return;released=true;entry.refs--;
     if(!entry.refs)entry.timer=setTimeout(()=>{
       if(!entry.refs){URL.revokeObjectURL(entry.url);_bhRemoteUrls.delete(target);}
@@ -4179,22 +4222,33 @@ const bhPreloadList=posts=>{
   return srcs;
 };
 // Is src fully on this computer: its grid thumbnail and what the full view
-// shows (the display copy when one is known, else the original)?
+// shows (the HD copy when one is known, else an older copy, else the original)?
 // rec: {blobs:Set of cached URLs, thumbs:Map src->thumb url, disps:Map src->record}
+const _bhContentAddressed=src=>{let name=src;try{name=decodeURIComponent(src);}catch{/*keep raw*/}return /sha256_[a-f0-9]{64}_image_/.test(name);};
 const bhImageIsLocal=(src,rec)=>{
   let t=rec.thumbs.get(src);
   // Only content-addressed uploads have a separate thumbnail; for older ones
   // (img_….jpg) the grid shows the original itself.
-  if(t===undefined){let name=src;try{name=decodeURIComponent(src);}catch{/*keep raw*/}if(!/sha256_[a-f0-9]{64}_image_/.test(name))t=src;}
+  if(t===undefined&&!_bhContentAddressed(src))t=src;
   if(typeof t!=='string'||!t||!rec.blobs.has(t))return false;
   const d=rec.disps.get(src);
-  return rec.blobs.has(d&&d.url?d.url:src);
+  return rec.blobs.has((d&&(d.url||d.old))||src);
 };
-// have: srcs already local (bhLocalImageSet), skipped without any request.
-const bhPreloadAllPosts=async(posts,onProgress,isCancelled,have=null)=>{
+// Has src's HD copy been settled under the current rules (made, or known not
+// to be needed)? Older uploads cannot get one and count as settled.
+const bhImageHdSettled=(src,rec,rules)=>{
+  if(!_bhContentAddressed(src))return true;
+  const d=rec.disps.get(src);
+  if(!d||(d.v||1)<rules)return false;
+  return !!d.url||(!!d.none&&d.none!=='missing'&&d.none!=='broken');
+};
+// have: srcs with nothing left to do (bhLocalImageSet), skipped without any
+// request. convert(src,full): makes the HD copy from the bytes just fetched for
+// the full view; resolves 'made' when it uploaded one.
+const bhPreloadAllPosts=async(posts,onProgress,isCancelled,have=null,convert=null)=>{
   const all=bhPreloadList(posts);
   const srcs=have?all.filter(s=>!have.has(s)):all;
-  let next=0,done=0,failed=0;
+  let next=0,done=0,failed=0,converted=0;
   const worker=async()=>{
     while(next<srcs.length&&!isCancelled()&&!(typeof bhCorsBlocked==='function'&&bhCorsBlocked())){
       const src=srcs[next++];
@@ -4204,6 +4258,7 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled,have=null)=>{
         const got=await Promise.allSettled([bhRemoteDisplay(src,'thumb'),bhRemoteDisplay(src,'disp')]);
         got.forEach(g=>{if(g.status==='fulfilled')g.value.release();});
         const bad=got.find(g=>g.status==='rejected');if(bad)throw bad.reason;
+        if(convert&&(await convert(src,got[1].value))==='made')converted++;
       }catch(e){failed++;bhLog('preloadAll',e,String(src).slice(0,120));}
       // Downloaded images wait in memory until written: keep that bounded.
       try{if(typeof _bhPendingPuts!=='undefined'&&_bhPendingPuts.set.size>16)await _bhPendingPuts.flush();}catch{/*silent-ok*/}
@@ -4213,10 +4268,11 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled,have=null)=>{
   // Bound by round trips to the bucket, not by bandwidth: 8 at a time.
   await Promise.all(Array.from({length:8},()=>worker()));
   try{if(typeof _bhPendingPuts!=='undefined')await _bhPendingPuts.flush();}catch{/*silent-ok*/}
-  return {total:srcs.length,done,failed,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked(),already:all.length-srcs.length,all:all.length};
+  return {total:srcs.length,done,failed,converted,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked(),already:all.length-srcs.length,all:all.length};
 };
 // @bh-test-end preloadall
-// Which of srcs are already fully in the image cache (one pass over its keys).
+// Which of srcs are already fully in the image cache, and which have their HD
+// copy settled (one pass over the cache's keys). {local:Set, hd:Set}
 const bhLocalImageSet=async srcs=>{
   try{
     const db=await bhMediaDb();
@@ -4226,9 +4282,42 @@ const bhLocalImageSet=async srcs=>{
       req.onerror=()=>reject(req.error);
     });
     const [blobs,thumbs,disps]=await Promise.all([scan('blob:',false),scan('thumb:',true),scan('disp:',true)]);
-    const rec={blobs:new Set(blobs.keys()),thumbs,disps};
-    return new Set((srcs||[]).filter(s=>bhImageIsLocal(s,rec)));
-  }catch{return new Set();}
+    const rec={blobs:new Set(blobs.keys()),thumbs,disps},list=srcs||[];
+    return {local:new Set(list.filter(s=>bhImageIsLocal(s,rec))),hd:new Set(list.filter(s=>bhImageHdSettled(s,rec,BH_DISP_RULES)))};
+  }catch{return {local:new Set(),hd:new Set()};}
+};
+const bhMediaCacheDel=async keys=>{
+  if(!keys.length)return;
+  try{const db=await bhMediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('cache','readwrite'),os=tx.objectStore('cache');keys.forEach(k=>os.delete(k));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
+  catch(e){bhLog('mediaCache.del',e);}
+};
+// HD conversion during "Baixar todas as imagens" (desktop): from the bytes the
+// full view just fetched (the original, or the older 2880 px copy), two at a
+// time (each is a full decode). Once the HD copy is here the heavy bytes it
+// replaces are dropped from this computer (they stay in the cloud), unless the
+// grid still needs the original as its thumbnail.
+const _bhConvertSlots={free:2,wait:[]};
+const _bhConvertSlot=async fn=>{
+  if(_bhConvertSlots.free>0)_bhConvertSlots.free--;else await new Promise(r=>_bhConvertSlots.wait.push(r));
+  try{return await fn();}finally{const next=_bhConvertSlots.wait.shift();if(next)next();else _bhConvertSlots.free++;}
+};
+const bhConvertForPreload=async(src,full)=>{
+  if(!full||!(full.blob instanceof Blob)||full.target===_bhDispUrls.get(src))return '';
+  return _bhConvertSlot(async()=>{
+    const r=await _bhDispRunOnce({src,blob:full.blob,from:full.target});
+    if(r!=='made'&&r!=='exists')return r;
+    try{
+      if(r==='exists'){const h=await bhRemoteDisplay(src,'disp');h.release();}
+      await _bhPendingPuts.flush();
+      const hd=_bhDispUrls.get(src),thumb=await bhMediaCacheGet('thumb:'+src),drop=[];
+      if(hd&&_bhBlobOf(await bhMediaCacheGet('blob:'+hd))){
+        if(typeof thumb==='string'&&thumb&&thumb!==src)drop.push('blob:'+src);
+        if(full.target!==src&&full.target!==hd)drop.push('blob:'+full.target);
+      }
+      await bhMediaCacheDel(drop);
+    }catch(e){bhLog('preloadAll.convert',e,String(src).slice(0,120));}
+    return r;
+  });
 };
 // One run at a time, independent of the screen (leaving Sincronizar does not
 // stop it; coming back shows its progress).
@@ -4238,9 +4327,13 @@ const bhPreloadAllStart=posts=>{
   if(_bhPreloadRun.state)return;
   _bhPreloadRun.cancel=false;_bhPreloadRun.result=null;_bhPreloadRun.state={done:0,total:0};_bhPreloadEmit();
   const failsBefore=_bhMediaPutFail.n;
-  // Images already here are skipped up front, so the count is what is left.
+  // Images with nothing left to do are skipped up front, so the count is what
+  // is left. On a computer that can make HD copies, "done" also means the HD
+  // copy is settled.
+  const convert=_bhDispAllowed()?bhConvertForPreload:null;
   bhLocalImageSet(bhPreloadList(posts))
-    .then(have=>bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel,have))
+    .then(st=>bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel,
+      convert?new Set([...st.local].filter(s=>st.hd.has(s))):st.local,convert))
     .then(r=>{_bhPreloadRun.result={...r,cancelled:_bhPreloadRun.cancel,notSaved:_bhMediaPutFail.n-failsBefore,saveErr:_bhMediaPutFail.last};},e=>{_bhPreloadRun.result={error:String(e&&e.message||e)};})
     .finally(()=>{_bhPreloadRun.state=null;_bhPreloadEmit();});
 };
@@ -4312,7 +4405,7 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
         if(!d)return d;
         try{
           const src=await srcKnown;
-          if(d.url){_bhDispUrls.set(src,d.url);await bhMediaCachePut('disp:'+src,{url:d.url});await bhMediaCachePut('blob:'+d.url,{blob:d.blob,at:Date.now()});}
+          if(d.url){_bhDispUrls.set(src,d.url);await bhMediaCachePut('disp:'+src,{url:d.url,v:BH_DISP_RULES});await bhMediaCachePut('blob:'+d.url,{blob:d.blob,at:Date.now()});}
           else if(d.none)await bhMediaCachePut('disp:'+src,{none:d.none,at:Date.now(),v:BH_DISP_RULES});
         }catch{/*silent-ok: only a speed-up*/}
         return d;
@@ -14585,7 +14678,8 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const cloudImgList=useMemo(()=>bhPreloadList(appState?.galleryPosts),[appState?.galleryPosts]);
   const cloudImgCount=cloudImgList.length;
   const [localImgs,setLocalImgs]=useState(null); // how many of them are already on this computer
-  const refreshLocalImgs=()=>{bhLocalImageSet(cloudImgList).then(set=>setLocalImgs(set.size));};
+  const [hdImgs,setHdImgs]=useState(null); // how many have their HD copy settled
+  const refreshLocalImgs=()=>{bhLocalImageSet(cloudImgList).then(st=>{setLocalImgs(st.local.size);setHdImgs(st.hd.size);});};
   useEffect(()=>{if(!_bhPreloadRun.state)refreshLocalImgs();},[cloudImgList]);// eslint-disable-line react-hooks/exhaustive-deps
   const [keepAll,setKeepAll]=useState(bhMediaKeepAll);
   const [cacheBytes,setCacheBytes]=useState(null);
@@ -14617,7 +14711,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
           else if(r.done-r.failed>=20&&bytes<1024*1024)showStatus('err',`As imagens foram baixadas, mas o navegador não as manteve (agora: ${bhFmtMB(bytes)}). Confira nas configurações do navegador se ele apaga cookies e dados de sites ao fechar, ou se está em modo privado; abra uma exceção para este site.`);
           else if(r.cancelled)showStatus('ok',`Parado. ${r.done-r.failed} imagens baixadas agora; faltam ${Math.max(0,r.total-r.done+r.failed)}.`);
           else if(!r.total)showStatus('ok',`✓ Nada novo: as ${r.all} imagens já estavam neste computador.`);
-          else showStatus(r.failed?'err':'ok',r.failed?`${r.done-r.failed} imagens baixadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens novas baixadas; todas as ${r.all} estão neste computador (${bhFmtMB(bytes)}).`);
+          else showStatus(r.failed?'err':'ok',(r.failed?`${r.done-r.failed} imagens processadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens processadas; todas as ${r.all} estão neste computador (${bhFmtMB(bytes)}).`)+(r.converted?` ${r.converted} convertidas para HD.`:''));
         });
       }
     };
@@ -14947,6 +15041,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
               <div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>
                 Baixa as imagens de todos os posts da Galeria para este computador. Depois disso, abrir qualquer post e passar as imagens é imediato, sem esperar a internet.
                 {localImgs!=null&&<> <strong style={{color:'var(--text)'}}>Já neste computador: {Math.min(localImgs,cloudImgCount).toLocaleString('pt-BR')} de {cloudImgCount.toLocaleString('pt-BR')} imagens.</strong></>}
+                {hdImgs!=null&&hdImgs<cloudImgCount&&<> Em HD (WebP, até 1280×720): {hdImgs.toLocaleString('pt-BR')} de {cloudImgCount.toLocaleString('pt-BR')}{_bhDispAllowed()?' — este computador converte o resto ao baixar.':' — a conversão é feita no computador (Zen/Chrome), ao baixar as imagens lá.'}</>}
                 {cacheBytes!=null&&<> Agora: {bhFmtMB(cacheBytes)}{keepAll?' (mantendo tudo)':' (limite normal: 200 MB)'}.</>}
                 {storeInfo&&<> Espaço do navegador para este site: {bhFmtMB(storeInfo.usage)} de {storeInfo.quota?bhFmtMB(storeInfo.quota):'?'}{storeInfo.persisted===true?', protegido contra limpeza automática':storeInfo.persisted===false?', sem proteção contra limpeza automática':''}.</>}
               </div>
