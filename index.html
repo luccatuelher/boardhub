@@ -4946,7 +4946,37 @@ const HoldReview=({files,onDone})=>{
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
   const groups=useMemo(()=>analysis?bhGroupHolds(analysis.consec,analysis.anchorDiff,BH_HOLD_PRESETS[preset]):[],[analysis,preset]);
   const picks=useMemo(()=>groups.map(bhHoldPick),[groups]);
-  const SHOW=240;
+  const SHOW=600;
+  // Which holds go up: click a frame to toggle it; press and drag across frames
+  // to give them all the same state as the first one. Reset when the
+  // sensitivity changes (the holds themselves change).
+  const [off,setOff]=useState(()=>new Set());
+  useEffect(()=>{setOff(new Set());},[groups]);
+  const paint=useRef(null); // {value:boolean(included), seen:Set}
+  const setIncluded=(k,included)=>setOff(prev=>{
+    if(prev.has(k)===!included)return prev;
+    const next=new Set(prev);if(included)next.delete(k);else next.add(k);return next;
+  });
+  const holdAt=(x,y)=>{const el=document.elementFromPoint(x,y)?.closest?.('[data-hold]');return el?Number(el.getAttribute('data-hold')):null;};
+  const onDown=(k,e)=>{
+    if(e.button!==undefined&&e.button!==0)return;
+    e.preventDefault();
+    const value=off.has(k); // a click flips the state of the frame pressed
+    paint.current={value,seen:new Set([k])};
+    setIncluded(k,value);
+  };
+  useEffect(()=>{
+    const move=e=>{
+      const p=paint.current;if(!p)return;
+      const k=holdAt(e.clientX,e.clientY);
+      if(k==null||p.seen.has(k))return;
+      p.seen.add(k);setIncluded(k,p.value);
+    };
+    const up=()=>{paint.current=null;};
+    document.addEventListener('pointermove',move);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);
+    return()=>{document.removeEventListener('pointermove',move);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);};
+  },[]);
+  const chosen=groups.map((g,k)=>k).filter(k=>!off.has(k));
   useEffect(()=>{
     let stop=false;
     (async()=>{for(const i of picks.slice(0,SHOW)){if(stop)return;if(thumbs[i]!==undefined)continue;const u=await _bhThumbUrl(files[i]);if(stop){if(u)URL.revokeObjectURL(u);return;}setThumbs(t=>({...t,[i]:u}));}})();
@@ -4965,19 +4995,31 @@ const HoldReview=({files,onDone})=>{
         <button className="btn btn-outline" onClick={()=>close('all')} style={{padding:'6px 14px',fontSize:'.8rem'}}>Pular e enviar todos</button>
       </div>
     </div>:<div style={{display:'flex',flexDirection:'column',gap:12}}>
-      <div style={{fontSize:'.85rem',lineHeight:1.5}}>{files.length} quadros → <b>{groups.length} holds</b>. Será enviado 1 quadro de cada hold (o do meio). Confira abaixo; se faltar ou sobrar painel, ajuste a sensibilidade.</div>
-      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}><span style={{fontSize:'.75rem',color:'var(--muted)'}}>Sensibilidade:</span>{seg('fewer','Menos holds')}{seg('normal','Normal')}{seg('more','Mais holds')}</div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,maxHeight:'52vh',overflowY:'auto',padding:2}}>
-        {groups.slice(0,SHOW).map((g,k)=>{const i=picks[k];return <figure key={g[0]+'-'+g[1]} style={{margin:0}}>
-          <div style={{aspectRatio:'16/9',background:'var(--border)',borderRadius:6,overflow:'hidden'}}>{thumbs[i]?<img alt="" src={thumbs[i]} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>:null}</div>
-          <figcaption style={{fontSize:'.68rem',color:'var(--muted)',marginTop:3}}>{k+1} · {g[1]-g[0]+1} quadro{g[1]>g[0]?'s':''}</figcaption>
+      <div style={{fontSize:'.85rem',lineHeight:1.5}}>{files.length} quadros → <b>{groups.length} holds</b>. Será enviado 1 quadro de cada hold (o do meio). Clique num quadro para tirar ou incluir; clique e arraste para marcar vários. Se faltar ou sobrar painel, ajuste a sensibilidade.</div>
+      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}><span style={{fontSize:'.75rem',color:'var(--muted)'}}>Sensibilidade:</span>{seg('fewer','Menos holds')}{seg('normal','Normal')}{seg('more','Mais holds')}
+        <span style={{flex:1}}/>
+        <span style={{fontSize:'.75rem',color:'var(--muted)'}}>{chosen.length} de {groups.length} selecionados</span>
+        <button type="button" className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.75rem'}} onClick={()=>setOff(new Set())}>Todos</button>
+        <button type="button" className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.75rem'}} onClick={()=>setOff(new Set(groups.map((g,k)=>k)))}>Nenhum</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,maxHeight:'52vh',overflowY:'auto',padding:2,userSelect:'none'}}>
+        {groups.slice(0,SHOW).map((g,k)=>{const i=picks[k],on=!off.has(k);return <figure key={g[0]+'-'+g[1]} data-hold={k} role="checkbox" aria-checked={on} tabIndex={0}
+          aria-label={'Hold '+(k+1)+', '+(g[1]-g[0]+1)+' quadros'}
+          onPointerDown={e=>onDown(k,e)}
+          onKeyDown={e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();setIncluded(k,!on);}}}
+          style={{margin:0,cursor:'pointer',outlineOffset:2}}>
+          <div style={{position:'relative',aspectRatio:'16/9',background:'var(--border)',borderRadius:6,overflow:'hidden',boxShadow:on?'0 0 0 2px var(--text)':'none',transition:'box-shadow .1s'}}>
+            {thumbs[i]?<img alt="" draggable={false} src={thumbs[i]} style={{width:'100%',height:'100%',objectFit:'cover',display:'block',opacity:on?1:.3,filter:on?'none':'grayscale(1)',pointerEvents:'none'}}/>:null}
+            <span aria-hidden="true" style={{position:'absolute',top:5,left:5,width:18,height:18,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:on?'var(--text)':'rgba(0,0,0,.35)',color:on?'var(--bg)':'#fff',border:'1px solid rgba(255,255,255,.6)'}}><Icon name={on?'check':'x'} size={11}/></span>
+          </div>
+          <figcaption style={{fontSize:'.68rem',color:'var(--muted)',marginTop:3,textDecoration:on?'none':'line-through'}}>{k+1} · {g[1]-g[0]+1} quadro{g[1]>g[0]?'s':''}</figcaption>
         </figure>;})}
         {groups.length>SHOW&&<div style={{fontSize:'.75rem',color:'var(--muted)',alignSelf:'center'}}>+{groups.length-SHOW} holds</div>}
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',gap:8,flexWrap:'wrap'}}>
         <button className="btn btn-ghost" onClick={()=>close(null)} style={{padding:'6px 14px',fontSize:'.8rem'}}>Cancelar</button>
         <button className="btn btn-outline" onClick={()=>close('all')} style={{padding:'6px 14px',fontSize:'.8rem'}}>Enviar todos os {files.length}</button>
-        <button className="btn btn-primary" autoFocus onClick={()=>close({picks})} style={{padding:'6px 14px',fontSize:'.8rem'}}>Enviar {groups.length} (1 por hold)</button>
+        <button className="btn btn-primary" autoFocus disabled={!chosen.length} onClick={()=>close({picks:chosen.map(k=>picks[k])})} style={{padding:'6px 14px',fontSize:'.8rem'}}>Enviar {chosen.length} (1 por hold)</button>
       </div>
     </div>}
   </Modal>;
