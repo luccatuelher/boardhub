@@ -3072,6 +3072,10 @@ const initFirebase=async()=>{
     _fbAuth=firebase.auth();
     _fbDb=firebase.firestore();
     _fbStorage=firebase.storage();
+    // Defaults retry a stalled lookup for 2 min and an upload for 10 min, which
+    // looked like an upload stuck at 0%. Fail sooner; the caller keeps the file
+    // locally (transient error) and the next sync uploads it.
+    try{_fbStorage.setMaxOperationRetryTime(20000);_fbStorage.setMaxUploadRetryTime(120000);}catch(e){bhLog('fb.storageRetry',e);}
     _fbDb.enablePersistence({synchronizeTabs:true}).catch(e=>bhLog('fb.enablePersistence',e,e&&e.code));
     _fbReady=true;
     return true;
@@ -4041,7 +4045,7 @@ const _lbThumb=src=>{
 };
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
 // are NEVER re-encoded. Thumbnails are separate optional derivatives.
-const uploadToFirebaseStorage=async(file,uid)=>{
+const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
   if(!_fbStorage||!uid)throw new Error('Firebase Storage not available');
   const digest=await bhDigest(await file.arrayBuffer()),mime=file.type||'application/octet-stream';
   const mimeKey=mime.replace(/[^a-z0-9]/gi,'_');
@@ -4058,7 +4062,17 @@ const uploadToFirebaseStorage=async(file,uid)=>{
     catch(e){
       if(e.code!=='storage/object-not-found')throw e;
       assertUser();bhDiag.record('uploadStarted',file.size,'original');
-      await ref.put(file,{contentType:mime,cacheControl:'private,max-age=31536000,immutable'});
+      const task=ref.put(file,{contentType:mime,cacheControl:'private,max-age=31536000,immutable'});
+      // Report bytes as they go out, and cancel an upload that makes no progress
+      // for 60 s ('storage/canceled' is transient: the file is kept locally).
+      await new Promise((res,rej)=>{
+        let last=Date.now();
+        const watch=setInterval(()=>{if(Date.now()-last>60000){clearInterval(watch);bhLog('upload.stalled',null,String(file.size));try{task.cancel();}catch{/*silent-ok*/}}},5000);
+        task.on('state_changed',snap=>{
+          last=Date.now();
+          if(onBytes&&snap.totalBytes)try{onBytes(snap.bytesTransferred/snap.totalBytes);}catch{/*silent-ok*/}
+        },err=>{clearInterval(watch);rej(err);},()=>{clearInterval(watch);res();});
+      });
       url=await ref.getDownloadURL();
     }
     assertUser();let thumb='';
@@ -4360,11 +4374,11 @@ const bhStorageErrTransient=e=>{
   const c=String(e&&e.code||'');
   return c==='storage/retry-limit-exceeded'||c==='storage/canceled'||c==='storage/server-file-wrong-size';
 };
-const _uploadSingle=async(file,onPct)=>{
+const _uploadSingle=async(file,onPct,onBytes)=>{
   file=await bhPrepareMedia(file,onPct);
   if(!_isVideoFile(file))file=await _compressImage(file);
   if(_fbReady&&_fbAuth?.currentUser){
-    try{return await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}
+    try{return await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid,onBytes);}
     catch(e){
       bhLog('upload.storage',e,e&&e.code);
       if(bhStorageErrTransient(e)){console.warn('[BoardHub] Transient Storage failure; keeping the image locally for the next sync.');return await _storeIdb(file);}
@@ -4410,7 +4424,8 @@ const uploadImages=async(files,onProgress,onCompact)=>{
   for(const f of files)await bhMediaPrecheck(f);
   const results=[];
   for(let i=0;i<files.length;i++){
-    results.push(await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined));
+    results.push(await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined,
+      onProgress?frac=>onProgress(i+Math.min(.99,Math.max(0,frac)),files.length):undefined));
     if(onProgress)onProgress(i+1,files.length);
     // Only delay on Imgur path (Firebase has no rate limit)
     if(i<files.length-1&&(!_fbReady||!_fbAuth?.currentUser)){
@@ -6572,7 +6587,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       <input ref={inputRef} type="file" accept="image/*,video/*,.gif" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
       {files.length>0&&<div className="session-capture-grid">{files.map(item=><div key={item.id}>{item.video?<video src={item.preview} muted playsInline preload="metadata" aria-label="Prévia do vídeo"/>:<img src={item.preview} alt="Prévia da sessão"/>}{item.video&&<span className="session-capture-video-badge" aria-hidden="true"><Icon name="video" size={10}/></span>}<button onClick={()=>removeFile(item.id)} disabled={saving} aria-label="Remover mídia" type="button"><Icon name="x" size={11}/></button></div>)}</div>}
       <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Uma nota rápida sobre a sessão (opcional)" disabled={saving}/>
-      {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{progress.done}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
+      {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{Math.floor(progress.done)}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
       {error&&<div className="session-capture-error" role="alert">{error}</div>}
       <div className="session-capture-actions"><span>{asTask?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}{requireRegister&&!saveFailed?' Registro obrigatório (Sincronizar).':''}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{(!requireRegister||saveFailed)&&<button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button>}<button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
     </div>
@@ -11123,7 +11138,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
             </div>
           ))}
           <div className="upload-zone" style={{aspectRatio:'16/9',minHeight:0,opacity:uploading?.6:1,pointerEvents:uploading?'none':'auto'}} onClick={()=>addImgRef.current.click()}>
-            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${uploadProgress.done}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}</span>
+            <Icon name={uploading?'loader':'plus'} size={20} style={{marginBottom:6}}/><span style={{fontSize:'.75rem'}}>{bhUploadStage(uploadProgress?.compact)||(uploadProgress?`${Math.floor(uploadProgress.done)}/${uploadProgress.total} enviando...`:uploading?'Enviando...':'Adicionar')}</span>
           </div>
           {removedImg&&String(removedImg.postId)===String(selected.id)&&(
             <div className="post-img-undo" role="status">
