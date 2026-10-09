@@ -220,6 +220,7 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes overlayIn{from{opacity:0;}to{opacity:1;}}
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px);}to{opacity:1;transform:scale(1) translateY(0);}}
 /* Overlay now has a visible backdrop */
+.overlay.note-peek{background:rgba(6,5,3,.74);backdrop-filter:blur(3px);padding:3vh 3vw!important}
 .overlay{position:fixed;inset:0;z-index:120000;display:flex;align-items:center;justify-content:center;animation:overlayIn .2s ease;padding:24px;padding-left:244px;/* 220px sidebar + 24px — centers dialogs over the content area; mobile media query zeroes this */}
 .modal{background:var(--surface);border-radius:18px;border:1px solid var(--border);padding:24px 28px;width:100%;animation:modalIn .25s ease;box-shadow:0 20px 60px rgba(var(--ink),.18);max-height:95vh;overflow-y:auto;}
 .upload-zone{border:2px dashed var(--border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s,background .2s,transform .15s;padding:24px;text-align:center;color:var(--muted);}
@@ -5219,10 +5220,10 @@ const DialogBox=({onClose,label,children,...props})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
   return <div {...props} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={label} onKeyDown={trapTab}>{children}</div>;
 };
-const Modal=({title,onClose,children,width=480})=>{
+const Modal=({title,onClose,children,width=480,overlayClass=''})=>{
   const {boxRef,trapTab}=useModalLayer(onClose);
   return ReactDOM.createPortal(
-  <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+  <div className={'overlay'+(overlayClass?' '+overlayClass:'')} onClick={e=>e.target===e.currentTarget&&onClose()}>
     <div className="modal" style={{maxWidth:width}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={typeof title==='string'?title:undefined} onKeyDown={trapTab}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
         <h2 className="serif" style={{fontSize:'1.6rem',fontWeight:400,margin:0}}>{title}</h2>
@@ -13662,8 +13663,8 @@ const NotePeek=({target,notes,setNotes,onClose,onOpenInNotes})=>{
   const save=useCallback((html,t)=>setNotes(p=>bhApplyNoteContent(p,html,t)),[setNotes]);
   useEffect(()=>{if(!rec)onClose();},[rec]);//eslint-disable-line react-hooks/exhaustive-deps
   if(!rec)return null;
-  return <Modal title={rec.title||'Sem título'} onClose={onClose} width={880}>
-    <div style={{display:'flex',flexDirection:'column',height:'min(60vh,640px)',minHeight:260}}>
+  return <Modal title={rec.title||'Sem título'} onClose={onClose} width={1240} overlayClass="note-peek">
+    <div style={{display:'flex',flexDirection:'column',height:'min(74vh,900px)',minHeight:300}}>
       <RichEditor key={target.kind+'-'+target.id} noteId={target.id} initialHTML={rec.content||''} onSave={save} saveTarget={target}/>
     </div>
     <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:14}}>
