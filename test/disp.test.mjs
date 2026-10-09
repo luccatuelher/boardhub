@@ -24,7 +24,7 @@ test('plan: big images get a downscaled WebP, aspect ratio kept', () => {
 
 test('plan: small dimensions but heavy file are re-encoded at the same size', () => {
   const p = bhDispPlan({ w: 2000, h: 1000, bytes: 3 * MB, type: 'image/png' });
-  assert.deepEqual([p.needed, p.targetW, p.targetH, p.quality], [true, 2000, 1000, 0.9]);
+  assert.deepEqual([p.needed, p.targetW, p.targetH, p.quality], [true, 2000, 1000, 0.92]);
 });
 
 test('plan: small light images, other types and bad input need nothing', () => {
@@ -36,6 +36,14 @@ test('plan: small light images, other types and bad input need nothing', () => {
   assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'image/png', animated: true }).reason, 'animated');
   assert.equal(bhDispPlan({ w: 0, h: 10, bytes: 9 * MB, type: 'image/png' }).reason, 'size');
   assert.equal(bhDispPlan().needed, false);
+});
+
+test('plan: PNGs get a copy from 300 KB (lossless PNG is slow to download and decode), at higher quality', () => {
+  const p = bhDispPlan({ w: 1920, h: 1080, bytes: 2 * MB, type: 'image/png' });
+  assert.deepEqual([p.needed, p.targetW, p.targetH, p.quality], [true, 1920, 1080, 0.92]);
+  assert.equal(bhDispPlan({ w: 1920, h: 1080, bytes: 400 * 1024, type: 'image/png' }).needed, true);
+  assert.equal(bhDispPlan({ w: 1920, h: 1080, bytes: 200 * 1024, type: 'image/png' }).needed, false);
+  assert.equal(bhDispPlan({ w: 1920, h: 1080, bytes: 400 * 1024, type: 'image/jpeg' }).needed, false, 'JPEG threshold unchanged');
 });
 
 test('accept: only a clearly lighter result is kept', () => {
@@ -75,7 +83,9 @@ test('cache state: lookup, url, and negative results with their TTLs', () => {
   assert.equal(bhDispCacheState({ none: 'missing', at: now - 4 * day }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'failed', at: now - 2 * day }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'failed', at: now - 1000 }, now).state, 'skip');
-  assert.equal(bhDispCacheState({ none: 'small', at: 0 }, now).state, 'skip', 'small/notSmaller never expire');
-  assert.equal(bhDispCacheState({ none: 'notSmaller', at: 0 }, now).state, 'skip');
+  assert.equal(bhDispCacheState({ none: 'small', at: 0, v: 2 }, now).state, 'skip', 'small/notSmaller never expire under the same rules');
+  assert.equal(bhDispCacheState({ none: 'notSmaller', at: 0, v: 2 }, now).state, 'skip');
+  assert.equal(bhDispCacheState({ none: 'small', at: 0 }, now).state, 'lookup', 'records from older rules are looked at again');
+  assert.equal(bhDispCacheState({ none: 'notSmaller', at: now }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ junk: 1 }, now).state, 'lookup');
 });

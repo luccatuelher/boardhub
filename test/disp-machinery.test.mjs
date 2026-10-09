@@ -24,6 +24,7 @@ function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = '
     bhMediaCacheGet: async k => cache.get(k),
     bhMediaCachePut: async (k, v) => { cache.set(k, v); },
     bhDiag: { record() {} },
+    _bhBlobOf: v => v instanceof Blob ? v : (v && v.blob instanceof Blob ? v.blob : null),
     window: { matchMedia: () => ({ matches: true }), requestIdleCallback: undefined },
     navigator: { onLine: true },
     createImageBitmap: async () => { calls.decode++; return { width: w, height: h, close() {} }; },
@@ -136,7 +137,7 @@ test('enqueue: ignores non-cloud sources, gif/svg, and a full queue; never throw
 test('run: records saying "no derivative needed/possible" stop the run before any Storage call or decode', async () => {
   for (const none of ['small', 'notSmaller', 'failed']) {
     const W = world();
-    W.cache.set('disp:' + SRC, { none, at: Date.now() });
+    W.cache.set('disp:' + SRC, { none, at: Date.now(), v: 2 });
     await W.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
     assert.equal(W.calls.get.length, 0, none);
     assert.equal(W.calls.decode, 0, none);
@@ -172,5 +173,18 @@ test('enqueue: accepts a cloud image once (deduped), capped at 8 pending', () =>
     const p = `users/u1/images/sha256_${(i.toString(16).padStart(2, '0')).repeat(32)}_image_jpeg`;
     W.api.bhDispMaybeEnqueue(`https://firebasestorage.googleapis.com/v0/b/bkt/o/${encodeURIComponent(p)}?alt=media`, file(2 * MB));
   }
-  assert.ok(W.api._bhDisp.q.length <= 8);
+  assert.ok(W.api._bhDisp.q.length <= 200);
+  assert.ok(W.api._bhDisp.q.every(j => !j.blob), 'lazy jobs do not hold the original in memory');
+});
+
+test('run: a lazy job reads the original back from the persistent cache; skips if it was evicted', async () => {
+  const W = world();
+  W.cache.set('blob:' + SRC, { blob: file(6 * MB), at: 1 });
+  await W.api._bhDispRun({ src: SRC });
+  assert.equal(W.calls.put.length, 1);
+  const gone = world();
+  await gone.api._bhDispRun({ src: SRC });
+  assert.equal(gone.calls.put.length, 0);
+  assert.equal(gone.calls.decode, 0);
+  assert.equal(gone.cache.get('disp:' + SRC), undefined, 'nothing recorded, so it is retried later');
 });

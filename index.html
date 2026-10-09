@@ -2546,7 +2546,10 @@ const bhPreloadFit=(sizes,maxBytes,minKeep=2)=>{
 // original is never touched; this is an extra, lighter copy for the full view
 // so every image downloads and decodes in about the same time. 2880 px is the
 // width of the lightbox stage on a retina display.
-const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=1.2*1048576;
+const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=1.2*1048576,BH_DISP_MIN_BYTES_PNG=300*1024;
+// Version of these rules: 'small'/'notSmaller' records written under older rules
+// are looked at again (v2 lowered the PNG threshold).
+const BH_DISP_RULES=2;
 const bhDispName=path=>{
   const p=String(path||'');
   if(!/\/sha256_[0-9a-f]{64}_[a-z0-9_]+$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
@@ -2560,9 +2563,11 @@ const bhDispPlan=info=>{
   if(!/^image\//.test(String(type||''))||/^image\/(?:gif|svg|avif)/.test(type))return no('type');
   if(animated)return no('animated');
   const long=Math.max(w,h);
-  if(long<=BH_DISP_MAX&&!(bytes>BH_DISP_MIN_BYTES))return no('small');
+  const min=/png/i.test(type)?BH_DISP_MIN_BYTES_PNG:BH_DISP_MIN_BYTES;
+  if(long<=BH_DISP_MAX&&!(bytes>min))return no('small');
   const r=Math.min(1,BH_DISP_MAX/long);
-  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.9:0.88,reason:''};
+  // PNGs are usually drawings: a higher quality keeps thin lines clean.
+  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.92:0.88,reason:''};
 };
 // Only keep a derivative that is clearly lighter than the original.
 const bhDispAccept=(origBytes,outBytes)=>outBytes>0&&outBytes<origBytes*0.7;
@@ -2589,6 +2594,7 @@ const bhDispCacheState=(rec,now)=>{
   if(!rec)return {state:'lookup'};
   if(rec.url)return {state:'url',url:rec.url};
   if(rec.none){
+    if((rec.none==='small'||rec.none==='notSmaller')&&(rec.v||1)<BH_DISP_RULES)return {state:'lookup'};
     const ttl=BH_DISP_TTL[rec.none];
     return ttl&&now-(rec.at||0)>=ttl?{state:'lookup'}:{state:'skip'};
   }
@@ -3697,7 +3703,7 @@ const _bhDispLookup=async src=>{
   if(!_bhDispInflight.has(src))_bhDispInflight.set(src,(async()=>{
     try{
       const name=bhDispName(_fbStorage.refFromURL(src).fullPath);
-      if(!name){await bhMediaCachePut('disp:'+src,{none:'small',at:Date.now()});return '';}
+      if(!name){await bhMediaCachePut('disp:'+src,{none:'small',at:Date.now(),v:BH_DISP_RULES});return '';}
       const url=await _fbStorage.ref(name).getDownloadURL();
       await bhMediaCachePut('disp:'+src,{url});_bhDispUrls.set(src,url);return url;
     }catch(e){
@@ -3745,12 +3751,15 @@ const bhDispMaybeEnqueue=(src,blob)=>{
   try{
     if(typeof src!=='string'||!bhIsFirebaseImage(src)||!(blob instanceof Blob))return;
     if(!/^image\//.test(blob.type)||/^image\/(?:gif|svg)/.test(blob.type))return;
-    if(_bhDisp.done>=60||_bhDisp.q.length>=8||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
-    _bhDisp.q.push({src,blob});_bhDispPump();
+    if(_bhDisp.done>=200||_bhDisp.q.length>=200||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
+    // No Blob in the queue: the original was just stored in the persistent cache
+    // ('blob:'+src) and is read back when the job runs, so a whole post can wait
+    // here without holding its originals in memory.
+    _bhDisp.q.push({src});_bhDispPump();
   }catch{/*silent-ok: a background optimisation never breaks viewing*/}
 };
 const bhDispEnqueueUpload=(src,path,blob)=>{
-  if(_bhDisp.q.length>=8||_bhDisp.q.some(j=>j.src===src))return;
+  if(_bhDisp.q.filter(j=>j.blob).length>=8||_bhDisp.q.some(j=>j.src===src))return;
   _bhDisp.q.push({src,blob,path});_bhDispPump();
 };
 const _bhDispPump=()=>{
@@ -3780,8 +3789,10 @@ const _bhDispRun=async job=>{
   try{url=await ref.getDownloadURL();}
   catch(e){if(!e||e.code!=='storage/object-not-found')return;/* transient: try again another time */}
   if(!url){
-    const made=await _makeDisplayBlob(job.blob);
-    if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now()});return;}
+    const source=job.blob||_bhBlobOf(await bhMediaCacheGet('blob:'+job.src));
+    if(!(source instanceof Blob))return; // evicted meanwhile: retried the next time it is fetched
+    const made=await _makeDisplayBlob(source);
+    if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now(),v:BH_DISP_RULES});return;}
     if(_fbAuth?.currentUser?.uid!==uid)return;
     bhDiag.record('uploadStarted',made.blob.size,'display');
     await ref.put(made.blob,{contentType:made.blob.type,cacheControl:'private,max-age=31536000,immutable'});
