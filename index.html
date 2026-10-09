@@ -2532,6 +2532,60 @@ const bhPreloadFit=(sizes,maxBytes,minKeep=2)=>{
   return n;
 };
 // @bh-test-end preload
+// @bh-test-begin disp
+// Display-size derivative of a cloud image (`<original path>_disp2880`): the
+// original is never touched; this is an extra, lighter copy for the full view
+// so every image downloads and decodes in about the same time. 2880 px is the
+// width of the lightbox stage on a retina display.
+const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=1.2*1048576;
+const bhDispName=path=>{
+  const p=String(path||'');
+  if(!/\/sha256_[0-9a-f]{64}_[a-z0-9_]+$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
+  return p+'_disp'+BH_DISP_MAX;
+};
+// Does this image need a derivative, and how big/what type? info: {w,h,bytes,type,animated,alpha}
+const bhDispPlan=info=>{
+  const {w,h,bytes,type,animated}=info||{};
+  const no=reason=>({needed:false,reason});
+  if(!(w>0&&h>0))return no('size');
+  if(!/^image\//.test(String(type||''))||/^image\/(?:gif|svg)/.test(type))return no('type');
+  if(animated)return no('animated');
+  const long=Math.max(w,h);
+  if(long<=BH_DISP_MAX&&!(bytes>BH_DISP_MIN_BYTES))return no('small');
+  const r=Math.min(1,BH_DISP_MAX/long);
+  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.9:0.88,reason:''};
+};
+// Only keep a derivative that is clearly lighter than the original.
+const bhDispAccept=(origBytes,outBytes)=>outBytes>0&&outBytes<origBytes*0.7;
+// Animated PNG (acTL before the first IDAT) or animated WebP (VP8X flag).
+const bhIsAnimated=(bytes,mime)=>{
+  const b=bytes||[];
+  const ascii=(at,len)=>{let t='';for(let i=0;i<len;i++)t+=String.fromCharCode(b[at+i]||0);return t;};
+  if(/png/i.test(mime||'')){
+    for(let i=8;i+8<=b.length;){
+      const len=((b[i]<<24)|(b[i+1]<<16)|(b[i+2]<<8)|b[i+3])>>>0,type=ascii(i+4,4);
+      if(type==='acTL')return true;
+      if(type==='IDAT'||type==='IEND')return false;
+      i+=12+len;
+    }
+    return false;
+  }
+  if(/webp/i.test(mime||''))return ascii(0,4)==='RIFF'&&ascii(8,4)==='WEBP'&&ascii(12,4)==='VP8X'&&(b[20]&2)===2;
+  return false;
+};
+// What the persistent cache says about an image's derivative.
+// rec: undefined | {url} | {none:'missing'|'failed'|'small'|'notSmaller'|'broken',at}
+const BH_DISP_TTL={missing:3*864e5,failed:864e5,broken:864e5};
+const bhDispCacheState=(rec,now)=>{
+  if(!rec)return {state:'lookup'};
+  if(rec.url)return {state:'url',url:rec.url};
+  if(rec.none){
+    const ttl=BH_DISP_TTL[rec.none];
+    return ttl&&now-(rec.at||0)>=ttl?{state:'lookup'}:{state:'skip'};
+  }
+  return {state:'lookup'};
+};
+// @bh-test-end disp
 // Preload a URL off-DOM, deduped. Hover/open warmers and lightbox neighbour
 // prefetch all share this map, so the same network image is never requested twice.
 const _netPreload=new Map();

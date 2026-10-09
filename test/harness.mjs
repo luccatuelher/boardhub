@@ -30,6 +30,7 @@ export const EXPECTED = {
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
+  disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 
