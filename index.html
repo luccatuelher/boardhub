@@ -3915,8 +3915,15 @@ const _lbPump=()=>{
     e.state='loading';_lb.active++;
     (async()=>{
       let res=null;
-      try{res=await _lbResolve(src);}catch{/*silent-ok: a failed preload just leaves the normal loading path*/}
+      // A load that never settles (stalled request, a lookup that hangs) must not
+      // hold a slot forever: past the deadline the entry fails, the next images
+      // load, and a late result is released as soon as it arrives.
+      const started=Date.now();let late=false;
+      const work=_lbResolve(src).catch(()=>null);
+      try{res=await Promise.race([work,new Promise(r=>setTimeout(()=>{late=true;r(null);},12000))]);}catch{/*silent-ok*/}
+      if(late){work.then(r=>{if(r&&r.release)try{r.release();}catch{/*silent-ok*/}});bhLog('lightbox.loadTimeout',null,String(src).slice(0,120));}
       const img=res&&res.url?await _lbDecode(res.url):null;
+      if(!img&&!late&&res)bhLog('lightbox.decodeFailed',null,String(src).slice(0,120)+' after '+(Date.now()-started)+'ms');
       _lb.active--;
       if(e.dead||!img){
         if(res&&res.release){try{res.release();}catch{/*silent-ok*/}}
