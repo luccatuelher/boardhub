@@ -2399,7 +2399,7 @@ const _touchThumb=key=>{
 const OBJURL_CAP=12;
 const _objUrlOrder=new Map(); // key -> true, least-recently-used first
 // Keys the lightbox preloader is holding: never evicted (and revoked) while pinned.
-const _objUrlPins=new Set();
+const _objUrlPins=new Map(); // key -> holders (a Set would lose the pin when an old, dead load releases it)
 const _touchObjUrl=key=>{
   _objUrlOrder.delete(key);
   _objUrlOrder.set(key,true);
@@ -2514,26 +2514,22 @@ const bhPreloadWindow=(index,len,ahead,behind,dir=1)=>{
 const bhPreloadBudget=(net={})=>{
   const type=String(net.effectiveType||'');
   let b;
-  if(net.saveData||/(^|-)2g$/.test(type))b={ahead:1,behind:0,conc:1};
-  else if(type==='3g')b={ahead:2,behind:1,conc:2};
-  else b={ahead:4,behind:2,conc:3};
-  if(net.deviceMemory&&net.deviceMemory<=4)b={...b,ahead:Math.min(b.ahead,2)};
+  if(net.saveData||/(^|-)2g$/.test(type))b={ahead:1,behind:0,conc:1,maxBytes:80*1048576};
+  else if(type==='3g')b={ahead:2,behind:1,conc:2,maxBytes:120*1048576};
+  else b={ahead:4,behind:2,conc:3,maxBytes:160*1048576};
+  if(net.deviceMemory&&net.deviceMemory<=4)b={...b,ahead:Math.min(b.ahead,2),behind:Math.min(b.behind,1),maxBytes:Math.min(b.maxBytes,80*1048576)};
   return b;
 };
-// entries: [{key,wanted,dist,bytes}]. Returns the keys to drop: everything
-// outside the window first, then the farthest ones while over the caps. The
-// entry on screen (dist 0) is never dropped.
-const bhEvictPlan=(entries,maxCount,maxBytes)=>{
-  const drop=[],keep=[];
-  entries.forEach(e=>(e.wanted?keep:drop).push(e));
-  let bytes=keep.reduce((n,e)=>n+(e.bytes||0),0);
-  keep.sort((a,b)=>b.dist-a.dist);
-  for(const e of keep){
-    if(keep.length-drop.filter(d=>d.wanted).length<=maxCount&&bytes<=maxBytes)break;
-    if(e.dist===0)continue;
-    drop.push(e);bytes-=e.bytes||0;
+// sizes: estimated decoded bytes of the window's images in priority order.
+// How many leading ones fit in maxBytes; always at least `minKeep` (the image on
+// screen and the next one), however big they are.
+const bhPreloadFit=(sizes,maxBytes,minKeep=2)=>{
+  let used=0,n=0;
+  for(const size of sizes){
+    if(n>=minKeep&&used+(size||0)>maxBytes)break;
+    used+=size||0;n++;
   }
-  return drop.map(e=>e.key);
+  return n;
 };
 // @bh-test-end preload
 // Preload a URL off-DOM, deduped. Hover/open warmers and lightbox neighbour
@@ -2846,17 +2842,26 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
 // the thumbnail-first path and the "missing file" placeholder.
 const LightboxImage=({src,srcs,index,onClick})=>{
   const [,bump]=React.useState(0);
+  const [slow,setSlow]=React.useState('');
   const lastUrl=React.useRef('');
   const dir=React.useRef(1),prev=React.useRef(index);
   if(prev.current!==index){dir.current=index>prev.current?1:-1;prev.current=index;}
   React.useEffect(()=>{_lb.listener=()=>bump(n=>n+1);return()=>{_lb.listener=null;};},[]);
   React.useEffect(()=>{bhLbSetWindow(srcs,index,dir.current,bhLbBudget());},[srcs,index]);
-  React.useEffect(()=>bhLbIdleWarm(srcs),[srcs]);
+  React.useEffect(()=>bhLbIdleWarm(srcs,index),[srcs]);// eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(()=>()=>bhLbDispose(),[]);
   const ready=bhLbPeek(src);
+  // Not ready after a moment: stop holding the previous frame (it would look
+  // like the wrong image) and let <Img> show the thumbnail or placeholder.
+  React.useEffect(()=>{
+    if(ready)return;
+    const t=setTimeout(()=>setSlow(src),350);
+    return()=>clearTimeout(t);
+  },[src,!!ready]);// eslint-disable-line react-hooks/exhaustive-deps
   if(ready)lastUrl.current=ready.url;
   const url=ready?ready.url:lastUrl.current;
-  if(!url||(!ready&&bhLbFailed(src)))return <Img src={src} full priority onClick={onClick} alt=""/>;
+  const waiting=!ready&&(bhLbFailed(src)||slow===src||!_lb.entries.has(src));
+  if(!url||waiting)return <Img src={src} full priority onClick={onClick} alt=""/>;
   return <img alt="" src={url} onClick={onClick} decoding="sync" style={{animation:'none'}}/>;
 };
 
@@ -3644,9 +3649,10 @@ const bhLbBudget=()=>{
 };
 const _lbResolve=async src=>{
   if(src.startsWith('idb://')){
-    const key=src.slice(6);_objUrlPins.add(key);
+    const key=src.slice(6);_objUrlPins.set(key,(_objUrlPins.get(key)||0)+1);
     const url=await _warmFull(key);
-    return {url,release:()=>{_objUrlPins.delete(key);}};
+    let done=false;
+    return {url,release:()=>{if(done)return;done=true;const n=(_objUrlPins.get(key)||1)-1;if(n>0)_objUrlPins.set(key,n);else _objUrlPins.delete(key);}};
   }
   if(bhIsFirebaseImage(src))return bhRemoteDisplay(src,false);
   return {url:src,release:()=>{}};
@@ -3660,8 +3666,15 @@ const _lbDecode=url=>new Promise(res=>{
 });
 const _lbKill=(src,e)=>{e.dead=true;if(e.release){try{e.release();}catch{/*silent-ok: releasing a handle twice is harmless*/}e.release=null;}_lb.entries.delete(src);};
 const _lbPump=()=>{
-  while(_lb.active<_lb.conc&&_lb.queue.length){
-    const src=_lb.queue.shift(),e=_lb.entries.get(src);
+  // The image on screen is `urgent`: it starts even when every slot is taken by
+  // loads nobody wants any more (cloud fetches cannot be cancelled).
+  const next=()=>{
+    const i=_lb.queue.findIndex(src=>_lb.entries.get(src)?.urgent);
+    if(i>=0)return _lb.queue.splice(i,1)[0];
+    return _lb.active<_lb.conc?_lb.queue.shift():undefined;
+  };
+  for(let src=next();src!==undefined;src=next()){
+    const e=_lb.entries.get(src);
     if(!e||e.state!=='queued')continue;
     e.state='loading';_lb.active++;
     (async()=>{
@@ -3676,38 +3689,49 @@ const _lbPump=()=>{
         e.url=res.url;e.img=img;e.release=res.release;e.bytes=(img.naturalWidth||0)*(img.naturalHeight||0)*4;e.state='ready';
       }
       _lbPump();
+      // Real sizes are only known now: re-fit the window to the byte budget.
+      if(!e.dead&&_lb.last)bhLbSetWindow(_lb.last.srcs,_lb.last.index,_lb.last.dir,_lb.last.budget);
       if(_lb.listener)_lb.listener();
     })();
   }
 };
 const bhLbSetWindow=(srcs,index,dir,budget)=>{
+  _lb.last={srcs,index,dir,budget};
   const list=Array.isArray(srcs)?srcs:[];
   const order=bhPreloadWindow(index,list.length,budget.ahead,budget.behind,dir)
     .filter(i=>typeof list[i]==='string'&&list[i]&&!isVideoSrc(list[i]));
-  const wanted=new Map();order.forEach((i,p)=>{if(!wanted.has(list[i]))wanted.set(list[i],{idx:i,pos:p});});
+  // Keep the leading part of the window that fits the byte budget. Sizes of
+  // images not decoded yet are estimated from the ones that are.
+  const known=[..._lb.entries.values()].filter(e=>e.state==='ready'&&e.bytes).map(e=>e.bytes);
+  const guess=known.length?known.reduce((a,b)=>a+b,0)/known.length:8*1048576;
+  const fit=bhPreloadFit(order.map(i=>{const e=_lb.entries.get(list[i]);return e&&e.state==='ready'&&e.bytes?e.bytes:guess;}),budget.maxBytes);
+  const wanted=new Map();order.slice(0,fit).forEach((i,pos)=>{if(!wanted.has(list[i]))wanted.set(list[i],pos);});
   _lb.conc=budget.conc;
-  const plan=bhEvictPlan([..._lb.entries].map(([key,e])=>{const w=wanted.get(key);return {key,wanted:!!w,dist:w?Math.abs(w.idx-index):Infinity,bytes:e.bytes||0};}),order.length+1,160*1024*1024);
-  plan.forEach(key=>{const e=_lb.entries.get(key);if(e)_lbKill(key,e);});
-  for(const [src] of wanted)if(!_lb.entries.has(src))_lb.entries.set(src,{state:'queued',url:'',img:null,release:null,bytes:0,dead:false});
+  for(const [src,e] of [..._lb.entries])if(!wanted.has(src))_lbKill(src,e);
+  for(const [src,pos] of wanted){
+    const e=_lb.entries.get(src);
+    if(e)e.urgent=pos===0&&e.state==='queued';
+    else _lb.entries.set(src,{state:'queued',url:'',img:null,release:null,bytes:0,dead:false,urgent:pos===0});
+  }
   _lb.queue=[...wanted.keys()].filter(src=>_lb.entries.get(src)?.state==='queued');
   _lbPump();
 };
 const bhLbPeek=src=>{const e=_lb.entries.get(src);return e&&e.state==='ready'?e:null;};
 const bhLbFailed=src=>_lb.entries.get(src)?.state==='failed';
 const bhLbDispose=()=>{
-  _lb.idleToken++;_lb.listener=null;_lb.queue=[];
+  _lb.idleToken++;_lb.listener=null;_lb.queue=[];_lb.last=null;
   for(const [src,e] of [..._lb.entries])_lbKill(src,e);
 };
-// Opening a post also warms the REST of its cloud images into the persistent
+// Opening a post also warms (nearest first, up to 20) its cloud images into the persistent
 // blob cache (no decoding, one at a time, when the browser is idle), so the next
 // time the post opens nothing waits on the network. Desktop, no Save-Data.
-const bhLbIdleWarm=srcs=>{
+const bhLbIdleWarm=(srcs,index=0)=>{
   try{
     const c=navigator.connection||{};
     if(c.saveData||/(^|-)[23]g$/.test(String(c.effectiveType||''))||(window.matchMedia&&!window.matchMedia('(min-width: 769px)').matches))return ()=>{};
   }catch{return ()=>{};}
   const token=++_lb.idleToken;
-  const todo=(Array.isArray(srcs)?srcs:[]).filter(s=>typeof s==='string'&&bhIsFirebaseImage(s)&&!isVideoSrc(s)).slice(0,30);
+  const todo=(Array.isArray(srcs)?srcs:[]).map((s,i)=>({s,d:Math.abs(i-index)})).filter(x=>typeof x.s==='string'&&bhIsFirebaseImage(x.s)&&!isVideoSrc(x.s)).sort((a,b)=>a.d-b.d).slice(0,20).map(x=>x.s);
   const idle=window.requestIdleCallback||(f=>setTimeout(f,200));
   const t=setTimeout(async()=>{
     for(const src of todo){
@@ -3716,6 +3740,8 @@ const bhLbIdleWarm=srcs=>{
       if(_lb.idleToken!==token)return;
       try{const r=await bhRemoteDisplay(src,false);r.release();}catch{/*silent-ok: best-effort warm-up*/}
     }
+    // The cache sweep otherwise runs once, a minute after boot.
+    if(_lb.idleToken===token)bhMediaCacheSweep().catch(()=>{});
   },2000);
   return ()=>{clearTimeout(t);if(_lb.idleToken===token)_lb.idleToken++;};
 };

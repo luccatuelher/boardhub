@@ -29,7 +29,7 @@ export const EXPECTED = {
   rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'pomoRankMaintain', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize'],
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
-  preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhEvictPlan'],
+  preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 

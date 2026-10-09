@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhPreloadWindow, bhPreloadBudget, bhEvictPlan } = load(['preload']);
+const { bhPreloadWindow, bhPreloadBudget, bhPreloadFit } = load(['preload']);
 
 test('window: current, next, previous, rest ahead, rest behind', () => {
   assert.deepEqual(bhPreloadWindow(5, 40, 4, 2, 1), [5, 6, 4, 7, 8, 9, 3]);
@@ -25,32 +25,27 @@ test('window: zero ahead/behind keeps only the current', () => {
 });
 
 test('budget: save-data and 2g are minimal, 3g reduced, default full, low memory caps ahead', () => {
-  assert.deepEqual(bhPreloadBudget({ saveData: true }), { ahead: 1, behind: 0, conc: 1 });
-  assert.deepEqual(bhPreloadBudget({ effectiveType: '2g' }), { ahead: 1, behind: 0, conc: 1 });
-  assert.deepEqual(bhPreloadBudget({ effectiveType: 'slow-2g' }), { ahead: 1, behind: 0, conc: 1 });
-  assert.deepEqual(bhPreloadBudget({ effectiveType: '3g' }), { ahead: 2, behind: 1, conc: 2 });
-  assert.deepEqual(bhPreloadBudget({ effectiveType: '4g' }), { ahead: 4, behind: 2, conc: 3 });
-  assert.deepEqual(bhPreloadBudget(), { ahead: 4, behind: 2, conc: 3 });
-  assert.deepEqual(bhPreloadBudget({ deviceMemory: 4 }), { ahead: 2, behind: 2, conc: 3 });
+  const MB = 1048576;
+  assert.deepEqual(bhPreloadBudget({ saveData: true }), { ahead: 1, behind: 0, conc: 1, maxBytes: 80 * MB });
+  assert.deepEqual(bhPreloadBudget({ effectiveType: '2g' }), { ahead: 1, behind: 0, conc: 1, maxBytes: 80 * MB });
+  assert.deepEqual(bhPreloadBudget({ effectiveType: 'slow-2g' }), { ahead: 1, behind: 0, conc: 1, maxBytes: 80 * MB });
+  assert.deepEqual(bhPreloadBudget({ effectiveType: '3g' }), { ahead: 2, behind: 1, conc: 2, maxBytes: 120 * MB });
+  assert.deepEqual(bhPreloadBudget({ effectiveType: '4g' }), { ahead: 4, behind: 2, conc: 3, maxBytes: 160 * MB });
+  assert.deepEqual(bhPreloadBudget(), { ahead: 4, behind: 2, conc: 3, maxBytes: 160 * MB });
+  assert.deepEqual(bhPreloadBudget({ deviceMemory: 4 }), { ahead: 2, behind: 1, conc: 3, maxBytes: 80 * MB });
 });
 
-const E = (key, dist, bytes = 10, wanted = true) => ({ key, dist, bytes, wanted });
-
-test('evict: anything outside the window goes first', () => {
-  assert.deepEqual(bhEvictPlan([E('a', 0), E('b', 1), E('c', Infinity, 10, false)], 5, 1000), ['c']);
+test('fit: keeps the leading images that fit, always at least two', () => {
+  assert.equal(bhPreloadFit([10, 10, 10, 10], 100), 4);
+  assert.equal(bhPreloadFit([60, 60, 60, 60], 130), 2);
+  assert.equal(bhPreloadFit([60, 60, 60, 60], 200), 3);
+  assert.equal(bhPreloadFit([500, 500, 500], 100), 2, 'the one on screen and the next are never dropped');
+  assert.equal(bhPreloadFit([500], 100), 1);
+  assert.equal(bhPreloadFit([], 100), 0);
 });
 
-test('evict: over the count cap, the farthest go; the current one never does', () => {
-  const plan = bhEvictPlan([E('cur', 0), E('n1', 1), E('n2', 2), E('n3', 3)], 2, 1000);
-  assert.deepEqual(plan.sort(), ['n2', 'n3']);
-  assert.ok(!bhEvictPlan([E('cur', 0)], 0, 0).includes('cur'));
-});
-
-test('evict: over the byte cap, drop farthest until it fits', () => {
-  const plan = bhEvictPlan([E('cur', 0, 60), E('n1', 1, 60), E('n2', 2, 60)], 10, 130);
-  assert.deepEqual(plan, ['n2']);
-});
-
-test('evict: nothing to do when under both caps', () => {
-  assert.deepEqual(bhEvictPlan([E('cur', 0), E('n1', 1)], 5, 1000), []);
+test('fit: later (lower priority) images are the ones dropped, e.g. 12 MP frames in a 160 MB budget', () => {
+  const frame = 12e6 * 4; // 46 MB decoded
+  const n = bhPreloadFit(Array(7).fill(frame), 160 * 1048576);
+  assert.equal(n, 3);
 });
