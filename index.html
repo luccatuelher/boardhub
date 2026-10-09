@@ -9756,7 +9756,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -10485,7 +10485,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                           <div className="pd-notes-grid">
                             {g.items.map((it,ii)=>{
                               const prev=linkedNotePreviews[gi]?.[ii]||'';
-                              return <button key={String(it.target.kind)+String(it.target.id)} type="button" className="pd-note" onClick={()=>onOpenNote&&onOpenNote(it.target)} title="Abrir em Anotações">
+                              return <button key={String(it.target.kind)+String(it.target.id)} type="button" className="pd-note" onClick={()=>{if(onPeekNote)onPeekNote(it.target);else if(onOpenNote)onOpenNote(it.target);}} title="Ver a anotação aqui">
                                 <span className="pd-note-ico" aria-hidden="true"><Icon name="file-text" size={15}/></span>
                                 <span className="pd-note-body">
                                   <span className="pd-note-title">{it.title}</span>
@@ -13625,6 +13625,53 @@ const noteDateLabel=n=>{
   if(d==='Agora'&&bhIdTime(n.id)>1e12)return new Date(bhIdTime(n.id)).toLocaleDateString('pt-BR');
   return d||'';
 };
+// Writes edited HTML into a note or a folder entry; returns the SAME list when
+// nothing changed so no write is triggered.
+const bhApplyNoteContent=(list,html,target)=>{
+  let changed=false;
+  const next=list.map(n=>{
+    if(target?.kind==='note'){
+      if(n.id!==target.id||n.content===html)return n;
+      changed=true;return{...n,content:html};
+    }
+    if(target?.kind==='entry'){
+      if(n.id!==target.folderId||n.type!=='project')return n;
+      let folderChanged=false;
+      const entries=(n.entries||[]).map(e=>{
+        if(e.id!==target.id||e.content===html)return e;
+        changed=true;folderChanged=true;return{...e,content:html};
+      });
+      return folderChanged?{...n,entries}:n;
+    }
+    return n;
+  });
+  return changed?next:list;
+};
+// Quick look at one note, centered over whatever is open (the project page),
+// so you can read or tweak it and drop straight back.
+const NotePeek=({target,notes,setNotes,onClose,onOpenInNotes})=>{
+  const rec=useMemo(()=>{
+    if(!target)return null;
+    if(target.kind==='entry'){
+      const folder=(notes||[]).find(n=>n&&n.id===target.folderId&&!n.deleted);
+      return folder?(folder.entries||[]).find(e=>e&&e.id===target.id&&!e.deleted)||null:null;
+    }
+    const n=(notes||[]).find(x=>x&&x.id===target.id);
+    return n&&!n.deleted?n:null;
+  },[notes,target]);
+  const save=useCallback((html,t)=>setNotes(p=>bhApplyNoteContent(p,html,t)),[setNotes]);
+  useEffect(()=>{if(!rec)onClose();},[rec]);//eslint-disable-line react-hooks/exhaustive-deps
+  if(!rec)return null;
+  return <Modal title={rec.title||'Sem título'} onClose={onClose} width={880}>
+    <div style={{display:'flex',flexDirection:'column',height:'min(60vh,640px)',minHeight:260}}>
+      <RichEditor key={target.kind+'-'+target.id} noteId={target.id} initialHTML={rec.content||''} onSave={save} saveTarget={target}/>
+    </div>
+    <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:14}}>
+      <button type="button" className="btn btn-outline" onClick={()=>onOpenInNotes(target)} style={{fontSize:'.78rem'}}><Icon name="external-link" size={12}/> Abrir em Anotações</button>
+      <button type="button" className="btn btn-dark" onClick={onClose} style={{fontSize:'.78rem'}}>Voltar ao projeto</button>
+    </div>
+  </Modal>;
+};
 const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects,onOpenTask})=>{
   const _ideasUi=useMemo(()=>bhUiLoad('ideas'),[]);
   const [selected,setSelected]=useState(()=>_ideasUi.selected||null); // {kind:'note'|'entry',id,folderId?}
@@ -13783,29 +13830,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     setEditorRev(r=>r+1);
     setTimeout(()=>{run();setEditorRev(r=>r+1);},60);
   },[setNotes]);
-  const handleContentSave=useCallback((html,target)=>{
-    if(target?.kind==='note')setNotes(p=>{
-      let changed=false;
-      const next=p.map(n=>{
-        if(n.id!==target.id||n.content===html)return n;
-        changed=true;return{...n,content:html};
-      });
-      return changed?next:p;
-    });
-    else if(target?.kind==='entry')setNotes(p=>{
-      let changed=false;
-      const next=p.map(n=>{
-        if(n.id!==target.folderId||n.type!=='project')return n;
-        let folderChanged=false;
-        const entries=(n.entries||[]).map(e=>{
-          if(e.id!==target.id||e.content===html)return e;
-          changed=true;folderChanged=true;return{...e,content:html};
-        });
-        return folderChanged?{...n,entries}:n;
-      });
-      return changed?next:p;
-    });
-  },[setNotes]);
+  const handleContentSave=useCallback((html,target)=>setNotes(p=>bhApplyNoteContent(p,html,target)),[setNotes]);
 
   // ── CREATE ──
   // "Criar" works from where you are: see bhNoteCreateAt for the placement.
@@ -16155,6 +16180,7 @@ const App=()=>{
     if(view==='project-detail'&&selectedProject)rememberProjectsMode('detail',selectedProject);
   },[]);// initial route only
   const [showNewProject,setShowNewProject]=useState(false);
+  const [notePeek,setNotePeek]=useState(null); // {kind,id,folderId?} of the note shown in the quick popup
   const [showCmdPalette,setShowCmdPalette]=useState(false);
   const [showQuickCapture,setShowQuickCapture]=useState(false);
   const [showShortcuts,setShowShortcuts]=useState(false);
@@ -17650,6 +17676,7 @@ const App=()=>{
       {showCmdPalette&&<CommandPalette projects={projects} notes={notes} mentors={mentors} clients={clients} galleryPosts={galleryPostsView} onNavigate={navigate} onSelectProject={handleSelectProject} onSelectNote={handleSelectNote} onSelectGalleryPost={post=>handleOpenSessionPost(null,post)} onOpenProjectItem={openProjectAt} onClose={()=>setShowCmdPalette(false)}/>} 
       {showQuickCapture&&<QuickCapture type={quickCaptureType} onClose={()=>setShowQuickCapture(false)} onAddTask={t=>setTasks(prev=>[...prev,t])} onAddNote={n=>setNotes(prev=>[n,...prev])}/>} 
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>} 
+      {notePeek&&<NotePeek target={notePeek} notes={notes} setNotes={setNotes} onClose={()=>setNotePeek(null)} onOpenInNotes={t=>{setNotePeek(null);handleSelectNote(t);}}/>}
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
       {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} projects={projects} lastTaskId={pendingLastTaskId} lastTaskByProject={lastTaskByProject} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
       {ranksEnabled&&pendingRankNotice&&!pendingSession&&!rankHeld&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
@@ -17661,7 +17688,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
