@@ -11947,13 +11947,15 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   },[lightboxOpen,lightboxIsTop]);
 
 
-  // SECTION DECK: every image of a section's posts, oldest post first, one at a
+  // SECTION DECK: every image of a section's posts, from the one at the bottom of the section (oldest) to the top (newest), one at a
   // time like a slide deck (Speaker Deck): arrows together at the bottom, and a
   // click on the left / right half of the picture goes back / forward.
   const [deck,setDeck]=useState(null); // {label,items:[{src,title,date}],index}
   const openDeck=(label,posts)=>{
     const items=[];
-    gallerySortPosts(posts||[],'oldest').forEach(p=>(p.images||[]).filter(src=>!isVideoSrc(src)).forEach(src=>items.push({src,title:p.title||'Sem título',date:p.date})));
+    // The section's own order, read from the bottom up: new posts land at the top
+    // of a section, so its last card is the oldest one (by position, not by date).
+    [...(posts||[])].reverse().forEach(p=>(p.images||[]).filter(src=>!isVideoSrc(src)).forEach(src=>items.push({src,title:p.title||'Sem título',date:p.date})));
     if(items.length)setDeck({label,items,index:0});
   };
   const deckGo=d=>setDeck(cur=>cur?{...cur,index:Math.max(0,Math.min(cur.items.length-1,cur.index+d))}:cur);
