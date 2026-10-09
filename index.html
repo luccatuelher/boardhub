@@ -7011,13 +7011,22 @@ const bhSessionLinkSave=(folderId,projectId)=>{
   try{const all=bhSessionLinkLoad();all[String(folderId)]=projectId==null?'':String(projectId);localStorage.setItem(BH_SESSION_LINK_KEY,JSON.stringify(all));}
   catch(e){bhLog('session.folderProject',e,'the project last chosen for this folder is not remembered');}
 };
+// @bh-test-begin sesstitle
+// Default title of a Gallery post made from a focus session: "08/10 - Back from
+// the brink" (the day of the session, then what it was about).
+const bhSessionPostTitle=(date,label)=>{
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(date||''));
+  const name=String(label||'').trim()||'Sem categoria';
+  return m?m[3]+'/'+m[2]+' - '+name:name;
+};
+// @bh-test-end sesstitle
 const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],project=null,lastTaskId=null,projects=[],lastTaskByProject=null})=>{
   const isProjectSession=session.targetType==='project';
   // A project session always becomes a note under one of the project's tasks
   // (or a task created right here, '__new__'), so its default title names the
   // day rather than the project the task already belongs to.
   const taskTitleDefault='Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-  const galleryTitleDefault='Sessão — '+(session.targetLabel||'Sem categoria');
+  const galleryTitleDefault=bhSessionPostTitle(session.date||localDateISO(),session.targetLabel);
   const liveFolders=useMemo(()=>{
     return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
   },[galleryFolders]);
@@ -16651,7 +16660,7 @@ const App=()=>{
     // (it is read from the session where it is shown).
     const entry=session.note||'';
     const newPost={
-      id:postId,folder:folderId,storageScope:destination,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,title:session.title||'Sessão — '+target,date:session.date||localDateISO(),
+      id:postId,folder:folderId,storageScope:destination,projectId:destination==='project'?String(session.targetKey||'').replace(/^project:/,''):null,title:session.title||bhSessionPostTitle(session.date||localDateISO(),target),date:session.date||localDateISO(),
       content:entry,
       images:Array.isArray(session.images)?session.images:[],bannerImage:(Array.isArray(session.images)?session.images:[])[0]||'',deleted:false,sourceSessionId:session.id,
       sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:taskId?[taskId]:[]
@@ -16671,7 +16680,7 @@ const App=()=>{
     setPomoData(prev=>{
       const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
       const status=session.storageStatus==='local'?'saved-local':'saved';
-      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:session.title||existing?.title||'Sessão — '+target,status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
+      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:session.title||existing?.title||bhSessionPostTitle(session.date||localDateISO(),target),status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
       return{...base,rank:{...rank,sessions}};
     });
   },[galleryPosts,projects,taskPostLinks]);
