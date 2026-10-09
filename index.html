@@ -2932,7 +2932,7 @@ const LightboxImage=({src,srcs,index,onClick})=>{
   },[src,!!ready]);// eslint-disable-line react-hooks/exhaustive-deps
   const promote=e=>{
     const el=e.currentTarget,url=el.getAttribute('src');
-    (el.decode?el.decode():Promise.resolve()).catch(()=>{}).then(()=>{if(wantRef.current===url)setFront(url);});
+    _bhDecodeBy(el,60).then(()=>{if(wantRef.current===url)setFront(url);});
   };
   const failed=!ready&&(bhLbFailed(src)||index<0||(slow===src&&!thumb&&!front));
   if(failed||(!front&&!want))return <Img src={src} full priority onClick={onClick} alt=""/>;
@@ -3885,12 +3885,20 @@ const _lbResolve=async src=>{
   if(bhIsFirebaseImage(src))return bhRemoteDisplay(src,'disp');
   return {url:src,release:()=>{}};
 };
+// img.decode() can stay pending for good (animated WebP/PNG in some engines,
+// Firefox with some files): never wait on it alone. Past the deadline a loaded
+// image counts as ready; it just decodes on first paint.
+const _bhDecodeBy=(img,ms)=>new Promise(res=>{
+  let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);res(v);}};
+  const t=setTimeout(()=>fin('timeout'),ms);
+  (img.decode?img.decode():Promise.resolve()).then(()=>fin('ok'),()=>fin('error'));
+});
 // An <Image> that has finished decoding keeps its pixels hot while we hold it.
 const _lbDecode=url=>new Promise(res=>{
   const img=new Image();img.decoding='async';
   img.onerror=()=>res(null);
+  img.onload=()=>{_bhDecodeBy(img,400).then(()=>res(img.naturalWidth?img:null));};
   img.src=url;
-  (img.decode?img.decode():Promise.resolve()).then(()=>res(img),()=>res(img.complete&&img.naturalWidth?img:null));
 });
 const _lbKill=(src,e)=>{e.dead=true;if(e.release){try{e.release();}catch{/*silent-ok: releasing a handle twice is harmless*/}e.release=null;}_lb.entries.delete(src);};
 const _lbPump=()=>{
