@@ -29,6 +29,7 @@ export const EXPECTED = {
   rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'pomoRankMaintain', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays'],
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
+  notecreate: ['bhNoteCreateAt'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
   fbimg: ['bhIsFirebaseImage'],
   dispmach: ['_bhDispLookup', '_bhDispRun', '_makeDisplayBlob', 'bhDispMaybeEnqueue', '_bhDisp', '_bhDispUrls'],

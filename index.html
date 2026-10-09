@@ -9026,6 +9026,47 @@ const bhNotesSectionItems=(notes,sectionId)=>{
   return {section,groups:groups.filter(g=>g.items.length||g.title)};
 };
 // @bh-test-end notessec
+// @bh-test-begin notecreate
+// Where "Criar" puts a new item in the Anotações tree: next to what is open,
+// inside the same place. `selected` is {kind:'note',id} or {kind:'entry',id,
+// folderId}; kind is 'note' | 'folder' | 'category'; `item` is the new record.
+//  - a note, loose or inside a category: a new note goes right BELOW it (same
+//    parent); a new folder goes ABOVE it (same parent); a new category goes
+//    above it when the note is loose, or right after its own category.
+//  - a note inside a folder (entry): a new note is a new entry of that folder,
+//    right below it; a folder / category go right after the folder / its category.
+// Nothing open: appended at the end of the root, as before.
+// Returns {notes, expand:[ids to open], entryOf:folderId|null (new note is an entry)}.
+const bhNoteCreateAt=(notes,selected,kind,item)=>{
+  const list=Array.isArray(notes)?notes:[];
+  const byId=new Map(list.filter(Boolean).map(n=>[String(n.id),n]));
+  const parentOf=n=>n&&n.parentId!=null&&byId.has(String(n.parentId))?n.parentId:null;
+  const put=(anchorId,where,parentId)=>{
+    const i=anchorId==null?-1:list.findIndex(n=>n&&String(n.id)===String(anchorId));
+    const placed={...item,parentId:parentId==null?null:parentId};
+    const next=[...list];
+    if(i<0)next.push(placed);else next.splice(where==='before'?i:i+1,0,placed);
+    return{notes:next,expand:parentId==null?[]:[parentId],entryOf:null};
+  };
+  const sel=selected?byId.get(String(selected.kind==='entry'?selected.folderId:selected.id)):null;
+  if(!sel||sel.deleted)return put(null,'after',null);
+  if(selected.kind==='entry'){
+    const folder=sel,fp=parentOf(folder);
+    if(kind==='note'){
+      const entries=[...(Array.isArray(folder.entries)?folder.entries:[])];
+      const j=entries.findIndex(e=>e&&String(e.id)===String(selected.id));
+      entries.splice(j<0?entries.length:j+1,0,{id:item.id,title:item.title,content:item.content||'',date:item.date});
+      return{notes:list.map(n=>n===folder?{...n,entries}:n),expand:[folder.id],entryOf:folder.id};
+    }
+    if(kind==='folder')return put(folder.id,'after',fp);
+    return put(fp!=null?fp:folder.id,'after',null);
+  }
+  const par=parentOf(sel);
+  if(kind==='note')return put(sel.id,'after',par);
+  if(kind==='folder')return put(sel.id,'before',par);
+  return par!=null?put(par,'after',null):put(sel.id,'before',null);
+};
+// @bh-test-end notecreate
 // @bh-test-begin dup
 const bhDuplicateProject=p0=>{
   const sourceTasks=p0.projectTasks||[];
@@ -13686,24 +13727,30 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   },[setNotes]);
 
   // ── CREATE ──
+  // "Criar" works from where you are: see bhNoteCreateAt for the placement.
+  const createHere=(kind,n)=>{
+    const where=bhNoteCreateAt(notes,selected,kind,n);
+    setNotes(p=>bhNoteCreateAt(p,selected,kind,n).notes);
+    setExpanded(p=>{const next=new Set(p);where.expand.forEach(id=>next.add(id));return next;});
+    return where;
+  };
   const newNote=()=>{
     const n={id:bhNewId(),type:'note',title:'Nova Anotação',content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
     newNoteCooldownRef.current=Date.now();
-    setNotes(p=>[...p,n]);
-    setSelected({kind:'note',id:n.id});
+    const where=createHere('note',n);
+    setSelected(where.entryOf?{kind:'entry',id:n.id,folderId:where.entryOf}:{kind:'note',id:n.id});
     setShowCreateMenu(false);
     setMobileDetail(true);
   };
   const newFolder=()=>{
     const n={id:bhNewId(),type:'project',title:'Nova Pasta',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,entries:[]};
-    setNotes(p=>[...p,n]);
+    createHere('folder',n);
     setExpanded(p=>new Set(p).add(n.id));
-    setSelected(null);
     setShowCreateMenu(false);
   };
   const newCategory=()=>{
     const n={id:bhNewId(),type:'category',title:'Nova Categoria',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null};
-    setNotes(p=>[...p,n]);
+    createHere('category',n);
     setExpanded(p=>new Set(p).add(n.id));
     setRenaming({id:n.id,value:n.title});
     setShowCreateMenu(false);
