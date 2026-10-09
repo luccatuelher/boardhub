@@ -2912,8 +2912,36 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
 // What to show next, in order: the decoded original (bhLb*), else this image's
 // thumbnail (right picture, softer), else keep the previous frame; the very
 // first image falls back to <Img> (placeholder / "missing file" state).
+// Press "i" in the viewer: a diagnostic panel (state of each nearby image) and a
+// "simple mode" that bypasses the preloader (localStorage bh_lb_simple=1).
+let _lbDebug=false;
+const _lbSimple=()=>{try{return localStorage.getItem('bh_lb_simple')==='1';}catch{return false;}};
+const _lbKindOf=u=>!u?'—':u.startsWith('blob:')?'blob':u.startsWith('idb://')?'idb':u.startsWith('data:')?'data':bhIsFirebaseImage(u)?'cloud':/^https?:/.test(u)?'https':'?';
+const _lbShort=u=>{const t=String(u||'');try{const p=decodeURIComponent(new URL(t).pathname);return p.slice(-34);}catch{return t.slice(-34);}};
+const LightboxDebug=({srcs,index,src,front,want,onToggleSimple})=>{
+  const list=Array.isArray(srcs)?srcs:[];
+  const now=Date.now();
+  const rows=list.map((u,i)=>({i,u,e:_lb.entries.get(u)})).filter(r=>r.e||Math.abs(r.i-index)<=3);
+  const frontEl=typeof document!=='undefined'?[...document.querySelectorAll('.lightbox-stage img')]:[];
+  return <div onClick={e=>e.stopPropagation()} style={{position:'fixed',left:12,top:12,zIndex:5,maxWidth:'min(560px,90vw)',maxHeight:'80vh',overflow:'auto',background:'rgba(0,0,0,.82)',color:'#eee',font:'11px/1.45 ui-monospace,monospace',padding:'10px 12px',borderRadius:8,whiteSpace:'pre-wrap'}}>
+    {'BoardHub viewer — '+(navigator.userAgent.match(/(Firefox|Zen|Chrome|Safari)\/[\d.]+/g)||[]).join(' ')+'\n'}
+    {'index '+index+' / '+list.length+'  src '+_lbKindOf(src)+' …'+_lbShort(src)+'\n'}
+    {'front '+_lbKindOf(front)+'  want '+_lbKindOf(want)+'  imgs '+frontEl.map(x=>x.naturalWidth+'x'+x.naturalHeight+(x.complete?'':'(loading)')+(getComputedStyle(x).opacity==='0'?'(hidden)':'')).join(', ')+'\n'}
+    {'slots '+_lb.active+'/'+_lb.conc+'  queue '+_lb.queue.length+'  simple mode '+(_lbSimple()?'ON':'off')+'\n\n'}
+    {rows.map(r=>(r.i===index?'▶ ':'  ')+String(r.i+1).padStart(3)+' '+(r.e?r.e.state.padEnd(7):'—      ')+(r.e&&r.e.tLoad?' '+String(((r.e.t1||now)-r.e.tLoad))+'ms':'')+' '+_lbKindOf(r.u)+' …'+_lbShort(r.u)+(r.e&&r.e.note?'  ⚠ '+r.e.note:'')).join('\n')}
+    {'\n\n'}
+    <button onClick={onToggleSimple} style={{font:'inherit',padding:'3px 8px',cursor:'pointer'}}>{_lbSimple()?'Desligar modo simples':'Ligar modo simples'}</button>
+    {' (tecla i fecha)'}
+  </div>;
+};
 const LightboxImage=({src,srcs,index,onClick})=>{
   const [,bump]=React.useState(0);
+  React.useEffect(()=>{
+    const k=e=>{if((e.key==='i'||e.key==='I')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!/^(INPUT|TEXTAREA)$/.test(e.target?.tagName||'')){_lbDebug=!_lbDebug;bump(n=>n+1);}};
+    document.addEventListener('keydown',k);
+    const iv=setInterval(()=>{if(_lbDebug)bump(n=>n+1);},500);
+    return()=>{document.removeEventListener('keydown',k);clearInterval(iv);};
+  },[]);
   const [slow,setSlow]=React.useState('');
   const [front,setFront]=React.useState('');
   const dir=React.useRef(1),prev=React.useRef(index);
@@ -2934,8 +2962,11 @@ const LightboxImage=({src,srcs,index,onClick})=>{
     const el=e.currentTarget,url=el.getAttribute('src');
     _bhDecodeBy(el,60).then(()=>{if(wantRef.current===url)setFront(url);});
   };
+  const toggleSimple=()=>{try{if(_lbSimple())localStorage.removeItem('bh_lb_simple');else localStorage.setItem('bh_lb_simple','1');}catch{/*silent-ok*/}bump(n=>n+1);};
+  const dbg=_lbDebug?<LightboxDebug srcs={srcs} index={index} src={src} front={front} want={want} onToggleSimple={toggleSimple}/>:null;
+  if(_lbSimple())return <>{dbg}<Img key={src} src={src} full priority onClick={onClick} alt=""/></>;
   const failed=!ready&&(bhLbFailed(src)||index<0||(slow===src&&!thumb&&!front));
-  if(failed||(!front&&!want))return <Img src={src} full priority onClick={onClick} alt=""/>;
+  if(failed||(!front&&!want))return <>{dbg}<Img src={src} full priority onClick={onClick} alt=""/></>;
   const layer={position:'absolute',top:0,left:0,width:'100%',height:'100%',animation:'none'};
   // One keyed list: when the hidden candidate is promoted it keeps its DOM node
   // (React moves it), so the picture is not reloaded and cannot blank.
@@ -2943,6 +2974,7 @@ const LightboxImage=({src,srcs,index,onClick})=>{
   if(front)layers.push(<img key={front} alt="" src={front} onClick={onClick} decoding="sync" style={{...layer,opacity:1}}/>);
   if(want&&want!==front)layers.push(<img key={want} alt="" src={want} onLoad={promote} decoding="sync" style={{...layer,opacity:0,pointerEvents:'none'}}/>);
   return <div style={{position:'relative',width:'100%',height:'100%'}}>
+    {dbg}
     {!front&&<Img src={src} full priority onClick={onClick} alt=""/>}
     {layers}
     {front&&!want&&slow===src&&<div role="status" style={{position:'absolute',top:12,left:12,padding:'4px 10px',borderRadius:999,background:'rgba(0,0,0,.55)',color:'white',fontSize:'.72rem',fontWeight:600}}>Carregando…</div>}
@@ -3919,11 +3951,13 @@ const _lbPump=()=>{
       // hold a slot forever: past the deadline the entry fails, the next images
       // load, and a late result is released as soon as it arrives.
       const started=Date.now();let late=false;
-      const work=_lbResolve(src).catch(()=>null);
+      e.tLoad=Date.now();
+      const work=_lbResolve(src).catch(err=>{e.note='resolve: '+String(err&&err.message||err).slice(0,80);return null;});
       try{res=await Promise.race([work,new Promise(r=>setTimeout(()=>{late=true;r(null);},12000))]);}catch{/*silent-ok*/}
-      if(late){work.then(r=>{if(r&&r.release)try{r.release();}catch{/*silent-ok*/}});bhLog('lightbox.loadTimeout',null,String(src).slice(0,120));}
+      if(late){e.note='timeout 12s';work.then(r=>{if(r&&r.release)try{r.release();}catch{/*silent-ok*/}});bhLog('lightbox.loadTimeout',null,String(src).slice(0,120));}
       const img=res&&res.url?await _lbDecode(res.url):null;
-      if(!img&&!late&&res)bhLog('lightbox.decodeFailed',null,String(src).slice(0,120)+' after '+(Date.now()-started)+'ms');
+      if(!img&&!late&&res){e.note='image did not load/decode ('+String(res.url).slice(0,30)+')';bhLog('lightbox.decodeFailed',null,String(src).slice(0,120)+' after '+(Date.now()-started)+'ms');}
+      e.t1=Date.now();
       _lb.active--;
       if(e.dead||!img){
         if(res&&res.release){try{res.release();}catch{/*silent-ok*/}}
@@ -3954,7 +3988,7 @@ const bhLbSetWindow=(srcs,index,dir,budget)=>{
   for(const [src,pos] of wanted){
     const e=_lb.entries.get(src);
     if(e)e.urgent=pos===0&&e.state==='queued';
-    else _lb.entries.set(src,{state:'queued',url:'',img:null,release:null,bytes:0,dead:false,urgent:pos===0});
+    else _lb.entries.set(src,{state:'queued',url:'',img:null,release:null,bytes:0,dead:false,urgent:pos===0,t0:Date.now(),t1:0,note:''});
   }
   _lb.queue=[...wanted.keys()].filter(src=>_lb.entries.get(src)?.state==='queued');
   _lbPump();
@@ -10530,7 +10564,11 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   const [selected,setSelected]=useState(()=>galleryOnlyPosts.find(p=>String(p.id)===String(_galleryUi.selectedId))||null);
   const galleryBrowseRef=useRef(null);
   const hadSelectedPostRef=useRef(!!selected);
-  const [lightbox,setLightbox]=useState(null);
+  // The lightbox is tracked by POSITION in the post's image list, not by src:
+  // storyboards repeat a frame (a hold), and identical files have the same
+  // content-addressed URL, so "next" from the first copy found the same src
+  // again and never moved, and "previous" jumped to the first copy.
+  const [lightboxPos,setLightbox]=useState(null);
   useEffect(()=>{
     if(!selected)return;
     const fresh=galleryOnlyPosts.find(p=>String(p.id)===String(selected.id));
@@ -10857,11 +10895,14 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   const lightboxImages=useMemo(()=>((selected?.images)||[]).filter(img=>!isVideoSrc(img)),[selected?.images]);
   // Open post: pull its originals into the local cache in the background.
   useEffect(()=>bhWarmPost(lightboxImages,0),[lightboxImages]);
-  const lightboxIndex=useMemo(()=>lightbox?lightboxImages.findIndex(img=>img===lightbox):-1,[lightbox,lightboxImages]);
+  const lightboxIndex=lightboxPos!=null&&lightboxPos>=0&&lightboxPos<lightboxImages.length?lightboxPos:-1;
+  const lightbox=lightboxIndex>=0?lightboxImages[lightboxIndex]:null;
   const canLightboxPrev=lightboxIndex>0;
   const canLightboxNext=lightboxIndex>=0&&lightboxIndex<lightboxImages.length-1;
-  const goLightboxPrev=()=>{if(canLightboxPrev)setLightbox(lightboxImages[lightboxIndex-1]);};
-  const goLightboxNext=()=>{if(canLightboxNext)setLightbox(lightboxImages[lightboxIndex+1]);};
+  const goLightboxPrev=()=>{if(canLightboxPrev)setLightbox(lightboxIndex-1);};
+  const goLightboxNext=()=>{if(canLightboxNext)setLightbox(lightboxIndex+1);};
+  // Position of selected.images[i] among the images the lightbox shows (videos are skipped).
+  const lightboxPosOf=i=>(selected?.images||[]).slice(0,i).filter(x=>!isVideoSrc(x)).length;
   const softDelete=id=>setPosts(p=>p.map(x=>String(x.id)===String(id)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
   // A post whose folder is itself in the trash or archived used to come back
   // into no visible folder at all. Send it to a live folder and say where.
@@ -11042,7 +11083,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
         <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
           {selected.images.map((img,i,list)=>(
             <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('gallery',i,moveImg)}
-              style={{position:'relative',borderRadius:10,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)',cursor:isVideoSrc(img)?'default':'zoom-in'}} onClick={()=>!isVideoSrc(img)&&setLightbox(img)} {...keyActivate(()=>setLightbox(img),'Ampliar imagem '+(i+1),!isVideoSrc(img))}>
+              style={{position:'relative',borderRadius:10,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)',cursor:isVideoSrc(img)?'default':'zoom-in'}} onClick={()=>!isVideoSrc(img)&&setLightbox(lightboxPosOf(i))} {...keyActivate(()=>setLightbox(lightboxPosOf(i)),'Ampliar imagem '+(i+1),!isVideoSrc(img))}>
               {isVideoSrc(img)
                 ?<Vid src={img} controls playsInline style={{width:'100%',height:'100%',objectFit:'contain',display:'block',borderRadius:10,background:'#000'}}/>
                 :<Img src={img} priority={i<(isMobile?6:9)} className="img-zoom-sm" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
