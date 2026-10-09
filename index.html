@@ -4120,9 +4120,31 @@ const bhMediaExt=file=>{
   const byName=/\.([a-z0-9]{1,5})$/i.exec(file?.name||'');
   return byName?byName[1].toLowerCase():'bin';
 };
+// Keys reused by _storeIdb this session: the GC never takes them, even in a
+// sweep that started before the post referencing them was saved.
+const _bhIdbReused=new Set();
 const _storeIdb=async(file)=>{
   const ext=bhMediaExt(file);
-  const key='media_'+Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext;
+  // Identical files are stored once (cloud uploads already are, by their SHA-256
+  // path): the key is the content hash, and a copy that is already here is
+  // reused, thumbnail included. Without crypto.subtle (plain-http LAN) it falls
+  // back to a unique key, as before. Cleanup (gcIdb) is reference-based, so a
+  // blob shared by several posts stays until the last reference is gone.
+  let key='';
+  try{if(globalThis.crypto?.subtle&&file.size<=200*1048576)key='media_sha256_'+(await bhDigest(await file.arrayBuffer())).slice(0,40)+'.'+ext;}catch{/*silent-ok: unique key below*/}
+  if(key){
+    try{
+      const have=await idbGetBatched(key);
+      if(have){
+        // Back in use: forget any "unreferenced since…" sighting so the GC's
+        // 24 h clock starts over and cannot collect it before the state is saved.
+        _bhIdbReused.add(key);
+        try{const led=_gcLedgerLoad();if(led[key]||led['thumb_'+key]){delete led[key];delete led['thumb_'+key];_gcLedgerSave(led);}}catch{/*silent-ok*/}
+        if(!_thumbCache[key]&&!_isVideoFile(file)){try{const tb=await idbGetBatched('thumb_'+key);if(tb){_thumbCache[key]=URL.createObjectURL(tb);_touchThumb(key);}}catch{/*silent-ok*/}}
+        return 'idb://'+key;
+      }
+    }catch{/*silent-ok: store it again below*/}
+  }else key='media_'+Date.now()+'_'+Math.random().toString(36).slice(2)+'.'+ext;
   await idbPut(key,file);
   // Build the 480px thumbnail NOW, while the upload is already running, instead
   // of on first view. Browsing then never pays decode+encode: the grid only ever
@@ -4496,6 +4518,10 @@ const rehydrateIdbRefs=(obj,map)=>{
 // only blobs older than 24h are eligible, so an image uploaded moments ago
 // (state not yet flushed to localStorage) can never be collected.
 const _idbKeyAgeMs=k=>{
+  // Content-addressed keys carry no date: they rely on the two-sweep ledger
+  // alone (24 h between first and second "unreferenced" sighting), and reusing
+  // one clears its ledger entry (see _storeIdb), so a reused blob is never taken.
+  if(/^(?:thumb_)?media_sha256_/.test(k))return Infinity;
   const m=/^(?:thumb_)?(?:media_|img_)(\d+)_/.exec(k);
   return m?Date.now()-Number(m[1]):0; // unknown format → treat as fresh (keep)
 };
@@ -4555,7 +4581,7 @@ const gcIdb=async()=>{
     for(const k of keys){
       if(typeof k!=='string')continue;
       const base=k.startsWith('thumb_')?k.slice(6):k;
-      if(referenced.has(base))continue;            // live → it does not even enter the ledger
+      if(referenced.has(base)||_bhIdbReused.has(base))continue; // live (or just reused) → it does not even enter the ledger
       if(_idbKeyAgeMs(k)<GC_GRACE_MS)continue;     // just created, the state may not have been written yet
       const first=ledger[k];
       const firstMs=first?new Date(first).getTime():NaN;
