@@ -15866,7 +15866,12 @@ const App=()=>{
     // The newest pending notice only: after days away (or a slow sync) the
     // older ones are stale and closing it closes them too.
     const open=(rank.notices||[]).filter(n=>n&&!n.dismissed&&!receipts.has(String(n.id)));
-    return open.length?{...open[open.length-1],_older:open.slice(0,-1).map(n=>String(n.id))}:null;
+    if(!open.length)return null;
+    // Season summaries are always shown on their own.
+    const keep=n=>n.type==='season';
+    const first=open.find(keep);
+    if(first)return first;
+    return {...open[open.length-1],_older:open.slice(0,-1).map(n=>String(n.id))};
   },[pomoData?.rank?.notices,rankReceiptScope,rankReceiptRevision]);
   const dismissRankNotice=useCallback(()=>{
     const id=pendingRankNotice?.id;
@@ -15879,7 +15884,7 @@ const App=()=>{
     const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
     return {...base,rank:{...rank,notices:rank.notices.map(n=>n&&ids.has(String(n.id))?{...n,dismissed:true}:n)}};
     });
-  },[pendingRankNotice?.id,rankReceiptScope]);
+  },[pendingRankNotice,rankReceiptScope]);
   const ranksEnabled=!rankIsPaused(pomoData?.rank);
   const rankHeld=useRankUpkeepHeld();
   // Pausing first runs the normal maintenance, so decay already owed through
@@ -16031,15 +16036,15 @@ const App=()=>{
   // extended, up to 2 minutes; offline it ends at once.
   useEffect(()=>{
     if(_bhRankUpkeepHoldUntil-Date.now()<=0)return;
-    const started=Date.now();let id;
+    // One fixed deadline (never a gap in the hold), shortened only by a release.
+    _bhRankUpkeepHoldUntil=Date.now()+120000;
     const check=()=>{
       if(_bhRankUpkeepHoldUntil===0)return;
       const left=_bhRankUpkeepHoldUntil-Date.now();
       if(left>0){id=setTimeout(check,left+50);return;}
-      if(navigator.onLine!==false&&Date.now()-started<120000){_bhRankUpkeepHoldUntil=Date.now()+10000;id=setTimeout(check,10050);return;}
       bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));
     };
-    check();
+    let id=setTimeout(check,120050);
     const offline=()=>{if(_bhRankUpkeepHoldUntil){clearTimeout(id);bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));}};
     window.addEventListener('offline',offline);
     return()=>{clearTimeout(id);window.removeEventListener('offline',offline);};
@@ -16105,7 +16110,11 @@ const App=()=>{
     let unsub=null,alive=true;
     initFirebase().then(ok=>{
       if(!ok||!alive)return;
-      unsub=_fbAuth.onAuthStateChanged(user=>setFbUser(user||null));
+      unsub=_fbAuth.onAuthStateChanged(user=>{
+        setFbUser(user||null);
+        // Signed out: no cloud copy is coming, the rank upkeep runs on local now.
+        if(!user&&_bhRankUpkeepHoldUntil){bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));}
+      });
     });
     return ()=>{alive=false;if(unsub)unsub();};
   },[]);
@@ -16273,6 +16282,10 @@ const App=()=>{
         _didInitialReconcile.current=true;initialRun=true;
         // The cloud has arrived: rank upkeep may run. Applying the cloud runs it
         // on the cloud's copy; the branch that keeps local runs it on local.
+        // Every device's focus first (cumulative: the larger value per day is
+        // right), so no upkeep below, nor any timer meanwhile, charges decay for
+        // days this device simply never saw.
+        {const cloudDays=data?.pomoData?.days;setPomoData(prev=>bhMergeFocusDays(prev,cloudDays));}
         bhRankUpkeepRelease();
         const firstContact=_deviceSyncedUid.current!==fbUser.uid;
         if(firstContact){
@@ -17129,7 +17142,7 @@ const App=()=>{
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
       {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} projects={projects} lastTaskId={pendingLastTaskId} lastTaskByProject={lastTaskByProject} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
       {ranksEnabled&&pendingRankNotice&&!pendingSession&&!rankHeld&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
-      {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
+      {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice&&!rankHeld))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
         ?<SidebarMobile activeView={view} setView={navigate} resetView={resetView} setForceMobile={setForceMobile} hubName={identity?.hubName} onOpenCmd={()=>setShowCmdPalette(true)} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
         :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
