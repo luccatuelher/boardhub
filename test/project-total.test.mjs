@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhProjectTotal, bhProjectBudget } = load(['projtotal']);
+const { bhProjectTotal, bhProjectBudget, bhProjectAnimatics } = load(['projtotal']);
 
 test('total is value × animatics', () => {
   assert.equal(bhProjectTotal(500, 5), 2500);
@@ -27,9 +27,17 @@ test('budget: typed animatics win; otherwise each linked post is one animatic', 
   assert.equal(bhProjectBudget({ unitValue: '' }, 3), 0);
 });
 
-test('budget: projects without unitValue keep their stored price whatever is linked', () => {
-  assert.equal(bhProjectBudget({ budget: '2500' }, 7), 2500);
-  assert.equal(bhProjectBudget({ budget: 2500, animatics: 3 }, 7), 2500);
+test('budget: a project without unitValue uses its stored budget as the value', () => {
+  assert.equal(bhProjectBudget({ budget: '2500' }, 0), 2500);
+  assert.equal(bhProjectBudget({ budget: '500' }, 3), 1500);
+  assert.equal(bhProjectBudget({ budget: 2500, animatics: 3 }, 7), 7500);
   assert.equal(bhProjectBudget({}, 7), 0);
   assert.equal(bhProjectBudget(null, 7), 0);
+});
+
+test('animatics: typed number wins, else the linked posts', () => {
+  assert.equal(bhProjectAnimatics({ animatics: 4 }, 9), 4);
+  assert.equal(bhProjectAnimatics({}, 3), 3);
+  assert.equal(bhProjectAnimatics({ animatics: 0 }, 0), 0);
+  assert.equal(bhProjectAnimatics(null, 2), 2);
 });

@@ -9153,7 +9153,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
   // Each project's price now (animatics may come from its linked Gallery posts).
   const budgetOf=useMemo(()=>{
     const m=new Map();
-    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,p.unitValue===undefined||p.unitValue===null?0:bhLinkedPostCount(p,galleryFolders,galleryPosts)));});
+    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,bhLinkedPostCount(p,galleryFolders,galleryPosts)));});
     return m;
   },[projects,galleryFolders,galleryPosts]);
   // Dates edited on the Projects-page timeline go straight into the project.
@@ -9427,15 +9427,18 @@ const bhProjectTotal=(unit,animatics)=>{
   if(!(u>0))return 0;
   return u*(a>0?a:1);
 };
-// What the project is worth now. Projects priced the new way (they have a
-// `unitValue`) count their animatics: the number typed in Escopo, or, when none
-// is typed, one per Gallery post linked to the project (`linkedPosts`). Older
-// projects only have `budget`, which stays the whole price as stored.
+// What the project is worth now: Valor × animatics. The animatics are the
+// number typed in Escopo or, when none is typed, one per Gallery post linked to
+// the project (`linkedPosts`). Valor is `unitValue`; a project that never had
+// one uses its stored `budget` (what Valor used to be) in its place.
+const bhProjectAnimatics=(p,linkedPosts)=>{
+  const a=Math.floor(Number(p&&p.animatics));
+  return a>0?a:Math.max(0,Math.floor(Number(linkedPosts)||0));
+};
 const bhProjectBudget=(p,linkedPosts)=>{
   if(!p)return 0;
-  if(p.unitValue===undefined||p.unitValue===null)return Number(p.budget)||0;
-  const a=Math.floor(Number(p.animatics));
-  return bhProjectTotal(p.unitValue,a>0?a:Number(linkedPosts)||0);
+  const unit=p.unitValue===undefined||p.unitValue===null?p.budget:p.unitValue;
+  return bhProjectTotal(unit,bhProjectAnimatics(p,linkedPosts));
 };
 // @bh-test-end projtotal
 const fmtBRL=v=>{const n=Number(v);if(!n||isNaN(n))return null;return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:2});};
@@ -9996,8 +9999,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // Valor = price of one animatic; the project's Total (stored in `budget`, which
   // the project list and the pending-payments sum read) is Valor × Animatics.
   // Older projects only have `budget`: it stands in for Valor until it is edited.
-  const linkedPostCount=useMemo(()=>local.unitValue===undefined||local.unitValue===null?0:bhLinkedPostCount(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,local.unitValue,galleryFolders,galleryPosts]);
+  const linkedPostCount=useMemo(()=>bhLinkedPostCount(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
   const effectiveBudget=bhProjectBudget(local,linkedPostCount);
+  const animaticsAuto=!(Number(local.animatics)>0);
+  const animaticsCount=bhProjectAnimatics(local,linkedPostCount);
   const setUnitValue=raw=>edit(prev=>({...prev,unitValue:raw,budget:bhProjectTotal(raw,prev.animatics)}));
   const setAnimatics=raw=>edit(prev=>{
     const a=Math.max(0,Math.floor(Number(raw)||0));
@@ -10629,10 +10634,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 <div>
                   <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Total</div>
                   <div className="input-box" aria-label="Total do projeto" title="Valor × animatics" style={{width:'100%',boxSizing:'border-box',fontWeight:600,color:effectiveBudget>0?'var(--text)':'var(--muted)',cursor:'default'}}>{fmtBRL(effectiveBudget)||'—'}</div>
-                  {!(Number(local.animatics)>0)&&linkedPostCount>0&&effectiveBudget>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',marginTop:5}}>{linkedPostCount} {linkedPostCount===1?'animatic':'animatics'} (posts da galeria)</div>}
+
                 </div>
                 <div>
-                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$){local.unitValue!==undefined&&local.unitValue!==null?' por animatic':''}</div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$){animaticsCount>1?' por animatic':''}</div>
                   <input type="number" inputMode="decimal" min="0" step="any" className="input-box no-spin" value={(local.unitValue??local.budget)||''} onChange={e=>setUnitValue(e.target.value)} placeholder="0" style={{width:'100%'}}/>
                 </div>
                 {effectiveBudget>0&&(
@@ -10650,7 +10655,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div>
                   <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Animatics</div>
-                  <input type="number" inputMode="numeric" min="0" step="1" className="input-box no-spin" value={local.animatics||''} onChange={e=>setAnimatics(e.target.value)} placeholder="Ex: 5" style={{width:'100%'}}/>
+                  <input type="number" inputMode="numeric" min="0" step="1" className="input-box no-spin" value={animaticsAuto?(linkedPostCount||''):local.animatics} onChange={e=>setAnimatics(e.target.value)} placeholder="Ex: 5" style={{width:'100%',...(animaticsAuto&&linkedPostCount>0?{color:'var(--muted)'}:null)}}/>
+                  {animaticsAuto&&linkedPostCount>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',marginTop:5,lineHeight:1.35}}>Automático: {linkedPostCount===1?'1 post':linkedPostCount+' posts'} da galeria. Digite um número para fixar.</div>}
                 </div>
                 <div>
                   <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Cenas</div>
