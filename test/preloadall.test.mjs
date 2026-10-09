@@ -23,7 +23,7 @@ test('loads thumbnail and full view of every live post image once, newest posts 
   ];
   const progress = [];
   const r = await W.bhPreloadAllPosts(posts, (d, t) => progress.push([d, t]), () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 0 });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 0, cors: false });
   assert.deepEqual(W.calls.filter(c => c[1] === 'thumb').map(c => c[0]).sort(), [fb(1), fb(2), fb(3)].sort());
   assert.deepEqual(W.calls.filter(c => c[1] === 'disp').length, 3);
   assert.equal(W.released, 6, 'every handle is released');
@@ -48,5 +48,5 @@ test('a failing image is counted and the rest go on', async () => {
     bhRemoteDisplay: async src => { if (src === 'bad') throw new Error('x'); return { url: '', release() {} }; },
   } });
   const r = await bhPreloadAllPosts([{ images: ['a', 'bad', 'c'] }], () => {}, () => false);
-  assert.deepEqual(r, { total: 3, done: 3, failed: 1 });
+  assert.deepEqual(r, { total: 3, done: 3, failed: 1, cors: false });
 });

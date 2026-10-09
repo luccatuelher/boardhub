@@ -3805,6 +3805,8 @@ const bhIsFirebaseImage=url=>{
 };
 // @bh-test-end fbimg
 const _bhRemoteInflight=new Map(),_bhRemoteUrls=new Map();
+const _bhCors={ok:0,fail:0};
+const bhCorsBlocked=()=>_bhCors.ok===0&&_bhCors.fail>=2;
 // Cache writes still in flight (bhRemoteDisplay does not wait for them).
 const _bhPendingPuts={set:new Set(),add(p){this.set.add(p);p.finally(()=>this.set.delete(p));},flush(){return Promise.all([...this.set]);}};
 // @bh-test-begin dispmach
@@ -3960,7 +3962,15 @@ const bhRemoteDisplay=async(src,variant)=>{
       if(blob instanceof Blob)bhDiag.record('cacheHit',0,'image');
       else{
         bhDiag.record('cacheMiss',0,'image');bhDiag.record('imageDownloadStarted');
-        const res=await fetch(target,{cache:'force-cache'});
+        // Reading the bytes needs the bucket's CORS setting (cors.json in the
+        // repo). Without it every fetch fails the same way while <img> still
+        // shows the image: after two such failures and no success, stop trying
+        // for this session so each image is not downloaded twice.
+        if(bhCorsBlocked()){const err=new Error('cors');err.cors=true;throw err;}
+        let res;
+        try{res=await fetch(target,{cache:'force-cache'});}
+        catch(e){if(e instanceof TypeError&&navigator.onLine!==false)_bhCors.fail++;throw e;}
+        _bhCors.ok++;
         if(!res.ok){const err=new Error('Imagem indisponível.');err.status=res.status;throw err;}
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
         // Not awaited: the image shows now; the local copy is written meanwhile.
@@ -4155,7 +4165,7 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
   for(const p of list)for(const src of (p.images||[]))if(typeof src==='string'&&!seen.has(src)&&bhIsFirebaseImage(src)&&!isVideoSrc(src)){seen.add(src);srcs.push(src);}
   let next=0,done=0,failed=0;
   const worker=async()=>{
-    while(next<srcs.length&&!isCancelled()){
+    while(next<srcs.length&&!isCancelled()&&!(typeof bhCorsBlocked==='function'&&bhCorsBlocked())){
       const src=srcs[next++];
       try{
         const t=await bhRemoteDisplay(src,'thumb');t.release();
@@ -4168,7 +4178,7 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
   };
   await Promise.all([worker(),worker(),worker(),worker()]);
   try{if(typeof _bhPendingPuts!=='undefined')await _bhPendingPuts.flush();}catch{/*silent-ok*/}
-  return {total:srcs.length,done,failed};
+  return {total:srcs.length,done,failed,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked()};
 };
 // @bh-test-end preloadall
 // One run at a time, independent of the screen (leaving Sincronizar does not
@@ -14547,6 +14557,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
           setCacheBytes(bytes);
           refreshStoreInfo();
           if(r.error)showStatus('err','Falha: '+r.error);
+          else if(r.cors)showStatus('err','O Firebase Storage não está liberando a leitura das imagens para este site (falta a configuração de CORS do bucket). As imagens aparecem normalmente, mas não podem ser guardadas neste computador. Configure o CORS (arquivo cors.json no repositório) e tente de novo.');
           else if(r.notSaved)showStatus('err',`O navegador recusou guardar ${r.notSaved} imagens neste computador (${r.saveErr||'erro desconhecido'}). Elas abrem normalmente pela internet, mas não ficam salvas. Veja se há espaço livre no disco e se o navegador não está em modo privado.`);
           else if(r.done-r.failed>=20&&bytes<1024*1024)showStatus('err',`As imagens foram baixadas, mas o navegador não as manteve (agora: ${bhFmtMB(bytes)}). Confira nas configurações do navegador se ele apaga cookies e dados de sites ao fechar, ou se está em modo privado; abra uma exceção para este site.`);
           else if(r.cancelled)showStatus('ok',`Parado. ${r.done} de ${r.total} imagens já estão neste computador.`);

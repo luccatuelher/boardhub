@@ -33,6 +33,10 @@ want the precompiled variant (it is also the prerequisite for a CSP without `'un
   [`storage.rules`](storage.rules) (deploy with `firebase deploy --only firestore:rules,storage`).
   Review them against your project before deploying; they were not run against the emulator.
 - Storage download URLs carry a token and are readable by anyone who has the URL.
+- The bucket needs the CORS setting in [`cors.json`](cors.json): without it the browser can show
+  the images but not read their bytes, so the local image cache, "Baixar todas as imagens" and
+  the fast full view fall back to plain `<img>` loading. Apply it once (Google Cloud Shell):
+  `gcloud storage buckets update gs://webapps-cbefa.firebasestorage.app --cors-file=cors.json`.
 
 ## Diagnostics and recovery
 - `boardhubDiagnostics.enable()` then `.snapshot()` (browser console) is the opt-in diagnostic log.
