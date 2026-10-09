@@ -11389,8 +11389,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       <div className="lightbox-stage" onClick={()=>setLightbox(null)}>
         <LightboxImage src={lightbox} srcs={lightboxImages} index={lightboxIndex} onClick={e=>e.stopPropagation()}/>
       </div>
-      {bhIsFirebaseImage(lightbox)&&<button onClick={e=>{e.stopPropagation();window.open(lightbox,'_blank','noopener');}} aria-label="Abrir imagem original" title="Abrir a imagem original (tamanho completo) em outra aba"
-        style={{position:'fixed',left:'50%',bottom:56,transform:'translateX(-50%)',padding:'5px 12px',borderRadius:999,background:'rgba(0,0,0,.4)',color:'white',border:'1px solid rgba(255,255,255,.12)',fontSize:'.72rem',fontWeight:600,cursor:'pointer'}}>Ver original</button>}
       <button onClick={()=>setLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
         <Icon name="x" size={20}/>
