@@ -12,7 +12,10 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /users/{uid}/images/{file} {
       allow read: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null && request.auth.uid == uid
+      // create only: objects are content-addressed and never rewritten, so an
+      // overwrite (a client bug, two tabs racing) is refused instead of replacing
+      // an original or invalidating the download links other devices hold.
+      allow create: if request.auth != null && request.auth.uid == uid
         && file.matches('sha256_[0-9a-f]{64}_.*')
         && request.resource.size <= 60 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*')

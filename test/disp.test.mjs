@@ -31,6 +31,7 @@ test('plan: small light images, other types and bad input need nothing', () => {
   assert.deepEqual(bhDispPlan({ w: 1920, h: 1080, bytes: 400000, type: 'image/jpeg' }), { needed: false, reason: 'small' });
   assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'image/gif' }).reason, 'type');
   assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'image/svg+xml' }).reason, 'type');
+  assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'image/avif' }).reason, 'type');
   assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'video/mp4' }).reason, 'type');
   assert.equal(bhDispPlan({ w: 6000, h: 4000, bytes: 9 * MB, type: 'image/png', animated: true }).reason, 'animated');
   assert.equal(bhDispPlan({ w: 0, h: 10, bytes: 9 * MB, type: 'image/png' }).reason, 'size');

@@ -2475,7 +2475,8 @@ const warmSources=(srcs,limit=24,{full=false,priority='low'}={})=>{
       // used to be requested for up to 48 images at once (on hover and on open),
       // which saturated the connection and starved the image actually on screen.
       // Originals come from the lightbox preloader / bhWarmPost, a few at a time.
-      if(!full)bhRemoteDisplay(src,'thumb').then(r=>r.release()).catch(()=>{});
+      // (and only when one can exist: a missing thumbnail would fall back to the original)
+      if(!full&&_fbStorage&&/sha256_[a-f0-9]{64}_image_/.test(decodeURIComponent(src)))bhRemoteDisplay(src,'thumb').then(r=>{r.release();}).catch(()=>{});
       n++;continue;
     }
     if(/^https?:\/\//.test(src)){_preload(full?src:_httpThumb(src),priority);n++;}
@@ -2556,7 +2557,7 @@ const bhDispPlan=info=>{
   const {w,h,bytes,type,animated}=info||{};
   const no=reason=>({needed:false,reason});
   if(!(w>0&&h>0))return no('size');
-  if(!/^image\//.test(String(type||''))||/^image\/(?:gif|svg)/.test(type))return no('type');
+  if(!/^image\//.test(String(type||''))||/^image\/(?:gif|svg|avif)/.test(type))return no('type');
   if(animated)return no('animated');
   const long=Math.max(w,h);
   if(long<=BH_DISP_MAX&&!(bytes>BH_DISP_MIN_BYTES))return no('small');
@@ -3682,12 +3683,13 @@ const bhIsFirebaseImage=url=>{
 const _bhRemoteInflight=new Map(),_bhRemoteUrls=new Map();
 // @bh-test-begin dispmach
 // ── DISPLAY-SIZE DERIVATIVE (see the `disp` test region) ───────────────
-const _bhDispUrls=new Map(),_bhDispInflight=new Map();
+const _bhDispUrls=new Map(),_bhDispInflight=new Map(),_bhNoDeriv=new Set(); // _bhNoDeriv: 'd:'/'t:'+src that Storage refuses for this session
 // URL of src's display copy, or '' (use the original). Needs a signed-in
 // session to ask Storage; a cached answer works offline.
 const _bhDispLookup=async src=>{
   if(typeof src!=='string'||!bhIsFirebaseImage(src))return '';
   const mem=_bhDispUrls.get(src);if(mem)return mem;
+  if(_bhNoDeriv.has('d:'+src))return '';
   const st=bhDispCacheState(await bhMediaCacheGet('disp:'+src),Date.now());
   if(st.state==='url'){_bhDispUrls.set(src,st.url);return st.url;}
   if(st.state==='skip')return '';
@@ -3700,6 +3702,7 @@ const _bhDispLookup=async src=>{
       await bhMediaCachePut('disp:'+src,{url});_bhDispUrls.set(src,url);return url;
     }catch(e){
       if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('disp:'+src,{none:'missing',at:Date.now()});
+      else if(e&&(e.code==='storage/unauthorized'||e.code==='storage/unauthenticated'))_bhNoDeriv.add('d:'+src);
       return '';
     }finally{_bhDispInflight.delete(src);}
   })());
@@ -3766,7 +3769,12 @@ const _bhDispRun=async job=>{
   const path=job.path||_fbStorage.refFromURL(job.src).fullPath;
   if(!path.startsWith('users/'+uid+'/'))return;
   const name=bhDispName(path);if(!name)return;
-  if(bhDispCacheState(await bhMediaCacheGet('disp:'+job.src),Date.now()).state==='url')return;
+  // Already known: a derivative exists, or this image does not need / cannot get
+  // one ('small', 'notSmaller', 'failed'). Only 'missing' and 'broken' (and no
+  // record at all) are worth a Storage round trip and a decode.
+  const known=await bhMediaCacheGet('disp:'+job.src),knownState=bhDispCacheState(known,Date.now());
+  if(knownState.state==='url')return;
+  if(knownState.state==='skip'&&known.none!=='missing'&&known.none!=='broken')return;
   const ref=_fbStorage.ref(name);
   let url='';
   try{url=await ref.getDownloadURL();}
@@ -3792,7 +3800,10 @@ const bhRemoteDisplay=async(src,variant)=>{
   if(variant==='disp'){const d=await _bhDispLookup(src);if(d)target=d;}
   if(thumb){
     let preview=_bhThumbUrls.get(src)||await bhMediaCacheGet('thumb:'+src);
-    if(!preview&&/sha256_[a-f0-9]{64}_image_/.test(decodeURIComponent(src))&&_fbStorage)try{
+    // 'thumb == original' records written by older builds after a transient error
+    // are re-checked once per session.
+    if(preview===src&&!_bhNoDeriv.has('r:'+src)&&_fbStorage&&_fbAuth?.currentUser){_bhNoDeriv.add('r:'+src);preview='';}
+    if(!preview&&!_bhNoDeriv.has('t:'+src)&&/sha256_[a-f0-9]{64}_image_/.test(decodeURIComponent(src))&&_fbStorage)try{
       const ref=_fbStorage.refFromURL(src);
       preview=await _fbStorage.ref(ref.fullPath+'_thumb480').getDownloadURL();
       await bhMediaCachePut('thumb:'+src,preview);
@@ -3801,6 +3812,7 @@ const bhRemoteDisplay=async(src,variant)=>{
       // offline, not signed in yet or a rules error must not make the grid fall
       // back to originals for good.
       if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('thumb:'+src,src);
+      else if(e&&(e.code==='storage/unauthorized'||e.code==='storage/unauthenticated'))_bhNoDeriv.add('t:'+src);
     }
     if(preview){target=preview;_bhThumbUrls.set(src,preview);}
   }
@@ -3812,7 +3824,7 @@ const bhRemoteDisplay=async(src,variant)=>{
       else{
         bhDiag.record('cacheMiss',0,'image');bhDiag.record('imageDownloadStarted');
         const res=await fetch(target,{cache:'force-cache'});
-        if(!res.ok)throw new Error('Imagem indisponível.');
+        if(!res.ok){const err=new Error('Imagem indisponível.');err.status=res.status;throw err;}
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
         await bhMediaCachePut('blob:'+target,{blob,at:Date.now()});
       }
@@ -3825,7 +3837,9 @@ const bhRemoteDisplay=async(src,variant)=>{
       // A broken display copy (deleted, token changed): forget it, use the original.
       if(variant==='disp'&&target!==src){
         _bhDispUrls.delete(src);_bhRemoteInflight.delete(target);
-        await bhMediaCachePut('disp:'+src,{none:'broken',at:Date.now()});
+        // Only a copy that is really gone/unreadable is marked broken; offline or a
+        // 5xx just uses the original this time.
+        if(e&&(e.status===403||e.status===404))await bhMediaCachePut('disp:'+src,{none:'broken',at:Date.now()});
         return bhRemoteDisplay(src,false);
       }
       throw e;
@@ -3999,7 +4013,7 @@ const uploadToFirebaseStorage=async(file,uid)=>{
     }catch{/* A derivative cannot turn a successful original upload into data loss. */}
     if(!thumb){thumb=url;await bhMediaCachePut('thumb:'+url,url);}
     // The display-size copy is made in the background (never delays the upload).
-    if(/^image\//.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
+    if(/^image\//.test(mime)&&!/^image\/(?:gif|svg|avif)/.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
     await bhMediaCachePut('upload:'+key,{url,thumb});
     return url;
   })();
