@@ -302,6 +302,20 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .post-img-undo button{border:none;background:none;color:var(--text);font:600 .8rem 'Alegreya Sans',sans-serif;text-decoration:underline;cursor:pointer}
 .note-result{display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;font-family:'Alegreya Sans',sans-serif;color:var(--text)}
 .note-result:hover{background:var(--surface)}
+.note-tasks{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:-4px 0 12px;flex-shrink:0}
+.note-tasks-label{display:inline-flex;align-items:center;gap:5px;margin-right:4px;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.note-task{display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:rgba(var(--ink),.03);cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.76rem;color:var(--text)}
+.note-task:hover{border-color:var(--text)}
+.note-task-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--session-accent,var(--text))}
+.note-task.done{color:var(--muted)}.note-task.done .note-task-dot{background:var(--muted);opacity:.5}.note-task.done .note-task-text{text-decoration:line-through}
+.note-task-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.note-task em{font-style:normal;font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-task-add{padding:3px 10px;font-size:.72rem}
+.note-task-add:disabled{opacity:.45;cursor:not-allowed}
+.note-task-form{display:flex;align-items:center;flex-wrap:wrap;gap:6px;flex:1 1 320px}
+.note-task-form input,.note-task-form select{border:1px solid var(--field-border);border-radius:8px;padding:5px 10px;font-size:.78rem;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
+.note-task-form input{flex:1 1 180px;min-width:0}
+.note-task-form .btn{padding:4px 10px;font-size:.74rem}
 .pd-notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:8px}
 .pd-note{display:flex;align-items:flex-start;gap:12px;text-align:left;width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(var(--ink),.025);cursor:pointer;font-family:'Alegreya Sans',sans-serif;color:var(--text);transition:border-color .15s,background .15s}
 .pd-note:hover,.pd-note:focus-visible{border-color:var(--text);background:rgba(var(--ink),.05)}
@@ -326,6 +340,9 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .gallery-search button{background:none;border:none;cursor:pointer;color:var(--muted);line-height:0;padding:2px}
 .gallery-tab-count{margin-left:5px;font-size:.66rem;color:var(--muted);font-weight:600}
 .gallery-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:0 0 8px;margin-bottom:16px;min-height:30px}
+.gallery-arrow{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.gallery-arrow:focus-visible{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}
+@media (hover:none){.gallery-arrow{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}}
 .gallery-grid.drag-over{outline:2px dashed var(--text);outline-offset:6px;border-radius:10px}
 .drag-item.drag-before::after,.drag-item.drag-after::after{content:'';position:absolute;top:0;bottom:0;width:5px;background:var(--text);z-index:3;pointer-events:none}
 .drag-item.drag-before::after{left:0}.drag-item.drag-after::after{right:0}
@@ -9067,6 +9084,45 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
   return par!=null?put(par,'after',null):put(sel.id,'before',null);
 };
 // @bh-test-end notecreate
+// @bh-test-begin notetask
+// Project tasks made from a note. A project is linked to a section of the Notes
+// screen (project.notesSection = a Categoria or a Pasta); every note inside that
+// section, however deep, can raise tasks in that project. The task keeps a
+// pointer back to its note (task.fromNote), which is how the note lists them.
+// `target` is the open note: {kind:'note',id} or {kind:'entry',id,folderId}.
+const bhNoteContainers=(notes,target)=>{
+  const byId=new Map((Array.isArray(notes)?notes:[]).filter(Boolean).map(n=>[String(n.id),n]));
+  const out=[];
+  let cur=null;
+  if(target&&target.kind==='entry')cur=byId.get(String(target.folderId));
+  else if(target){const me=byId.get(String(target.id));cur=me&&me.parentId!=null?byId.get(String(me.parentId)):null;}
+  for(let guard=0;cur&&guard<40;guard++){
+    out.push(String(cur.id));
+    cur=cur.parentId!=null?byId.get(String(cur.parentId)):null;
+  }
+  return out;
+};
+const bhNoteProjects=(projects,notes,target)=>{
+  const where=new Set(bhNoteContainers(notes,target));
+  return (Array.isArray(projects)?projects:[]).filter(p=>p&&!p.deleted&&p.notesSection!=null&&p.notesSection!==''&&where.has(String(p.notesSection)));
+};
+const bhNoteTaskMatches=(task,target)=>{
+  const r=task&&task.fromNote;
+  return !!r&&!!target&&r.kind===target.kind&&String(r.id)===String(target.id)&&(target.kind!=='entry'||String(r.folderId)===String(target.folderId));
+};
+const bhNoteTasks=(projects,target)=>{
+  const out=[];
+  (Array.isArray(projects)?projects:[]).forEach(p=>{
+    if(!p||p.deleted)return;
+    (Array.isArray(p.projectTasks)?p.projectTasks:[]).forEach(t=>{if(bhNoteTaskMatches(t,target))out.push({project:p,task:t});});
+  });
+  return out;
+};
+const bhNewNoteTask=(target,text,today,due,id)=>({
+  id,text,status:'Pendente',startDate:today,dueDate:due,notes:'',
+  fromNote:{kind:target.kind,id:target.id,...(target.kind==='entry'?{folderId:target.folderId}:{})}
+});
+// @bh-test-end notetask
 // @bh-test-begin dup
 const bhDuplicateProject=p0=>{
   const sourceTasks=p0.projectTasks||[];
@@ -12076,9 +12132,9 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
                     {!editing&&<span className="gallery-section-count">{count}</span>}
                     {sec.id!=null&&!editing&&<>
                       <button type="button" style={iconBtn} onClick={()=>{setMenuEditId(sec.id);setMenuLabel(sec.label);}} title="Renomear" aria-label={'Renomear seção '+sec.label}><Icon name="pencil" size={12}/></button>
-                      {/* Drag to reorder; phones have no drag, so they keep the arrows. */}
-                      {isMobile&&<><button type="button" style={{...iconBtn,opacity:idx<=0?.3:1}} disabled={idx<=0} onClick={()=>shiftSection(sec.id,-1)} title="Subir" aria-label={'Subir seção '+sec.label}><Icon name="arrow-up" size={12}/></button>
-                      <button type="button" style={{...iconBtn,opacity:idx>=orderedSections.length-1?.3:1}} disabled={idx>=orderedSections.length-1} onClick={()=>shiftSection(sec.id,1)} title="Descer" aria-label={'Descer seção '+sec.label}><Icon name="arrow-down" size={12}/></button></>}
+                      {/* Drag to reorder. The arrows stay for the keyboard (visible on focus) and for touch screens, which cannot drag. */}
+                      <button type="button" className="gallery-arrow" style={{...iconBtn,opacity:idx<=0?.3:1}} disabled={idx<=0} onClick={()=>shiftSection(sec.id,-1)} title="Subir" aria-label={'Subir seção '+sec.label}><Icon name="arrow-up" size={12}/></button>
+                      <button type="button" className="gallery-arrow" style={{...iconBtn,opacity:idx>=orderedSections.length-1?.3:1}} disabled={idx>=orderedSections.length-1} onClick={()=>shiftSection(sec.id,1)} title="Descer" aria-label={'Descer seção '+sec.label}><Icon name="arrow-down" size={12}/></button>
                       <button type="button" style={{...iconBtn,color:'var(--danger-fg)'}} onClick={()=>removeSection(sec.id)} title="Remover (os posts continuam na pasta)" aria-label={'Remover seção '+sec.label}><Icon name="x" size={12}/></button>
                     </>}
                   </div>;
@@ -12178,8 +12234,8 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
                     {g.section&&editingSectionId!==sid&&(
                       <div className="gallery-section-tools">
                         <button onClick={()=>{setEditingSectionId(sid);setSectionLabel(g.section.label);}} title="Renomear seção" aria-label={'Renomear seção '+g.section.label}><Icon name="pencil" size={12}/></button>
-                        {isMobile&&<><button onClick={()=>shiftSection(sid,-1)} disabled={sectionIdx<=0} title="Subir seção" aria-label="Subir seção"><Icon name="arrow-up" size={12}/></button>
-                        <button onClick={()=>shiftSection(sid,1)} disabled={sectionIdx>=sectionCount-1} title="Descer seção" aria-label="Descer seção"><Icon name="arrow-down" size={12}/></button></>}
+                        <button className="gallery-arrow" onClick={()=>shiftSection(sid,-1)} disabled={sectionIdx<=0} title="Subir seção" aria-label="Subir seção"><Icon name="arrow-up" size={12}/></button>
+                        <button className="gallery-arrow" onClick={()=>shiftSection(sid,1)} disabled={sectionIdx>=sectionCount-1} title="Descer seção" aria-label="Descer seção"><Icon name="arrow-down" size={12}/></button>
                         <button onClick={()=>removeSection(sid)} title="Remover seção (os posts continuam na pasta)" aria-label={'Remover seção '+g.section.label} className="danger"><Icon name="x" size={12}/></button>
                       </div>
                     )}
@@ -13564,7 +13620,7 @@ const noteDateLabel=n=>{
   if(d==='Agora'&&bhIdTime(n.id)>1e12)return new Date(bhIdTime(n.id)).toLocaleDateString('pt-BR');
   return d||'';
 };
-const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
+const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects,onOpenTask})=>{
   const _ideasUi=useMemo(()=>bhUiLoad('ideas'),[]);
   const [selected,setSelected]=useState(()=>_ideasUi.selected||null); // {kind:'note'|'entry',id,folderId?}
   const [showTrash,setShowTrash]=useState(()=>!!_ideasUi.showTrash);
@@ -13613,6 +13669,23 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
   const selectedFolder=useMemo(()=>selected?.kind==='entry'?itemById(selected.folderId):null,[notes,selected]);
   const selectedEntry=useMemo(()=>selectedFolder&&selected?.kind==='entry'?(selectedFolder.entries||[]).find(e=>e.id===selected.id)||null:null,[selectedFolder,selected]);
 
+  // Tasks raised from the open note (see bhNoteTasks).
+  const noteProjects=useMemo(()=>selected?bhNoteProjects(projects,notes,selected):[],[projects,notes,selected]);
+  const noteTasks=useMemo(()=>selected?bhNoteTasks(projects,selected):[],[projects,selected]);
+  const [taskDraft,setTaskDraft]=useState(null); // {title,projectId}|null
+  useEffect(()=>{setTaskDraft(null);},[selected?.kind,selected?.id]);
+  const openTaskDraft=target=>setTaskDraft({title:(target&&target.title)||'',projectId:noteProjects[0]?String(noteProjects[0].id):''});
+  const createNoteTask=()=>{
+    const d=taskDraft;
+    const text=d?String(d.title||'').trim():'';
+    const project=d&&noteProjects.find(p=>String(p.id)===String(d.projectId))||noteProjects[0];
+    if(!text||!project||!selected||!setProjects)return;
+    const today=localDateISO();
+    const task=bhNewNoteTask(selected,text,today,addDays(today,7),bhNewId());
+    setProjects(prev=>prev.map(p=>String(p.id)!==String(project.id)?p:{...p,
+      projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
+    setTaskDraft(null);
+  };
   const isCategory=n=>n?.type==='category';
   const isFolder=n=>n?.type==='project';
   const isNote=n=>n?.type==='note' || (!n?.type);
@@ -14200,6 +14273,29 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile})=>{
           <button onClick={()=>{if(selected?.kind==='entry')trashEntry(selected.id,selected.folderId);else trashItem(target.id);}} className="btn btn-ghost" title="Mover para lixeira" aria-label="Mover nota para lixeira" style={{padding:6,color:'var(--muted)'}} onMouseEnter={e=>e.currentTarget.style.color='var(--danger-strong)'} onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}><Icon name="trash-2" size={15}/></button>
         </div>
       </div>
+      {setProjects&&<div className="note-tasks" aria-label="Tarefas desta anotação">
+        <span className="note-tasks-label"><Icon name="list-checks" size={12}/>Tarefas{noteTasks.length>0?' · '+noteTasks.length:''}</span>
+        {noteTasks.map(({project,task})=>{
+          const done=task.status==='Concluído';
+          return <button key={String(project.id)+'-'+String(task.id)} type="button" className={'note-task'+(done?' done':'')} onClick={()=>onOpenTask&&onOpenTask(project.id,task.id)} title={'Abrir no projeto “'+(project.title||'Projeto')+'”'}>
+            <span className="note-task-dot" aria-hidden="true"/><span className="note-task-text">{task.text||'Tarefa'}</span><em>{project.title}</em>
+          </button>;
+        })}
+        {taskDraft
+          ?<form className="note-task-form" onSubmit={e=>{e.preventDefault();createNoteTask();}}>
+              <input autoFocus value={taskDraft.title} onChange={e=>setTaskDraft(d=>({...d,title:e.target.value}))} aria-label="Nome da tarefa" placeholder="Nome da tarefa" maxLength={160}
+                onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}}
+                onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setTaskDraft(null);}}}/>
+              {noteProjects.length>1&&<select value={taskDraft.projectId} onChange={e=>setTaskDraft(d=>({...d,projectId:e.target.value}))} aria-label="Projeto da tarefa">
+                {noteProjects.map(p=><option key={p.id} value={String(p.id)}>{p.title||'Projeto'}</option>)}
+              </select>}
+              <button type="submit" className="btn btn-dark" disabled={!taskDraft.title.trim()}>Criar</button>
+              <button type="button" className="btn btn-ghost" onClick={()=>setTaskDraft(null)}>Cancelar</button>
+            </form>
+          :<button type="button" className="btn btn-outline note-task-add" disabled={noteProjects.length===0} onClick={()=>openTaskDraft(target)}
+              title={noteProjects.length===0?'Vincule a pasta ou categoria desta nota a um projeto (na página do projeto, em Anotações) para criar tarefas daqui':'Criar uma tarefa no projeto ligado a esta anotação'}>
+              <Icon name="plus" size={11}/> Criar tarefa</button>}
+      </div>}
       {target.contentConflicts&&Object.keys(target.contentConflicts).length>0&&<div role="alert" className="card" style={{padding:'10px 12px',marginBottom:10,display:'flex',flexDirection:'column',gap:8,flexShrink:0,maxHeight:'35%',overflowY:'auto'}}>
         <div style={{fontSize:'.78rem',color:'var(--muted)'}}>Outro dispositivo editou esta anotação ao mesmo tempo. A versão abaixo foi guardada para não se perder:</div>
         {Object.entries(target.contentConflicts).map(([key,html])=>{
@@ -17280,9 +17376,10 @@ const App=()=>{
     const moved=new Set((postIds||[]).map(String));
     setProjects(prev=>prev.map(p=>{
       if(String(p.galleryFolder||'')!==from)return p;
-      if(String(p.gallerySection||'')===oldId)return{...p,galleryFolder:to,gallerySection:newId};
-      if(!p.gallerySection&&p.galleryPost&&moved.has(String(p.galleryPost)))return{...p,galleryFolder:to};
-      return p;
+      const hitSection=String(p.gallerySection||'')===oldId;
+      const hitPost=!!p.galleryPost&&moved.has(String(p.galleryPost));
+      if(!hitSection&&!hitPost)return p;
+      return{...p,galleryFolder:to,...(hitSection?{gallerySection:newId}:{})};
     }));
   },[]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
@@ -17557,7 +17654,7 @@ const App=()=>{
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
-        {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/></ViewBoundary>}
+        {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
         {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
