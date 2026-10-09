@@ -8626,7 +8626,7 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const coverRef=useRef();
   const handleCover=e=>bhPickImage(e,url=>set('cover',url),'a capa');
-  const save=()=>{if(!form.title.trim())return;onSave({...form,id:bhNewId(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
+  const save=()=>{if(!form.title.trim())return;onSave({...form,unitValue:form.budget,budget:bhProjectTotal(form.budget,0),id:bhNewId(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
   return(
     <Modal title="Novo Projeto" onClose={onClose} width={isMobile?'100%':520}>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
@@ -9149,7 +9149,13 @@ const bhDuplicateProject=p0=>{
     miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
 };
 // @bh-test-end dup
-const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts})=>{
+const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts,galleryFolders})=>{
+  // Each project's price now (animatics may come from its linked Gallery posts).
+  const budgetOf=useMemo(()=>{
+    const m=new Map();
+    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,p.unitValue===undefined||p.unitValue===null?0:bhLinkedPostCount(p,galleryFolders,galleryPosts)));});
+    return m;
+  },[projects,galleryFolders,galleryPosts]);
   // Dates edited on the Projects-page timeline go straight into the project.
   // A patch that carries a status (a drag that changed the task's phase) is
   // mirrored onto the task's card, as the project's own timeline does.
@@ -9253,8 +9259,8 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
               </div>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 {(()=>{
-                  const open=projects.filter(p=>!p.deleted&&!p.paid&&Number(p.budget)>0&&p.status!=='Cancelado');
-                  const sum=open.reduce((s,p)=>s+Number(p.budget),0);
+                  const open=projects.filter(p=>!p.deleted&&!p.paid&&(budgetOf.get(String(p.id))||0)>0&&p.status!=='Cancelado');
+                  const sum=open.reduce((s,p)=>s+(budgetOf.get(String(p.id))||0),0);
                   return sum>0?<span title={open.length+' projeto(s) com pagamento pendente'} style={{fontSize:'.74rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}><Icon name="circle-dollar-sign" size={12}/>A receber: <strong style={{color:'var(--text)'}}>{fmtBRL(sum)}</strong></span>:null;
                 })()}
                 <select value={projSort} onChange={e=>changeProjSort(e.target.value)} aria-label="Ordenar projetos" className="gallery-sort-select">
@@ -9325,7 +9331,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                     <div style={{fontWeight:600,fontSize:'.92rem',marginBottom:3}}>{p.title}</div>
                     <div style={{fontSize:'.75rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                       <span>{p.client}</span>
-                      {fmtBRL(p.budget)&&<span style={{fontWeight:600,color:p.paid?'var(--ok-fg)':'var(--text)',display:'flex',alignItems:'center',gap:3}}>{fmtBRL(p.budget)}{p.paid&&<Icon name="check" size={10}/>}</span>}
+                      {fmtBRL(budgetOf.get(String(p.id)))&&<span style={{fontWeight:600,color:p.paid?'var(--ok-fg)':'var(--text)',display:'flex',alignItems:'center',gap:3}}>{fmtBRL(budgetOf.get(String(p.id)))}{p.paid&&<Icon name="check" size={10}/>}</span>}
                     </div>
                     {Number(p.shotsTotal)>0&&(()=>{const pct=Math.min(100,Math.round((Number(p.shotsDone)||0)/Number(p.shotsTotal)*100));return(
                       <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8}}>
@@ -9420,6 +9426,16 @@ const bhProjectTotal=(unit,animatics)=>{
   const u=Number(unit),a=Math.floor(Number(animatics));
   if(!(u>0))return 0;
   return u*(a>0?a:1);
+};
+// What the project is worth now. Projects priced the new way (they have a
+// `unitValue`) count their animatics: the number typed in Escopo, or, when none
+// is typed, one per Gallery post linked to the project (`linkedPosts`). Older
+// projects only have `budget`, which stays the whole price as stored.
+const bhProjectBudget=(p,linkedPosts)=>{
+  if(!p)return 0;
+  if(p.unitValue===undefined||p.unitValue===null)return Number(p.budget)||0;
+  const a=Math.floor(Number(p.animatics));
+  return bhProjectTotal(p.unitValue,a>0?a:Number(linkedPosts)||0);
 };
 // @bh-test-end projtotal
 const fmtBRL=v=>{const n=Number(v);if(!n||isNaN(n))return null;return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:2});};
@@ -9980,6 +9996,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // Valor = price of one animatic; the project's Total (stored in `budget`, which
   // the project list and the pending-payments sum read) is Valor × Animatics.
   // Older projects only have `budget`: it stands in for Valor until it is edited.
+  const linkedPostCount=useMemo(()=>local.unitValue===undefined||local.unitValue===null?0:bhLinkedPostCount(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,local.unitValue,galleryFolders,galleryPosts]);
+  const effectiveBudget=bhProjectBudget(local,linkedPostCount);
   const setUnitValue=raw=>edit(prev=>({...prev,unitValue:raw,budget:bhProjectTotal(raw,prev.animatics)}));
   const setAnimatics=raw=>edit(prev=>{
     const a=Math.max(0,Math.floor(Number(raw)||0));
@@ -10610,13 +10628,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div>
                   <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Total</div>
-                  <div className="input-box" aria-label="Total do projeto" title="Valor × animatics" style={{width:'100%',boxSizing:'border-box',fontWeight:600,color:Number(local.budget)>0?'var(--text)':'var(--muted)',cursor:'default'}}>{fmtBRL(local.budget)||'—'}</div>
+                  <div className="input-box" aria-label="Total do projeto" title="Valor × animatics" style={{width:'100%',boxSizing:'border-box',fontWeight:600,color:effectiveBudget>0?'var(--text)':'var(--muted)',cursor:'default'}}>{fmtBRL(effectiveBudget)||'—'}</div>
+                  {!(Number(local.animatics)>0)&&linkedPostCount>0&&effectiveBudget>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',marginTop:5}}>{linkedPostCount} {linkedPostCount===1?'animatic':'animatics'} (posts da galeria)</div>}
                 </div>
                 <div>
-                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$){Number(local.animatics)>0?' por animatic':''}</div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$){local.unitValue!==undefined&&local.unitValue!==null?' por animatic':''}</div>
                   <input type="number" inputMode="decimal" min="0" step="any" className="input-box no-spin" value={(local.unitValue??local.budget)||''} onChange={e=>setUnitValue(e.target.value)} placeholder="0" style={{width:'100%'}}/>
                 </div>
-                {Number(local.budget)>0&&(
+                {effectiveBudget>0&&(
                   <BhSwitch checked={!!local.paid} onChange={()=>upd('paid',v=>!v)} label="Pago" tone="ok"
                     style={{display:'flex',width:'100%',justifyContent:'space-between',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
                     <span style={{display:'flex',alignItems:'center',gap:6}}><Icon name={local.paid?'check-circle':'circle-dollar-sign'} size={13}/>{local.paid?'Recebido':'A receber'}</span>
@@ -11278,6 +11297,12 @@ const bhProjectGalleryScope=(project,folders,posts)=>{
   const live=(posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===folderId);
   const group=folder?galleryManualLayout(folder,live).find(g=>g.section&&String(g.section.id)===sectionId):null;
   return{folderId,sectionId,postId:'',postIds:new Set(group?group.posts.map(p=>String(p.id)):[])};
+};
+// Live Gallery posts a project is linked to (its folder, section or post).
+const bhLinkedPostCount=(project,folders,posts)=>{
+  const scope=bhProjectGalleryScope(project,folders,posts);
+  if(!scope)return 0;
+  return (posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===scope.folderId&&(!scope.postIds||scope.postIds.has(String(p.id)))).length;
 };
 // Focus time counts both ways across that link: a project adds the category
 // time spent on its scope (all of it for the whole folder; for a section or a
@@ -17724,7 +17749,7 @@ const App=()=>{
       }
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
-        {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
+        {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}

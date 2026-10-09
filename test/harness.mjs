@@ -30,7 +30,7 @@ export const EXPECTED = {
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],
-  projtotal: ['bhProjectTotal'],
+  projtotal: ['bhProjectTotal', 'bhProjectBudget'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
   fbimg: ['bhIsFirebaseImage'],
