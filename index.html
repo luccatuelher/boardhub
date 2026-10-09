@@ -4109,6 +4109,7 @@ const _lbThumb=src=>{
 };
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
 // are NEVER re-encoded. Thumbnails are separate optional derivatives.
+// @bh-test-begin upfb
 const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
   if(!_fbStorage||!uid)throw new Error('Firebase Storage not available');
   const digest=await bhDigest(await file.arrayBuffer()),mime=file.type||'application/octet-stream';
@@ -4121,12 +4122,31 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
     const assertUser=()=>{if(_fbAuth?.currentUser?.uid!==uid)throw new Error('Conta alterada durante upload.');};
     assertUser();
     const ref=_fbStorage.ref(`users/${uid}/images/sha256_${digest}_${mimeKey}`);
-    let url;
+    const META={cacheControl:'private,max-age=31536000,immutable'};
+    const wantThumb=/^image\//.test(mime)&&mime!=='image/gif';
+    const thumbRef=_fbStorage.ref(`users/${uid}/images/sha256_${digest}_${mimeKey}_thumb480`);
+    // Thumbnail of a NEW original: made and uploaded while the original goes up
+    // (it cannot exist yet, so no lookup first). If a rule refuses to overwrite a
+    // leftover from an earlier attempt, the existing one is used.
+    const putThumb=async()=>{
+      if(!wantThumb)return '';
+      try{
+        const blob=await _makeThumbBlob(file);
+        if(!(blob.size<file.size))return '';
+        assertUser();bhDiag.record('uploadStarted',blob.size,'thumbnail');
+        try{await thumbRef.put(blob,{...META,contentType:blob.type});}
+        catch(e){if(e&&e.code==='storage/unauthorized')return await thumbRef.getDownloadURL();throw e;}
+        return await thumbRef.getDownloadURL();
+      }catch{return '';/* A derivative cannot turn a successful original upload into data loss. */}
+    };
+    let url,thumb='';
+    let fresh=false;
     try{bhDiag.record('storageLookup');url=await ref.getDownloadURL();}
-    catch(e){
-      if(e.code!=='storage/object-not-found')throw e;
+    catch(e){if(e.code!=='storage/object-not-found')throw e;fresh=true;}
+    if(fresh){
       assertUser();bhDiag.record('uploadStarted',file.size,'original');
-      const task=ref.put(file,{contentType:mime,cacheControl:'private,max-age=31536000,immutable'});
+      const thumbJob=putThumb();
+      const task=ref.put(file,{...META,contentType:mime});
       // Report bytes as they go out, and cancel an upload that makes no progress
       // for 60 s ('storage/canceled' is transient: the file is kept locally).
       await new Promise((res,rej)=>{
@@ -4137,18 +4157,15 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
           if(onBytes&&snap.totalBytes)try{onBytes(snap.bytesTransferred/snap.totalBytes);}catch{/*silent-ok*/}
         },err=>{clearInterval(watch);rej(err);},()=>{clearInterval(watch);res();});
       });
-      url=await ref.getDownloadURL();
+      [url,thumb]=await Promise.all([ref.getDownloadURL(),thumbJob]);
+    }else if(wantThumb){
+      // An original already in the cloud (another device, an earlier attempt): its
+      // thumbnail most likely exists too.
+      try{thumb=await thumbRef.getDownloadURL();}
+      catch(e){if(e&&e.code==='storage/object-not-found')thumb=await putThumb();}
     }
-    assertUser();let thumb='';
-    if(/^image\//.test(mime)&&mime!=='image/gif')try{
-      const blob=await _makeThumbBlob(file);
-      if(blob.size<file.size){
-        const thumbRef=_fbStorage.ref(`users/${uid}/images/sha256_${digest}_${mimeKey}_thumb480`);
-        try{thumb=await thumbRef.getDownloadURL();}
-        catch(e){if(e.code!=='storage/object-not-found')throw e;assertUser();bhDiag.record('uploadStarted',blob.size,'thumbnail');await thumbRef.put(blob,{contentType:blob.type,cacheControl:'private,max-age=31536000,immutable'});thumb=await thumbRef.getDownloadURL();}
-        _bhThumbUrls.set(url,thumb);await bhMediaCachePut('thumb:'+url,thumb);
-      }
-    }catch{/* A derivative cannot turn a successful original upload into data loss. */}
+    assertUser();
+    if(thumb){_bhThumbUrls.set(url,thumb);await bhMediaCachePut('thumb:'+url,thumb);}
     if(!thumb){thumb=url;await bhMediaCachePut('thumb:'+url,url);}
     // The display-size copy is made in the background (never delays the upload).
     if(/^image\//.test(mime)&&!/^image\/(?:gif|svg|avif)/.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
@@ -4158,6 +4175,7 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
   _bhUploadInflight.set(key,run);
   try{return await run;}finally{_bhUploadInflight.delete(key);}
 };
+// @bh-test-end upfb
 const bhCloudMedia=async(state,uid)=>{
   let out=await migrateInlineMediaForCloud(state,uid);
   const replacements={};
@@ -4413,16 +4431,21 @@ const bhPrepareMedia=async(file,onPct)=>{
 // that matters — ask once per session before the first Imgur fallback and
 // remember the answer. Declining stores the image locally (IDB) instead.
 let _imgurAllowed=null; // null = not asked yet, true/false = session decision
+// Parallel uploads can all reach this at once: they share ONE question (two
+// concurrent bhConfirm calls would replace each other and leave one pending).
+let _imgurAsking=null;
 const _askImgurConsent=async()=>{
+  if(_imgurAllowed===null&&_imgurAsking)return _imgurAsking;
   if(_imgurAllowed===null){
-    _imgurAllowed=await bhConfirm({
+    _imgurAsking=bhConfirm({
       title:'Enviar ao Imgur?',
       confirmLabel:'Enviar ao Imgur',
       cancelLabel:'Manter só aqui',
       message:'Sem nuvem do Google disponível para esta imagem.\n\n'+
       'Enviar para o Imgur? A imagem ficará acessível publicamente por URL '+
       '(qualquer pessoa com o link pode ver).\n\n'+
-      'Cancelar mantém a imagem apenas neste dispositivo (não sincroniza).'});
+      'Cancelar mantém a imagem apenas neste dispositivo (não sincroniza).'}).then(v=>{_imgurAllowed=v;_imgurAsking=null;return v;},e=>{_imgurAsking=null;throw e;});
+    return _imgurAsking;
   }
   return _imgurAllowed;
 };
@@ -4438,6 +4461,7 @@ const bhStorageErrTransient=e=>{
   const c=String(e&&e.code||'');
   return c==='storage/retry-limit-exceeded'||c==='storage/canceled'||c==='storage/server-file-wrong-size';
 };
+// @bh-test-begin upsingle
 const _uploadSingle=async(file,onPct,onBytes)=>{
   file=await bhPrepareMedia(file,onPct);
   if(!_isVideoFile(file))file=await _compressImage(file);
@@ -4454,6 +4478,7 @@ const _uploadSingle=async(file,onPct,onBytes)=>{
   console.warn('[BoardHub] Falling back to local IDB. File will NOT sync across devices.');
   return await _storeIdb(file);
 };
+// @bh-test-end upsingle
 
 const uploadImage=file=>_uploadSingle(file);
 // User-typed links → a safe http(s) href, or null. Raw values went straight
@@ -4482,10 +4507,29 @@ const bhPickImage=async(e,apply,what='a imagem')=>{
   finally{try{input.value='';}catch{/*silent-ok: some browsers make value read-only after detach*/}}
 };
 
+// @bh-test-begin upmany
 const BULK_UPLOAD_DELAY_MS=1100;
 // onCompact(index,percent) reports a video being re-encoded (see MEDIA BUDGET).
+const BH_UPLOAD_PARALLEL=4;
 const uploadImages=async(files,onProgress,onCompact)=>{
   for(const f of files)await bhMediaPrecheck(f);
+  // Cloud: several files at a time (each one is mostly waiting on round trips,
+  // not bandwidth). Progress is the sum of every file's fraction. Results keep
+  // the order of `files`. Identical files share one upload (_bhUploadInflight).
+  if(_fbReady&&_fbAuth?.currentUser&&files.length>1&&!files.some(f=>_isVideoFile(f))){
+    const results=new Array(files.length),frac=new Array(files.length).fill(0);
+    const report=()=>{if(onProgress)onProgress(Math.min(files.length,frac.reduce((a,b)=>a+b,0)),files.length);};
+    let next=0;
+    const worker=async()=>{
+      while(next<files.length){
+        const i=next++;
+        results[i]=await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined,f=>{frac[i]=Math.min(.99,Math.max(0,f));report();});
+        frac[i]=1;report();
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(BH_UPLOAD_PARALLEL,files.length)},worker));
+    return results;
+  }
   const results=[];
   for(let i=0;i<files.length;i++){
     results.push(await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined,
@@ -4499,6 +4543,7 @@ const uploadImages=async(files,onProgress,onCompact)=>{
   return results;
 };
 
+// @bh-test-end upmany
 // Re-upload all local IDB images to the cloud, return updated state
 const reuploadLocalImages=async(state,onProgress)=>{
   const keys=[...collectIdbKeys(state)];

@@ -33,6 +33,9 @@ export const EXPECTED = {
   fbimg: ['bhIsFirebaseImage'],
   dispmach: ['_bhDispLookup', '_bhDispRun', '_makeDisplayBlob', 'bhDispMaybeEnqueue', '_bhDisp', '_bhDispUrls'],
   holds: ['bhHoldMask', 'bhFrameDiff', 'BH_HOLD_PRESETS', 'bhGroupHolds', 'bhHoldPick', 'bhNaturalCompare'],
+  upfb: ['uploadToFirebaseStorage'],
+  upsingle: ['_uploadSingle'],
+  upmany: ['uploadImages', 'BH_UPLOAD_PARALLEL'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
