@@ -221,6 +221,10 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px);}to{opacity:1;transform:scale(1) translateY(0);}}
 /* Overlay now has a visible backdrop */
 .overlay.note-peek{background:rgba(6,5,3,.74);backdrop-filter:blur(3px);padding:3vh 3vw!important}
+/* Centered on the whole window (the sidebar is dimmed too), and the shadow is
+   black: the default one uses --ink, which is light in the dark theme and read as a glow. */
+.overlay.note-peek .modal{margin:0 auto;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+body:has(.overlay.note-peek) .lightbox{left:0!important}
 .overlay{position:fixed;inset:0;z-index:120000;display:flex;align-items:center;justify-content:center;animation:overlayIn .2s ease;padding:24px;padding-left:244px;/* 220px sidebar + 24px — centers dialogs over the content area; mobile media query zeroes this */}
 .modal{background:var(--surface);border-radius:18px;border:1px solid var(--border);padding:24px 28px;width:100%;animation:modalIn .25s ease;box-shadow:0 20px 60px rgba(var(--ink),.18);max-height:95vh;overflow-y:auto;}
 .upload-zone{border:2px dashed var(--border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s,background .2s,transform .15s;padding:24px;text-align:center;color:var(--muted);}
