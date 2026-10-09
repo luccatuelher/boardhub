@@ -3806,6 +3806,15 @@ const bhIsFirebaseImage=url=>{
 // @bh-test-end fbimg
 const _bhRemoteInflight=new Map(),_bhRemoteUrls=new Map();
 const _bhCors={ok:0,fail:0};
+// An image shown by an <img> before the bucket had its CORS setting sits in the
+// HTTP cache for a year without the CORS header (and without Vary: Origin), so
+// a cached read of it fails as if CORS were still missing. On that failure the
+// image is fetched again from the network once ('reload' also replaces that
+// cached copy).
+const bhFetchCors=async url=>{
+  try{return await fetch(url,{cache:'force-cache'});}
+  catch(e){if(!(e instanceof TypeError)||navigator.onLine===false)throw e;return await fetch(url,{cache:'reload'});}
+};
 const bhCorsBlocked=()=>_bhCors.ok===0&&_bhCors.fail>=2;
 // Cache writes still in flight (bhRemoteDisplay does not wait for them).
 const _bhPendingPuts={set:new Set(),add(p){this.set.add(p);p.finally(()=>this.set.delete(p));},flush(){return Promise.all([...this.set]);}};
@@ -3968,7 +3977,7 @@ const bhRemoteDisplay=async(src,variant)=>{
         // for this session so each image is not downloaded twice.
         if(bhCorsBlocked()){const err=new Error('cors');err.cors=true;throw err;}
         let res;
-        try{res=await fetch(target,{cache:'force-cache'});}
+        try{res=await bhFetchCors(target);}
         catch(e){if(e instanceof TypeError&&navigator.onLine!==false)_bhCors.fail++;throw e;}
         _bhCors.ok++;
         if(!res.ok){const err=new Error('Imagem indisponível.');err.status=res.status;throw err;}
@@ -4781,7 +4790,7 @@ const bhMigrateImgur=async(state,onProgress)=>{
     while(next<urls.length){
       const url=urls[next++];
       try{
-        const res=await fetch(url,{cache:'force-cache'});
+        const res=await bhFetchCors(url);
         if(!res.ok)throw new Error('HTTP '+res.status);
         const blob=await res.blob();
         if(!/^image\//.test(blob.type))throw new Error('not an image');
