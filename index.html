@@ -8639,6 +8639,13 @@ const tlWeekBounds=today=>{
   const sat=new Date(sun);sat.setDate(sun.getDate()+6);
   return{start:localDateISO(sun),end:localDateISO(sat)};
 };
+// Widen [start, end] so that today is the exact middle of the calendar: the
+// same number of days on both sides. Scrolling then can always put today in the
+// middle of the view, whatever the dates of the projects/tasks are.
+const tlSymmetric=(start,end,today)=>{
+  const span=Math.max(daysBetween(start,today),daysBetween(today,end),1);
+  return{start:addDays(today,-span),end:addDays(today,span)};
+};
 // Day columns, month bands and weekends of [start, end] (inclusive).
 const tlCalendar=(start,end,DAY_W)=>{
   const totalDays=Math.max(1,daysBetween(start,end)+1),days=[],months=[];
@@ -8846,6 +8853,7 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
     // year even when no project/task extends that far yet.
     const yearEnd=today.slice(0,4)+'-12-31';
     if(yearEnd>end)end=yearEnd;
+    ({start,end}=tlSymmetric(start,end,today));
   }
   const cal=tlCalendar(start,end,DAY_W),gridW=cal.gridW;
   const x=d=>daysBetween(start,d)*DAY_W;
@@ -9368,6 +9376,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     // Scrollable at least to the end of the current year.
     const yearEnd=today.slice(0,4)+'-12-31';
     if(yearEnd>chartEnd)chartEnd=yearEnd;
+    ({start:chartStart,end:chartEnd}=tlSymmetric(chartStart,chartEnd,today));
   }
   // When showing "this week", only render tasks that overlap the visible
   // window (overdue ones always: they need attention).
