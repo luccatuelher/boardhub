@@ -3800,7 +3800,9 @@ const bhIsFirebaseImage=url=>{
   try{
     const path=decodeURIComponent(new URL(url).pathname);
     // Never turn a streaming video into an eager full-blob download.
-    return /(?:sha256_[a-f0-9]{64}_image_[a-z0-9_]+|\.(?:png|jpe?g|gif|webp|avif|bmp|heic|tiff?))$/i.test(path);
+    // Older uploads were named img_<time>_<random>.img/.bin (always images,
+    // mostly WebP); bhRemoteDisplay still refuses anything served as video.
+    return /(?:sha256_[a-f0-9]{64}_image_[a-z0-9_]+|\.(?:png|jpe?g|gif|webp|avif|bmp|heic|tiff?)|\/img_\d+_[a-z0-9]+\.(?:img|bin))$/i.test(path);
   }catch{return false;}
 };
 // @bh-test-end fbimg
@@ -3981,6 +3983,7 @@ const bhRemoteDisplay=async(src,variant)=>{
         catch(e){if(e instanceof TypeError&&navigator.onLine!==false)_bhCors.fail++;throw e;}
         _bhCors.ok++;
         if(!res.ok){const err=new Error('Imagem indisponível.');err.status=res.status;throw err;}
+        if(/^video\//i.test(res.headers.get('content-type')||'')){try{res.body?.cancel();}catch{/*silent-ok*/}const err=new Error('video');err.status=415;throw err;}
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
         // Not awaited: the image shows now; the local copy is written meanwhile.
         _bhPendingPuts.add(bhMediaCachePut('blob:'+target,{blob,at:Date.now()}));
@@ -4179,7 +4182,10 @@ const bhPreloadList=posts=>{
 // shows (the display copy when one is known, else the original)?
 // rec: {blobs:Set of cached URLs, thumbs:Map src->thumb url, disps:Map src->record}
 const bhImageIsLocal=(src,rec)=>{
-  const t=rec.thumbs.get(src);
+  let t=rec.thumbs.get(src);
+  // Only content-addressed uploads have a separate thumbnail; for older ones
+  // (img_….jpg) the grid shows the original itself.
+  if(t===undefined){let name=src;try{name=decodeURIComponent(src);}catch{/*keep raw*/}if(!/sha256_[a-f0-9]{64}_image_/.test(name))t=src;}
   if(typeof t!=='string'||!t||!rec.blobs.has(t))return false;
   const d=rec.disps.get(src);
   return rec.blobs.has(d&&d.url?d.url:src);

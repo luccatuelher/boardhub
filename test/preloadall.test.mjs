@@ -69,6 +69,28 @@ test('local = thumbnail cached and the full view (display copy when known, else 
   assert.equal(bhImageIsLocal('s', rec(['t', 'd'], { s: 't' }, { s: { url: 'd' } })), true, 'thumb + display copy');
   assert.equal(bhImageIsLocal('s', rec(['t', 's'], { s: 't' }, { s: { url: 'd' } })), false, 'the full view would fetch the display copy');
   assert.equal(bhImageIsLocal('s', rec(['s'], { s: 's' }, { s: { none: 'small' } })), true, 'no separate thumbnail: the original is both');
-  assert.equal(bhImageIsLocal('s', rec(['s'], {})), false, 'thumbnail never looked up');
+  const ca = 'users/u/images/sha256_' + 'a'.repeat(64) + '_image_png';
+  assert.equal(bhImageIsLocal(ca, rec([ca], {})), false, 'content-addressed upload whose thumbnail was never looked up');
   assert.equal(bhImageIsLocal('s', rec(['t'], { s: 't' }, { s: { none: 'missing' } })), false, 'original not cached');
+});
+
+test('older uploads (img_….jpg) have no separate thumbnail: the cached original counts for both', () => {
+  const { bhImageIsLocal } = load(['preloadall'], { stubs: { bhIsFirebaseImage: () => true, isVideoSrc: () => false, bhRemoteDisplay: async () => ({}) } });
+  const legacy = 'https://firebasestorage.googleapis.com/v0/b/x/o/users%2Fu%2Fimages%2Fimg_1787922414181_4gf8isfs1a7.jpg?alt=media';
+  const rec = blobs => ({ blobs: new Set(blobs), thumbs: new Map(), disps: new Map() });
+  assert.equal(bhImageIsLocal(legacy, rec([legacy])), true);
+  assert.equal(bhImageIsLocal(legacy, rec([])), false);
+});
+
+test('cloud image detection: content-addressed, image extensions, and older img_….img/.bin uploads; never videos', () => {
+  const { bhIsFirebaseImage } = load(['fbimg']);
+  const u = name => 'https://firebasestorage.googleapis.com/v0/b/x/o/' + encodeURIComponent('users/u/images/' + name) + '?alt=media&token=t';
+  assert.equal(bhIsFirebaseImage(u('sha256_' + 'a'.repeat(64) + '_image_webp')), true);
+  assert.equal(bhIsFirebaseImage(u('img_1787922414181_4gf8isfs1a7.jpg')), true);
+  assert.equal(bhIsFirebaseImage(u('img_1788957033185_raeqcd60f5m.img')), true);
+  assert.equal(bhIsFirebaseImage(u('img_1785763672937_t71di0u2hhs.bin')), true);
+  assert.equal(bhIsFirebaseImage(u('sha256_' + 'a'.repeat(64) + '_video_mp4')), false);
+  assert.equal(bhIsFirebaseImage(u('clip.mp4')), false);
+  assert.equal(bhIsFirebaseImage(u('notes.bin')), false);
+  assert.equal(bhIsFirebaseImage('https://example.com/a.png'), false);
 });
