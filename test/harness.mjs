@@ -36,6 +36,7 @@ export const EXPECTED = {
   upfb: ['uploadToFirebaseStorage'],
   upsingle: ['_uploadSingle'],
   upmany: ['uploadImages', 'BH_UPLOAD_PARALLEL'],
+  imgur: ['BH_IMGUR_RE', 'bhCollectImgur'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };

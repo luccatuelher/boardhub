@@ -4189,20 +4189,9 @@ const bhCloudMedia=async(state,uid)=>{
   return out;
 };
 
-// Imgur fallback — anonymous client-ID upload
-const IMGUR_CLIENT_ID='546c25a59c58ad7';
-const _uploadImgur=async(file)=>{
-  const b64=await readFile(file);
-  const body=new FormData();
-  body.append('image',b64.split(',')[1]);
-  body.append('type','base64');
-  const ac=new AbortController();const _t=setTimeout(()=>ac.abort(),15000);
-  const res=await fetch('https://api.imgur.com/3/image',{method:'POST',headers:{Authorization:`Client-ID ${IMGUR_CLIENT_ID}`},body,signal:ac.signal});
-  clearTimeout(_t);
-  const json=await res.json();
-  if(json.success)return json.data.link;
-  throw new Error('Imgur upload failed');
-};
+// Imgur: removed as an upload target (anonymous, public by URL, shared client
+// key). Old i.imgur.com links in the data still display, and Sincronizar can
+// move them into the account's cloud (bhMigrateImgur).
 
 // IDB local fallback
 const _isVideoFile=f=>/^video\//i.test(f.type||'');
@@ -4256,7 +4245,7 @@ const _storeIdb=async(file)=>{
   return 'idb://'+key;
 };
 
-// Core upload: Firebase Storage \u2192 Imgur (images only) \u2192 IDB
+// Core upload: Firebase Storage \u2192 IDB (this device)
 
 // Compatibility name for existing call sites. Original bytes are preserved;
 // only _makeThumbBlob produces a separate lower-resolution preview.
@@ -4427,35 +4416,10 @@ const bhPrepareMedia=async(file,onPct)=>{
   return best;
 };
 
-// Imgur uploads are PUBLIC (anyone with the URL can view). For client work
-// that matters — ask once per session before the first Imgur fallback and
-// remember the answer. Declining stores the image locally (IDB) instead.
-let _imgurAllowed=null; // null = not asked yet, true/false = session decision
-// Parallel uploads can all reach this at once: they share ONE question (two
-// concurrent bhConfirm calls would replace each other and leave one pending).
-let _imgurAsking=null;
-const _askImgurConsent=async()=>{
-  if(_imgurAllowed===null&&_imgurAsking)return _imgurAsking;
-  if(_imgurAllowed===null){
-    _imgurAsking=bhConfirm({
-      title:'Enviar ao Imgur?',
-      confirmLabel:'Enviar ao Imgur',
-      cancelLabel:'Manter só aqui',
-      message:'Sem nuvem do Google disponível para esta imagem.\n\n'+
-      'Enviar para o Imgur? A imagem ficará acessível publicamente por URL '+
-      '(qualquer pessoa com o link pode ver).\n\n'+
-      'Cancelar mantém a imagem apenas neste dispositivo (não sincroniza).'}).then(v=>{_imgurAllowed=v;_imgurAsking=null;return v;},e=>{_imgurAsking=null;throw e;});
-    return _imgurAsking;
-  }
-  return _imgurAllowed;
-};
-
 // While signed in, a Storage failure that is clearly a network/server hiccup
 // (offline, timeout, cancelled, dropped connection) keeps the image locally as
-// idb:// and bhCloudMedia uploads it on the next push; offering the public Imgur
-// copy for a hiccup would leak the image for no reason. Anything else (rules,
-// quota, an unclassified error that may never succeed) keeps the old ladder, so a
-// permanently failing upload cannot leave an idb:// that blocks the whole push.
+// idb:// and bhCloudMedia uploads it on the next push. (Any failure now ends on
+// this device: the public Imgur fallback was removed.)
 const bhStorageErrTransient=e=>{
   if(typeof navigator!=='undefined'&&navigator.onLine===false)return true;
   const c=String(e&&e.code||'');
@@ -4472,10 +4436,7 @@ const _uploadSingle=async(file,onPct,onBytes)=>{
       if(bhStorageErrTransient(e)){console.warn('[BoardHub] Transient Storage failure; keeping the image locally for the next sync.');return await _storeIdb(file);}
     }
   }
-  if(!_isVideoFile(file)&&await _askImgurConsent()){
-    try{return await _uploadImgur(file);}catch(e){console.warn('[BoardHub] Imgur failed:',e.message);}
-  }
-  console.warn('[BoardHub] Falling back to local IDB. File will NOT sync across devices.');
+  console.warn('[BoardHub] Kept on this device (idb://); it goes to the cloud on the next sync while signed in.');
   return await _storeIdb(file);
 };
 // @bh-test-end upsingle
@@ -4535,7 +4496,6 @@ const uploadImages=async(files,onProgress,onCompact)=>{
     results.push(await _uploadSingle(files[i],onCompact?pct=>onCompact(i,pct):undefined,
       onProgress?frac=>onProgress(i+Math.min(.99,Math.max(0,frac)),files.length):undefined));
     if(onProgress)onProgress(i+1,files.length);
-    // Only delay on Imgur path (Firebase has no rate limit)
     if(i<files.length-1&&(!_fbReady||!_fbAuth?.currentUser)){
       await new Promise(r=>setTimeout(r,BULK_UPLOAD_DELAY_MS));
     }
@@ -4558,9 +4518,6 @@ const reuploadLocalImages=async(state,onProgress)=>{
         let url=null;
         let transient=false;
         if(_fbReady&&_fbAuth?.currentUser){try{url=await uploadToFirebaseStorage(file,_fbAuth.currentUser.uid);}catch(e){transient=bhStorageErrTransient(e);/*silent-ok: this is the first rung of a deliberate ladder — Imgur is tried next, then local IDB*/}}
-        if(!url&&!transient&&!_isVideoFile(file)&&await _askImgurConsent()){
-          try{url=await _uploadImgur(file);}catch{/*silent-ok: the local IDB reference remains intact*/}
-        }
         if(url)map['idb://'+key]=url;
       }
     }catch(e){console.warn('[BoardHub] Re-upload failed for',key,e);}
@@ -4630,8 +4587,44 @@ function collectIdbKeys(obj,set=new Set()){
 const rehydrateIdbRefs=(obj,map)=>{
   if(Array.isArray(obj))return obj.map(x=>rehydrateIdbRefs(x,map));
   if(obj&&typeof obj==='object'){const out={};for(const k of Object.keys(obj))out[k]=rehydrateIdbRefs(obj[k],map);return out;}
-  if(typeof obj==='string')return obj.replace(/idb:\/\/[A-Za-z0-9_.-]+/g,ref=>map[ref]||ref);
+  if(typeof obj==='string')return obj.replace(/idb:\/\/[A-Za-z0-9_.-]+|https?:\/\/i\.imgur\.com\/[A-Za-z0-9]{5,}\.[A-Za-z0-9]{2,5}/g,ref=>map[ref]||ref);
   return obj;
+};
+// @bh-test-begin imgur
+// Every i.imgur.com link anywhere in the state (fields, lists, note HTML).
+const BH_IMGUR_RE=/https?:\/\/i\.imgur\.com\/[A-Za-z0-9]{5,}\.[A-Za-z0-9]{2,5}/g;
+const bhCollectImgur=(obj,out=new Set())=>{
+  if(Array.isArray(obj))obj.forEach(v=>bhCollectImgur(v,out));
+  else if(obj&&typeof obj==='object')Object.values(obj).forEach(v=>bhCollectImgur(v,out));
+  else if(typeof obj==='string'&&obj.includes('imgur.com'))(obj.match(BH_IMGUR_RE)||[]).forEach(u=>out.add(u));
+  return out;
+};
+// @bh-test-end imgur
+// Download each Imgur image and upload it to the signed-in account's Storage.
+// Returns {map:{oldUrl:newUrl}, failed:[urls]} for onApplyMediaMap; nothing is
+// removed from Imgur (anonymous uploads cannot be deleted).
+const bhMigrateImgur=async(state,onProgress)=>{
+  const urls=[...bhCollectImgur(state)];
+  const map={},failed=[];
+  if(!urls.length)return {map,failed};
+  if(!(_fbReady&&_fbAuth?.currentUser))throw new Error('Entre na sua conta para mover as imagens.');
+  const uid=_fbAuth.currentUser.uid;let next=0,done=0;
+  const worker=async()=>{
+    while(next<urls.length){
+      const url=urls[next++];
+      try{
+        const res=await fetch(url,{cache:'force-cache'});
+        if(!res.ok)throw new Error('HTTP '+res.status);
+        const blob=await res.blob();
+        if(!/^image\//.test(blob.type))throw new Error('not an image');
+        const name=url.split('/').pop();
+        map[url]=await uploadToFirebaseStorage(new File([blob],name,{type:blob.type}),uid);
+      }catch(e){bhLog('imgur.migrate',e,url);failed.push(url);}
+      done++;if(onProgress)onProgress(done,urls.length);
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(4,urls.length)},worker));
+  return {map,failed};
 };
 
 // - IDB GARBAGE COLLECTOR -
@@ -12385,8 +12378,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   // editor resolves it to a temporary object URL only for display and restores
   // the stable reference when serializing the note.
   // Images, GIFs and videos: the same media budget as every other upload
-  // (bhPrepareMedia), then cloud, Imgur (images only: its API takes no video)
-  // or this device.
+  // (bhPrepareMedia), then the cloud, or this device.
   const uploadNoteImage=useCallback(async(file,onPct)=>{
     const prepared=await bhPrepareMedia(file,onPct);
     const compressed=_isVideoFile(prepared)?prepared:await _compressImage(prepared);
@@ -12397,9 +12389,6 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         if(bhStorageErrTransient(e))return await _storeIdb(compressed); // transient: kept locally, uploaded by the next push
       }
     }
-    if(!_isVideoFile(compressed))try{
-      if(await _askImgurConsent())return await _uploadImgur(compressed);
-    }catch(e){console.warn('[BoardHub] Imgur fallback failed for note image, keeping it on this device:',e.message);}
     return await _storeIdb(compressed);
   },[]);
 
@@ -14386,6 +14375,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
 
   const showStatus=(type,msg)=>{setStatus({type,msg});if(type!=='err')setTimeout(()=>setStatus(null),8000);};
   const localImgCount=collectIdbKeys(appState).size;
+  const imgurCount=useMemo(()=>bhCollectImgur(appState).size,[appState]);
 
   const signIn=async()=>{
     try{
@@ -14439,8 +14429,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const handleReupload=async()=>{
     const keys=[...collectIdbKeys(appState)];
     if(keys.length===0){showStatus('ok','✓ Nenhuma imagem local — tudo já está na nuvem!');return;}
-    if(!fbUser&&!await bhConfirm({title:'Enviar ao Imgur',confirmLabel:'Enviar',
-      message:`${keys.length} imagem(ns) local(is). Sem login ativo, serão enviadas ao Imgur. Continuar?`}))return;
+    if(!fbUser){showStatus('err','Entre na sua conta para enviar as imagens locais para a nuvem.');return;}
     setLoading(true);
     setReuploadProgress({done:0,total:keys.length});
     try{
@@ -14450,6 +14439,21 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       if(result.failed.length)showStatus('err',`${result.failed.length} mídia(s) continuam locais. As demais foram enviadas.`);
       else showStatus('ok','✓ Imagens enviadas para a nuvem!');
     }catch(e){setReuploadProgress(null);showStatus('err','Falha: '+e.message);}
+    finally{setLoading(false);}
+  };
+
+  const handleMigrateImgur=async()=>{
+    if(!fbUser){showStatus('err','Entre na sua conta para mover as imagens do Imgur para a sua nuvem.');return;}
+    setLoading(true);
+    setReuploadProgress({done:0,total:imgurCount});
+    try{
+      const result=await bhMigrateImgur(appState,(done,total)=>setReuploadProgress({done,total}));
+      await onApplyMediaMap(result.map);
+      setReuploadProgress(null);
+      const moved=Object.keys(result.map).length;
+      if(result.failed.length)showStatus('err',`${moved} imagem(ns) movida(s) para a sua nuvem. ${result.failed.length} não puderam ser baixadas do Imgur (podem ter sido removidas lá) e continuam como estavam.`);
+      else showStatus('ok',`✓ ${moved} imagem(ns) movida(s) do Imgur para a sua nuvem.`);
+    }catch(e){setReuploadProgress(null);showStatus('err','Falha: '+(e?.message||e));}
     finally{setLoading(false);}
   };
 
@@ -14668,6 +14672,12 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
           {localImgCount>0&&(
             <button className="btn btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={handleReupload} disabled={loading}>
               <Icon name="cloud-upload" size={14}/> Re-enviar Imagens ({localImgCount})
+            </button>
+          )}
+          {imgurCount>0&&(
+            <button className="btn btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={handleMigrateImgur} disabled={loading}
+              title="Baixa cada imagem guardada no Imgur (pública) e a envia para a sua nuvem; os links nos posts e notas são trocados.">
+              <Icon name="cloud-upload" size={14}/> Mover imagens do Imgur para a sua nuvem ({imgurCount})
             </button>
           )}
           {persistState!=='?'&&(

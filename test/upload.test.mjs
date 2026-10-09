@@ -46,7 +46,7 @@ function world({ rtt = 30, existing = [], failPut = null, auth = true } = {}) {
     bhPrepareMedia: async f => f, _compressImage: async f => f, bhMediaPrecheck: async () => null,
     _isVideoFile: f => /^video\//.test(f.type),
     bhStorageErrTransient: e => /retry-limit|canceled|offline/.test(e && e.code || ''),
-    _storeIdb: async () => 'idb://local', _askImgurConsent: async () => false, _uploadImgur: async () => { throw new Error('no'); },
+    _storeIdb: async () => 'idb://local',
   };
   const api = load(['upfb', 'upsingle', 'upmany'], { stubs });
   return { api, calls, store, cache };
