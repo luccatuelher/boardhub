@@ -2601,6 +2601,70 @@ const bhDispCacheState=(rec,now)=>{
   return {state:'lookup'};
 };
 // @bh-test-end disp
+// @bh-test-begin holds
+// HOLDS in an exported animatic (frame_0001.webp …): a drawing held for many
+// frames, sometimes with a camera move, with a burned-in timecode that changes
+// every frame. Frames are compared as small greyscale images (BH_HOLD_W×H):
+// the top-right corner (timecode / shot label) is ignored, and a small shift is
+// allowed so a pan does not count as a change. A new hold starts where the
+// change from the previous frame spikes above its neighbours, or where the frame
+// has drifted far from the first frame of the hold (dissolves, long moves).
+const BH_HOLD_W=128,BH_HOLD_H=72;
+const bhHoldMask=(W,H)=>{
+  const m=new Uint8Array(W*H);
+  for(let y=2;y<H-2;y++)for(let x=3;x<W-3;x++)m[y*W+x]=(x>W*0.68&&y<H*0.22)?0:1;
+  return m;
+};
+// % of (unmasked) pixels that differ by more than `thr`, at the best shift.
+const bhFrameDiff=(a,b,W,H,mask,maxDx=3,maxDy=1,thr=24)=>{
+  let best=100;
+  for(let dy=-maxDy;dy<=maxDy;dy++)for(let dx=-maxDx;dx<=maxDx;dx++){
+    let n=0,ch=0;
+    for(let y=0;y<H;y++){
+      const y2=y+dy;if(y2<0||y2>=H)continue;
+      for(let x=0;x<W;x++){
+        const i=y*W+x;if(!mask[i])continue;
+        const x2=x+dx;if(x2<0||x2>=W)continue;
+        n++;if(Math.abs(a[i]-b[y2*W+x2])>thr)ch++;
+      }
+    }
+    if(n)best=Math.min(best,ch*100/n);
+  }
+  return best;
+};
+const BH_HOLD_PRESETS={
+  // minCut: smallest change that can be a cut (a static hold differs by ~0, so a
+  // few redrawn lines stand out); spike: how far above its neighbours (a pan's
+  // residual is ~0.5-0.9 every frame); hardCut: always a cut; drift: vs. the
+  // hold's first frame.
+  fewer:{minCut:1.5,spike:3,hardCut:8,drift:14},
+  normal:{minCut:0.5,spike:2.5,hardCut:5,drift:9},
+  more:{minCut:0.25,spike:1.8,hardCut:3,drift:6},
+};
+// consec[i] = diff(frame i-1, frame i) (consec[0] unused); anchorDiff(s,i) =
+// diff(first frame of the current hold, frame i). Returns [[start,end],…].
+const bhGroupHolds=(consec,anchorDiff,preset)=>{
+  const p=preset||BH_HOLD_PRESETS.normal,n=consec.length;
+  if(!n)return [];
+  const groups=[];let start=0;
+  for(let i=1;i<n;i++){
+    const win=[];
+    for(let j=Math.max(1,i-5);j<=Math.min(n-1,i+5);j++)if(j!==i)win.push(consec[j]);
+    win.sort((x,y)=>x-y);
+    const med=win.length?win[win.length>>1]:0;
+    const d=consec[i];
+    const cut=d>=p.hardCut||(d>p.minCut&&d>p.spike*med)||(anchorDiff&&anchorDiff(start,i)>p.drift);
+    if(cut){groups.push([start,i-1]);start=i;}
+  }
+  groups.push([start,n-1]);
+  return groups;
+};
+// The frame that stands for a hold: its middle one (a camera move is then shown
+// mid-way, and the first frame of a dissolve is avoided).
+const bhHoldPick=group=>group[0]+((group[1]-group[0])>>1);
+// Natural order: frame_2 before frame_10.
+const bhNaturalCompare=(a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
+// @bh-test-end holds
 // Preload a URL off-DOM, deduped. Hover/open warmers and lightbox neighbour
 // prefetch all share this map, so the same network image is never requested twice.
 const _netPreload=new Map();
@@ -4814,6 +4878,128 @@ const Modal=({title,onClose,children,width=480})=>{
   </div>
   , document.body);};
 
+
+
+// ── HOLD REVIEW (big batches of animatic frames) ─────────────────────────
+// Before a batch of >= BH_HOLD_MIN still images is uploaded, the frames are
+// compared and grouped into holds; the owner sees one thumbnail per hold and
+// chooses: upload one frame per hold, upload everything, or cancel.
+const BH_HOLD_MIN=12;
+const _bhSmallGray=async file=>{
+  let bmp=null;
+  try{bmp=await createImageBitmap(file,{resizeWidth:BH_HOLD_W,resizeHeight:BH_HOLD_H,resizeQuality:'medium'});}
+  catch{bmp=await createImageBitmap(file);}
+  try{
+    const c=document.createElement('canvas');c.width=BH_HOLD_W;c.height=BH_HOLD_H;
+    const g=c.getContext('2d',{willReadFrequently:true});g.imageSmoothingQuality='medium';
+    g.drawImage(bmp,0,0,BH_HOLD_W,BH_HOLD_H);
+    const d=g.getImageData(0,0,BH_HOLD_W,BH_HOLD_H).data,out=new Uint8Array(BH_HOLD_W*BH_HOLD_H);
+    for(let i=0;i<out.length;i++)out[i]=(d[i*4]*299+d[i*4+1]*587+d[i*4+2]*114)/1000;
+    return out;
+  }finally{if(bmp&&bmp.close)bmp.close();}
+};
+const _bhHalf=(a,W,H)=>{const w=W>>1,h=H>>1,o=new Uint8Array(w*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=2*y*W+2*x;o[y*w+x]=(a[i]+a[i+1]+a[i+W]+a[i+W+1])>>2;}return o;};
+// Reads every frame once (4 at a time) and returns what bhGroupHolds needs.
+const bhAnalyzeFrames=async(files,onProgress,isCancelled)=>{
+  const n=files.length,grays=new Array(n);let next=0,done=0;
+  const worker=async()=>{
+    while(next<n){
+      const i=next++;
+      if(isCancelled())return;
+      try{grays[i]=await _bhSmallGray(files[i]);}catch{grays[i]=null;}
+      done++;if(done%8===0||done===n)onProgress(done,n);
+    }
+  };
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  if(isCancelled())return null;
+  const W=BH_HOLD_W,H=BH_HOLD_H,mask=bhHoldMask(W,H),hw=W>>1,hh=H>>1,hmask=bhHoldMask(hw,hh);
+  const halves=grays.map(g=>g?_bhHalf(g,W,H):null);
+  const consec=new Array(n).fill(0);
+  for(let i=1;i<n;i++){
+    // An unreadable frame is treated as its own hold (never silently dropped).
+    consec[i]=grays[i]&&grays[i-1]?bhFrameDiff(grays[i-1],grays[i],W,H,mask,3,1):100;
+    if(i%64===0)await new Promise(r=>setTimeout(r,0));
+  }
+  const memo=new Map();
+  const anchorDiff=(s,i)=>{const k=s+':'+i;if(!memo.has(k))memo.set(k,halves[s]&&halves[i]?bhFrameDiff(halves[s],halves[i],hw,hh,hmask,6,2):100);return memo.get(k);};
+  return {consec,anchorDiff};
+};
+const _bhThumbUrl=async file=>{
+  let bmp=null;
+  try{
+    try{bmp=await createImageBitmap(file,{resizeWidth:240,resizeQuality:'medium'});}catch{bmp=await createImageBitmap(file);}
+    const r=240/bmp.width,c=document.createElement('canvas');c.width=240;c.height=Math.max(1,Math.round(bmp.height*r));
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    const b=await new Promise(res=>c.toBlob(res,'image/jpeg',0.8));
+    return b?URL.createObjectURL(b):'';
+  }catch{return '';}finally{if(bmp&&bmp.close)bmp.close();}
+};
+const HoldReview=({files,onDone})=>{
+  const [stage,setStage]=useState({done:0,total:files.length});
+  const [analysis,setAnalysis]=useState(null);
+  const [preset,setPreset]=useState('normal');
+  const [thumbs,setThumbs]=useState({});
+  const cancelled=useRef(false);
+  useEffect(()=>{
+    bhAnalyzeFrames(files,(done,total)=>setStage({done,total}),()=>cancelled.current).then(a=>{if(a)setAnalysis(a);}).catch(e=>{bhLog('holds.analyze',e);onDone('all');});
+    return()=>{cancelled.current=true;};
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
+  const groups=useMemo(()=>analysis?bhGroupHolds(analysis.consec,analysis.anchorDiff,BH_HOLD_PRESETS[preset]):[],[analysis,preset]);
+  const picks=useMemo(()=>groups.map(bhHoldPick),[groups]);
+  const SHOW=240;
+  useEffect(()=>{
+    let stop=false;
+    (async()=>{for(const i of picks.slice(0,SHOW)){if(stop)return;if(thumbs[i]!==undefined)continue;const u=await _bhThumbUrl(files[i]);if(stop){if(u)URL.revokeObjectURL(u);return;}setThumbs(t=>({...t,[i]:u}));}})();
+    return()=>{stop=true;};
+  },[picks]);// eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>()=>{Object.values(thumbsRef.current).forEach(u=>{if(u)URL.revokeObjectURL(u);});},[]);
+  const thumbsRef=useRef(thumbs);thumbsRef.current=thumbs;
+  const close=v=>{cancelled.current=true;onDone(v);};
+  const seg=(k,label)=><button key={k} type="button" onClick={()=>setPreset(k)} className={preset===k?'btn btn-dark':'btn btn-ghost'} style={{padding:'4px 10px',fontSize:'.75rem'}}>{label}</button>;
+  return <Modal title="Quadros repetidos" onClose={()=>close(null)} width={920}>
+    {!analysis?<div style={{display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:'.85rem'}}>Comparando {files.length} quadros para achar os holds… {stage.done}/{stage.total}</div>
+      <div style={{height:4,background:'var(--border)',borderRadius:2}}><div style={{height:'100%',width:(stage.done/Math.max(1,stage.total)*100)+'%',background:'var(--text)',borderRadius:2}}/></div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}}>
+        <button className="btn btn-ghost" onClick={()=>close(null)} style={{padding:'6px 14px',fontSize:'.8rem'}}>Cancelar</button>
+        <button className="btn btn-outline" onClick={()=>close('all')} style={{padding:'6px 14px',fontSize:'.8rem'}}>Pular e enviar todos</button>
+      </div>
+    </div>:<div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{fontSize:'.85rem',lineHeight:1.5}}>{files.length} quadros → <b>{groups.length} holds</b>. Será enviado 1 quadro de cada hold (o do meio). Confira abaixo; se faltar ou sobrar painel, ajuste a sensibilidade.</div>
+      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}><span style={{fontSize:'.75rem',color:'var(--muted)'}}>Sensibilidade:</span>{seg('fewer','Menos holds')}{seg('normal','Normal')}{seg('more','Mais holds')}</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,maxHeight:'52vh',overflowY:'auto',padding:2}}>
+        {groups.slice(0,SHOW).map((g,k)=>{const i=picks[k];return <figure key={g[0]+'-'+g[1]} style={{margin:0}}>
+          <div style={{aspectRatio:'16/9',background:'var(--border)',borderRadius:6,overflow:'hidden'}}>{thumbs[i]?<img alt="" src={thumbs[i]} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>:null}</div>
+          <figcaption style={{fontSize:'.68rem',color:'var(--muted)',marginTop:3}}>{k+1} · {g[1]-g[0]+1} quadro{g[1]>g[0]?'s':''}</figcaption>
+        </figure>;})}
+        {groups.length>SHOW&&<div style={{fontSize:'.75rem',color:'var(--muted)',alignSelf:'center'}}>+{groups.length-SHOW} holds</div>}
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-ghost" onClick={()=>close(null)} style={{padding:'6px 14px',fontSize:'.8rem'}}>Cancelar</button>
+        <button className="btn btn-outline" onClick={()=>close('all')} style={{padding:'6px 14px',fontSize:'.8rem'}}>Enviar todos os {files.length}</button>
+        <button className="btn btn-primary" autoFocus onClick={()=>close({picks})} style={{padding:'6px 14px',fontSize:'.8rem'}}>Enviar {groups.length} (1 por hold)</button>
+      </div>
+    </div>}
+  </Modal>;
+};
+// Big batch of still images → the files to upload (sorted by name), or null if
+// cancelled. Smaller batches, videos and GIFs pass through untouched.
+const bhPickHoldFrames=files=>{
+  const stills=files.every(f=>/^image\//.test(f.type||'')&&!/gif|svg/i.test(f.type||''));
+  if(files.length<BH_HOLD_MIN||!stills||typeof createImageBitmap!=='function')return Promise.resolve(files);
+  const sorted=[...files].sort((a,b)=>bhNaturalCompare(a.name,b.name));
+  return new Promise(resolve=>{
+    const host=document.createElement('div');document.body.appendChild(host);
+    const root=ReactDOM.createRoot(host);
+    const onDone=v=>{
+      setTimeout(()=>{try{root.unmount();}catch{/*silent-ok*/}host.remove();},0);
+      if(!v)resolve(null);
+      else if(v==='all')resolve(sorted);
+      else resolve(v.picks.map(i=>sorted[i]));
+    };
+    root.render(<HoldReview files={sorted} onDone={onDone}/>);
+  });
+};
 
 // Search text is prepared once when the palette opens or its source arrays
 // change. Image payloads and markup are excluded; neither is useful to search,
@@ -10843,8 +11029,10 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   // Running totals of the whole run (all queued batches), so the counter reads 0/1 -> 0/2.
   const uploadRunRef=useRef({done:0,total:0});
   const addImageFiles=async(rawFiles,target)=>{
-    const files=(rawFiles||[]).filter(f=>f&&(/^(image|video)\//.test(f.type)||/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i.test(f.name||'')));
+    let files=(rawFiles||[]).filter(f=>f&&(/^(image|video)\//.test(f.type)||/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i.test(f.name||'')));
     if(!files.length)return;
+    // A big batch of frames (an exported animatic): offer one frame per hold.
+    if(!target){const picked=await bhPickHoldFrames(files);if(!picked||!picked.length)return;files=picked;}
     const postId=target?target.postId:selected?.id,linked=target?target.linked:!!selected?.linkedTask;
     const run=uploadRunRef.current;
     if(uploading){

@@ -32,6 +32,7 @@ export const EXPECTED = {
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
   fbimg: ['bhIsFirebaseImage'],
   dispmach: ['_bhDispLookup', '_bhDispRun', '_makeDisplayBlob', 'bhDispMaybeEnqueue', '_bhDisp', '_bhDispUrls'],
+  holds: ['bhHoldMask', 'bhFrameDiff', 'BH_HOLD_PRESETS', 'bhGroupHolds', 'bhHoldPick', 'bhNaturalCompare'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
