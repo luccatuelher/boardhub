@@ -32,6 +32,8 @@ test('budget: save-data and 2g are minimal, 3g reduced, default full, low memory
   assert.deepEqual(bhPreloadBudget({ effectiveType: '3g' }), { ahead: 2, behind: 1, conc: 2, maxBytes: 120 * MB });
   assert.deepEqual(bhPreloadBudget({ effectiveType: '4g' }), { ahead: 6, behind: 2, conc: 4, maxBytes: 160 * MB });
   assert.deepEqual(bhPreloadBudget(), { ahead: 6, behind: 2, conc: 4, maxBytes: 160 * MB });
+  assert.deepEqual(bhPreloadBudget({ wide: true }), { ahead: 10, behind: 3, conc: 6, maxBytes: 256 * MB });
+  assert.deepEqual(bhPreloadBudget({ wide: true, effectiveType: '3g' }), { ahead: 2, behind: 1, conc: 2, maxBytes: 120 * MB });
   assert.deepEqual(bhPreloadBudget({ deviceMemory: 4 }), { ahead: 2, behind: 1, conc: 4, maxBytes: 80 * MB });
 });
 

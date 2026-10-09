@@ -188,3 +188,15 @@ test('retention safety: past-season sessions do not influence maintain or reconc
   for (const k of ['points', 'seasonId', 'decayApplied', 'decayLoss']) assert.deepEqual(withPast.rank[k], withoutPast.rank[k], k);
   assert.deepEqual(withPast.rank.notices.map(n => n.id), withoutPast.rank.notices.map(n => n.id));
 }));
+
+test('keep-local reconcile: the cloud focus log is taken before decay, so no stale charge', () => {
+  const { bhMergeFocusDays } = R;
+  const local = { days: { '2026-10-05': 60 }, allocations: {}, rank: rank({ points: 2000, startedOn: '2026-10-05' }) };
+  const cloudDays = { '2026-10-05': 3 * 3600, '2026-10-06': 3 * 3600, '2026-10-07': 3 * 3600 };
+  const merged = bhMergeFocusDays(local, cloudDays);
+  assert.equal(merged.days['2026-10-05'], 3 * 3600);
+  assert.equal(bhMergeFocusDays(merged, { '2026-10-05': 10 }), merged, 'a smaller value never lowers the log');
+  const out = pomoRankMaintain(merged, NOW);
+  assert.equal(out.rank.points, 2000);
+  assert.ok(!(out.rank.notices || []).some(n => n.type === 'decay'));
+});

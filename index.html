@@ -2525,7 +2525,7 @@ const bhPreloadBudget=(net={})=>{
   let b;
   if(net.saveData||/(^|-)2g$/.test(type))b={ahead:1,behind:0,conc:1,maxBytes:80*1048576};
   else if(type==='3g')b={ahead:2,behind:1,conc:2,maxBytes:120*1048576};
-  else b={ahead:6,behind:2,conc:4,maxBytes:160*1048576};
+  else b=net.wide?{ahead:10,behind:3,conc:6,maxBytes:256*1048576}:{ahead:6,behind:2,conc:4,maxBytes:160*1048576};
   if(net.deviceMemory&&net.deviceMemory<=4)b={...b,ahead:Math.min(b.ahead,2),behind:Math.min(b.behind,1),maxBytes:Math.min(b.maxBytes,80*1048576)};
   return b;
 };
@@ -2546,10 +2546,10 @@ const bhPreloadFit=(sizes,maxBytes,minKeep=2)=>{
 // original is never touched; this is an extra, lighter copy for the full view
 // so every image downloads and decodes in about the same time. 2880 px is the
 // width of the lightbox stage on a retina display.
-const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=1.2*1048576,BH_DISP_MIN_BYTES_PNG=300*1024;
+const BH_DISP_MAX=2880,BH_DISP_MIN_BYTES=500*1024,BH_DISP_MIN_BYTES_PNG=300*1024;
 // Version of these rules: 'small'/'notSmaller' records written under older rules
-// are looked at again (v2 lowered the PNG threshold).
-const BH_DISP_RULES=2;
+// are looked at again (v2 lowered the PNG threshold, v3 the JPEG/WebP one).
+const BH_DISP_RULES=3;
 const bhDispName=path=>{
   const p=String(path||'');
   if(!/\/sha256_[0-9a-f]{64}_[a-z0-9_]+$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
@@ -2567,7 +2567,7 @@ const bhDispPlan=info=>{
   if(long<=BH_DISP_MAX&&!(bytes>min))return no('small');
   const r=Math.min(1,BH_DISP_MAX/long);
   // PNGs are usually drawings: a higher quality keeps thin lines clean.
-  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.92:0.88,reason:''};
+  return {needed:true,targetW:Math.max(1,Math.round(w*r)),targetH:Math.max(1,Math.round(h*r)),mime:'image/webp',quality:/png/i.test(type)?0.92:0.85,reason:''};
 };
 // Only keep a derivative that is clearly lighter than the original.
 const bhDispAccept=(origBytes,outBytes)=>outBytes>0&&outBytes<origBytes*0.7;
@@ -3805,6 +3805,8 @@ const bhIsFirebaseImage=url=>{
 };
 // @bh-test-end fbimg
 const _bhRemoteInflight=new Map(),_bhRemoteUrls=new Map();
+// Cache writes still in flight (bhRemoteDisplay does not wait for them).
+const _bhPendingPuts={set:new Set(),add(p){this.set.add(p);p.finally(()=>this.set.delete(p));},flush(){return Promise.all([...this.set]);}};
 // @bh-test-begin dispmach
 // ── DISPLAY-SIZE DERIVATIVE (see the `disp` test region) ───────────────
 const _bhDispUrls=new Map(),_bhDispInflight=new Map(),_bhNoDeriv=new Set(); // _bhNoDeriv: 'd:'/'t:'+src that Storage refuses for this session
@@ -3858,8 +3860,14 @@ const _makeDisplayBlob=async file=>{
 };
 // Background generation: one job at a time, when idle, desktop only.
 const _bhDisp={q:[],running:false,done:0};
+let _bhWebpEnc=null;
+const _bhCanEncodeWebp=()=>{
+  if(_bhWebpEnc===null)try{const c=document.createElement('canvas');c.width=c.height=1;_bhWebpEnc=c.toDataURL('image/webp').startsWith('data:image/webp');}catch{_bhWebpEnc=false;}
+  return _bhWebpEnc;
+};
 const _bhDispAllowed=()=>{
   try{
+    if(!_bhCanEncodeWebp())return false;
     const c=navigator.connection||{};
     return !!_fbStorage&&!!_fbAuth?.currentUser&&navigator.onLine!==false&&!c.saveData&&!/(^|-)[23]g$/.test(String(c.effectiveType||''))
       &&(!navigator.deviceMemory||navigator.deviceMemory>=4)&&(!window.matchMedia||window.matchMedia('(min-width: 769px)').matches);
@@ -3869,7 +3877,7 @@ const bhDispMaybeEnqueue=(src,blob)=>{
   try{
     if(typeof src!=='string'||!bhIsFirebaseImage(src)||!(blob instanceof Blob))return;
     if(!/^image\//.test(blob.type)||/^image\/(?:gif|svg)/.test(blob.type))return;
-    if(_bhDisp.done>=200||_bhDisp.q.length>=200||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
+    if(_bhDisp.done>=(typeof _bhPreloadRun!=='undefined'&&_bhPreloadRun.state?5000:200)||_bhDisp.q.length>=200||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
     // No Blob in the queue: the original was just stored in the persistent cache
     // ('blob:'+src) and is read back when the job runs, so a whole post can wait
     // here without holding its originals in memory.
@@ -3955,7 +3963,8 @@ const bhRemoteDisplay=async(src,variant)=>{
         const res=await fetch(target,{cache:'force-cache'});
         if(!res.ok){const err=new Error('Imagem indisponível.');err.status=res.status;throw err;}
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
-        await bhMediaCachePut('blob:'+target,{blob,at:Date.now()});
+        // Not awaited: the image shows now; the local copy is written meanwhile.
+        _bhPendingPuts.add(bhMediaCachePut('blob:'+target,{blob,at:Date.now()}));
       }
       // An original we hold and have no display copy for: make one in the background.
       if(target===src&&(variant==='disp'||variant===false||variant===undefined)&&!thumb)bhDispMaybeEnqueue(src,blob);
@@ -3990,7 +3999,7 @@ const bhRemoteDisplay=async(src,variant)=>{
 // remote refcounts go back, so nothing leaks after the lightbox closes.
 const _lb={entries:new Map(),queue:[],active:0,conc:3,listener:null,last:null};
 const bhLbBudget=()=>{
-  try{const c=navigator.connection||{};return bhPreloadBudget({saveData:c.saveData,effectiveType:c.effectiveType,deviceMemory:navigator.deviceMemory});}
+  try{const c=navigator.connection||{};return bhPreloadBudget({saveData:c.saveData,effectiveType:c.effectiveType,deviceMemory:navigator.deviceMemory,wide:!!(window.matchMedia&&window.matchMedia('(min-width: 769px)').matches)});}
   catch{return bhPreloadBudget();}
 };
 const _lbResolve=async src=>{
@@ -4115,6 +4124,16 @@ const bhWarmPost=(srcs,index=0,{delay=600,conc=3,max=40}={})=>{
   },delay);
   return ()=>{clearTimeout(t);if(_warm.token===token)_warm.token++;};
 };
+// Opening a post asks Storage for every image's display-copy URL at once (8 in
+// parallel, phones too: tiny requests), so flipping never waits on a lookup
+// round trip per image. Answers are kept in the cache ('disp:' records).
+const bhResolvePost=srcs=>{
+  const todo=(Array.isArray(srcs)?srcs:[]).filter(s=>typeof s==='string'&&bhIsFirebaseImage(s)&&!isVideoSrc(s)&&!_bhDispUrls.has(s));
+  let stop=false;
+  const worker=async()=>{while(!stop&&todo.length){try{await _bhDispLookup(todo.shift());}catch{/*silent-ok*/}}};
+  for(let i=0;i<8;i++)worker();
+  return ()=>{stop=true;};
+};
 // Thumbnail of an image that is already in memory (the grid loaded it): shown
 // at once while the original is still on its way.
 const _lbThumb=src=>{
@@ -4142,10 +4161,13 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
         const t=await bhRemoteDisplay(src,'thumb');t.release();
         const f=await bhRemoteDisplay(src,'disp');f.release();
       }catch(e){failed++;bhLog('preloadAll',e,String(src).slice(0,120));}
+      // Downloaded images wait in memory until written: keep that bounded.
+      try{if(typeof _bhPendingPuts!=='undefined'&&_bhPendingPuts.set.size>16)await _bhPendingPuts.flush();}catch{/*silent-ok*/}
       done++;onProgress(done,srcs.length);
     }
   };
   await Promise.all([worker(),worker(),worker(),worker()]);
+  try{if(typeof _bhPendingPuts!=='undefined')await _bhPendingPuts.flush();}catch{/*silent-ok*/}
   return {total:srcs.length,done,failed};
 };
 // @bh-test-end preloadall
@@ -4195,13 +4217,45 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
         return await thumbRef.getDownloadURL();
       }catch{return '';/* A derivative cannot turn a successful original upload into data loss. */}
     };
-    let url,thumb='';
+    // Display-size copy of a NEW original, made and sent alongside it (any
+    // device), so the full view never has to download the heavy original.
+    // null = could not try (fall back to the background queue).
+    const wantDisp=/^image\//.test(mime)&&!/^image\/(?:gif|svg|avif)/.test(mime);
+    // Desktop-class devices only (a full decode per upload; phones fall back to
+    // the background queue, which also skips them).
+    const dispHere=wantDisp&&(()=>{try{return _bhDispAllowed();}catch{return false;}})();
+    const putDisp=async()=>{
+      if(!dispHere)return null;
+      try{
+        const made=await _makeDisplayBlob(file);
+        if(!made.blob)return {none:made.none||'failed'};
+        const name=bhDispName(ref.fullPath);if(!name)return null;
+        const dref=_fbStorage.ref(name);
+        assertUser();bhDiag.record('uploadStarted',made.blob.size,'display');
+        try{await dref.put(made.blob,{...META,contentType:made.blob.type});}
+        catch(e){if(!(e&&e.code==='storage/unauthorized'))throw e;}
+        return {url:await dref.getDownloadURL(),blob:made.blob};
+      }catch{return null;}
+    };
+    let url,thumb='',disp=null,dispJob=null,srcSet;
+    const srcKnown=new Promise(r=>{srcSet=r;});
     let fresh=false;
     try{bhDiag.record('storageLookup');url=await ref.getDownloadURL();}
     catch(e){if(e.code!=='storage/object-not-found')throw e;fresh=true;}
     if(fresh){
       assertUser();bhDiag.record('uploadStarted',file.size,'original');
       const thumbJob=putThumb();
+      // After the thumbnail (one full decode at a time), recorded by itself when
+      // it lands, so a slow one never holds the upload: it waits 15 s at most.
+      dispJob=thumbJob.then(()=>putDisp()).then(async d=>{
+        if(!d)return d;
+        try{
+          const src=await srcKnown;
+          if(d.url){_bhDispUrls.set(src,d.url);await bhMediaCachePut('disp:'+src,{url:d.url});await bhMediaCachePut('blob:'+d.url,{blob:d.blob,at:Date.now()});}
+          else if(d.none)await bhMediaCachePut('disp:'+src,{none:d.none,at:Date.now(),v:BH_DISP_RULES});
+        }catch{/*silent-ok: only a speed-up*/}
+        return d;
+      });
       const task=ref.put(file,{...META,contentType:mime});
       // Report bytes as they go out, and cancel an upload that makes no progress
       // for 60 s ('storage/canceled' is transient: the file is kept locally).
@@ -4214,6 +4268,8 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
         },err=>{clearInterval(watch);rej(err);},()=>{clearInterval(watch);res();});
       });
       [url,thumb]=await Promise.all([ref.getDownloadURL(),thumbJob]);
+      srcSet(url);
+      disp=await Promise.race([dispJob,new Promise(r=>setTimeout(()=>r('pending'),15000))]);
     }else if(wantThumb){
       // An original already in the cloud (another device, an earlier attempt): its
       // thumbnail most likely exists too.
@@ -4232,8 +4288,9 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
       }
     }catch{/*silent-ok: only a speed-up*/}
     if(!thumb){thumb=url;await bhMediaCachePut('thumb:'+url,url);}
-    // The display-size copy is made in the background (never delays the upload).
-    if(/^image\//.test(mime)&&!/^image\/(?:gif|svg|avif)/.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
+    // Display copy: recorded when it went up with the original; otherwise made
+    // in the background (never delays the upload).
+    try{if(!disp&&wantDisp)bhDispEnqueueUpload(url,ref.fullPath,file);}catch{/*silent-ok: only a speed-up*/}
     await bhMediaCachePut('upload:'+key,{url,thumb});
     return url;
   })();
@@ -5779,7 +5836,23 @@ const rankReconcileDecay=(value,days,now=new Date())=>{
 // or season close; focus credit is not held.
 let _bhRankUpkeepHoldUntil=(()=>{try{return localStorage.getItem(SYNCED_UID_KEY)&&navigator.onLine!==false?Date.now()+20000:0;}catch{return 0;}})();
 const bhRankUpkeepHeld=()=>_bhRankUpkeepHoldUntil>Date.now();
-const bhRankUpkeepRelease=()=>{_bhRankUpkeepHoldUntil=0;};
+const bhRankUpkeepRelease=()=>{
+  _bhRankUpkeepHoldUntil=0;
+  try{window.dispatchEvent(new Event('bh-rank-upkeep-released'));}catch{/*silent-ok*/}
+};
+// While the hold lasts the score on screen is this device's old copy: the rank
+// panel says it is syncing and no rank notice is shown.
+const useRankUpkeepHeld=()=>{
+  const [held,setHeld]=useState(bhRankUpkeepHeld);
+  useEffect(()=>{
+    if(!held)return;
+    const off=()=>setHeld(bhRankUpkeepHeld());
+    window.addEventListener('bh-rank-upkeep-released',off);
+    const id=setInterval(off,1000);
+    return()=>{window.removeEventListener('bh-rank-upkeep-released',off);clearInterval(id);};
+  },[held]);
+  return held;
+};
 // Upkeep (decay, refund, season close) that maintenance performed on a copy
 // that came from the cloud. That is this device's own change to the rank and
 // must be pushed like an edit (see the auto-save effect).
@@ -5788,6 +5861,13 @@ const pomoRankUpkeepChanged=(before,after)=>{
   return (Number(a.points)||0)!==(Number(b.points)||0)||a.seasonId!==b.seasonId
     ||!bhEqual(a.decayApplied||{},b.decayApplied||{})||!bhEqual(a.decayLoss||{},b.decayLoss||{})
     ||!bhEqual(a.history||[],b.history||[]);
+};
+// Focus seconds per day are cumulative: the larger of the two values is right.
+const bhMergeFocusDays=(data,days)=>{
+  if(!data||!days||typeof days!=='object')return data;
+  const mine=data.days||{};let out=null;
+  for(const [k,v] of Object.entries(days)){const n=Number(v);if(Number.isFinite(n)&&n>(Number(mine[k])||0))(out||(out={...mine}))[k]=n;}
+  return out?{...data,days:out}:data;
 };
 const pomoRankMaintain=(data,now=new Date())=>{
   const base=pomoNormalize(data,now);
@@ -6651,6 +6731,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
 };
 const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResumeSession,galleryPosts=[],projects=[]})=>{
   const [historyView,setHistoryView]=useState(null);
+  const syncing=useRankUpkeepHeld();
   const rank=rankNormalize(pomoData?.rank);
   const pos=rankPosition(rank.points),season=rankSeasonForDate();
   const pct=pos.isMax?100:Math.round(pos.divisionProgress/pos.needed*100);
@@ -6666,12 +6747,12 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   const projectedPosition=rankPosition(Math.max(0,rank.points-projectedLoss));
   const projectedDrop=projectedLoss>0&&(projectedPosition.rankIndex<pos.rankIndex||projectedPosition.division<pos.division);
   return <>
-    <section className="rank-profile-panel" aria-label={'Perfil ranqueado: '+pos.rankName+' '+pos.divisionRoman}>
+    <section className="rank-profile-panel" aria-label={'Perfil ranqueado: '+pos.rankName+' '+pos.divisionRoman} style={syncing?{opacity:.55,transition:'opacity .3s'}:undefined} title={syncing?'Sincronizando com a nuvem: a pontuação mostrada pode estar desatualizada.':undefined}>
       {/* The emblem is not a button: the promotion preview lives in Sync
           (owner, 2026-09-29). */}
       <div className="rank-panel-emblem"><RankBadge rankIndex={pos.rankIndex} size={isMobile?112:isSmall?148:168} label={pos.rankName+' '+pos.divisionRoman}/></div>
       <div className="rank-panel-main">
-        <div className="rank-profile-kicker">Perfil ranqueado · Temporada {season.roman}</div>
+        <div className="rank-profile-kicker">Perfil ranqueado · Temporada {season.roman}{syncing?' · sincronizando…':''}</div>
         <div className="rank-panel-title"><span>{pos.rankName}</span><strong>{pos.divisionRoman}</strong></div>
         <div className="rank-progress-track"><span style={{width:pct+'%'}}/></div>
         <div className="rank-profile-meta"><span>{pos.isMax?'Progressão completa':pos.divisionProgress.toLocaleString('pt-BR')+' / '+pos.needed.toLocaleString('pt-BR')+' pts para a próxima divisão'}</span><span>{rank.points.toLocaleString('pt-BR')} total</span></div>
@@ -11270,7 +11351,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   };
   const lightboxImages=useMemo(()=>((selected?.images)||[]).filter(img=>!isVideoSrc(img)),[selected?.images]);
   // Open post: pull its originals into the local cache in the background.
-  useEffect(()=>bhWarmPost(lightboxImages,0),[lightboxImages]);
+  useEffect(()=>{const a=bhResolvePost(lightboxImages),b=bhWarmPost(lightboxImages,0,{delay:150,conc:6});return()=>{a();b();};},[lightboxImages]);
   const lightboxIndex=lightboxPos!=null&&lightboxPos>=0&&lightboxPos<lightboxImages.length?lightboxPos:-1;
   const lightbox=lightboxIndex>=0?lightboxImages[lightboxIndex]:null;
   const canLightboxPrev=lightboxIndex>0;
@@ -14742,6 +14823,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             <span className="label label-section"><StaveGlyph name="clef"/>Histórico de Backups</span>
             <span style={{fontSize:'.68rem',color:'var(--muted)'}}>{backupHistory.length} {backupHistory.length===1?'ponto':'pontos'}</span>
           </div>
+          <div style={{fontSize:'.72rem',color:'var(--muted)',lineHeight:1.5,marginBottom:8}}>Pontos guardados neste dispositivo. Cada computador ou celular tem a sua própria lista, criada enquanto o app fica aberto nele; os seus dados de verdade ficam na nuvem.</div>
           <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:280,overflowY:'auto'}}>
             {backupHistory.map((entry,i)=>{
               const c=entry.counts||{};
@@ -15781,20 +15863,25 @@ const App=()=>{
   const pendingRankNotice=useMemo(()=>{
     const rank=rankNormalize(pomoData?.rank);
     const receipts=bhRankReceiptRead(rankReceiptScope);
-    return (rank.notices||[]).find(n=>!n.dismissed&&!receipts.has(String(n.id)))||null;
+    // The newest pending notice only: after days away (or a slow sync) the
+    // older ones are stale and closing it closes them too.
+    const open=(rank.notices||[]).filter(n=>n&&!n.dismissed&&!receipts.has(String(n.id)));
+    return open.length?{...open[open.length-1],_older:open.slice(0,-1).map(n=>String(n.id))}:null;
   },[pomoData?.rank?.notices,rankReceiptScope,rankReceiptRevision]);
   const dismissRankNotice=useCallback(()=>{
     const id=pendingRankNotice?.id;
     if(!id)return;
+    const ids=new Set([String(id),...(pendingRankNotice._older||[])]);
     // Record the exact displayed notice synchronously, outside React's updater.
-    bhRankReceiptRemember(rankReceiptScope,id);
+    ids.forEach(x=>bhRankReceiptRemember(rankReceiptScope,x));
     setRankReceiptRevision(n=>n+1);
     setPomoData(prev=>{
     const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
-    return {...base,rank:{...rank,notices:rank.notices.map(n=>n.id===id?{...n,dismissed:true}:n)}};
+    return {...base,rank:{...rank,notices:rank.notices.map(n=>n&&ids.has(String(n.id))?{...n,dismissed:true}:n)}};
     });
   },[pendingRankNotice?.id,rankReceiptScope]);
   const ranksEnabled=!rankIsPaused(pomoData?.rank);
+  const rankHeld=useRankUpkeepHeld();
   // Pausing first runs the normal maintenance, so decay already owed through
   // yesterday is settled exactly as it would have been; resuming then restarts
   // the clock from today (see rankResume).
@@ -15938,11 +16025,24 @@ const App=()=>{
 
   // The boot hold on rank upkeep (see bhRankUpkeepHeld) ends at the first cloud
   // reconcile or, failing that, after 20 s: then the upkeep runs on local.
+  // A slow start (Firebase loading, a big first snapshot) used to hit the 20 s
+  // limit and charge decay on this device's old focus log: "Decay aplicado",
+  // then "Pontos devolvidos" when the cloud arrived. While online the hold is
+  // extended, up to 2 minutes; offline it ends at once.
   useEffect(()=>{
-    const left=_bhRankUpkeepHoldUntil-Date.now();
-    if(left<=0)return;
-    const id=setTimeout(()=>{if(_bhRankUpkeepHoldUntil===0)return;bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));},left+50);
-    return()=>clearTimeout(id);
+    if(_bhRankUpkeepHoldUntil-Date.now()<=0)return;
+    const started=Date.now();let id;
+    const check=()=>{
+      if(_bhRankUpkeepHoldUntil===0)return;
+      const left=_bhRankUpkeepHoldUntil-Date.now();
+      if(left>0){id=setTimeout(check,left+50);return;}
+      if(navigator.onLine!==false&&Date.now()-started<120000){_bhRankUpkeepHoldUntil=Date.now()+10000;id=setTimeout(check,10050);return;}
+      bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));
+    };
+    check();
+    const offline=()=>{if(_bhRankUpkeepHoldUntil){clearTimeout(id);bhRankUpkeepRelease();setPomoData(prev=>pomoRankMaintain(prev));}};
+    window.addEventListener('offline',offline);
+    return()=>{clearTimeout(id);window.removeEventListener('offline',offline);};
   },[]);
   // Daily maintenance also runs at local midnight and on return to the tab.
   // It closes completed weekdays only (through yesterday), so today's focus can
@@ -16220,7 +16320,11 @@ const App=()=>{
                 setSyncStatus('error');return;
               }
               try{localStorage.setItem(DIRTY_KEY,'1');}catch(e){bhLog('reconcile.marcarSujo',e,'local won this reconcile but is not flagged dirty, so the next boot may let the cloud overwrite it');}
-              setPomoData(prev=>pomoRankMaintain(prev));
+              // Decay is charged from the focus log: take every day's focus
+              // the cloud has (other devices) first, or this device charges
+              // the full tier for days it simply never saw.
+              const cloudDays=data?.pomoData?.days;
+              setPomoData(prev=>pomoRankMaintain(bhMergeFocusDays(prev,cloudDays)));
               setSyncStatus('synced');
               setSyncTick(t=>t+1);
               return;
@@ -17024,7 +17128,7 @@ const App=()=>{
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>} 
       {showNewProject&&<NewProjectModal onSave={addProject} onClose={handleCloseNewProject} isMobile={isMobile}/>} 
       {pendingSession&&<SessionCaptureModal session={pendingSession} showRank={ranksEnabled} rankIndex={rankPosition(pomoData?.rank?.points||0).rankIndex} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} project={pendingSessionProject} projects={projects} lastTaskId={pendingLastTaskId} lastTaskByProject={lastTaskByProject} onSave={saveSessionToGallery} onDefer={deferSession}/>} 
-      {ranksEnabled&&pendingRankNotice&&!pendingSession&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
+      {ranksEnabled&&pendingRankNotice&&!pendingSession&&!rankHeld&&<RankStatusOverlay notice={pendingRankNotice} onDone={dismissRankNotice}/>} 
       {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
         ?<SidebarMobile activeView={view} setView={navigate} resetView={resetView} setForceMobile={setForceMobile} hubName={identity?.hubName} onOpenCmd={()=>setShowCmdPalette(true)} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>

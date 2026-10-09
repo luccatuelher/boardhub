@@ -83,8 +83,8 @@ test('cache state: lookup, url, and negative results with their TTLs', () => {
   assert.equal(bhDispCacheState({ none: 'missing', at: now - 4 * day }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'failed', at: now - 2 * day }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'failed', at: now - 1000 }, now).state, 'skip');
-  assert.equal(bhDispCacheState({ none: 'small', at: 0, v: 2 }, now).state, 'skip', 'small/notSmaller never expire under the same rules');
-  assert.equal(bhDispCacheState({ none: 'notSmaller', at: 0, v: 2 }, now).state, 'skip');
+  assert.equal(bhDispCacheState({ none: 'small', at: 0, v: 3 }, now).state, 'skip', 'small/notSmaller never expire under the same rules');
+  assert.equal(bhDispCacheState({ none: 'notSmaller', at: 0, v: 3 }, now).state, 'skip');
   assert.equal(bhDispCacheState({ none: 'small', at: 0 }, now).state, 'lookup', 'records from older rules are looked at again');
   assert.equal(bhDispCacheState({ none: 'notSmaller', at: now }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ junk: 1 }, now).state, 'lookup');

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { load } from './harness.mjs';
 
 // A fake Storage with latency, counting requests and the peak of concurrent uploads.
-function world({ rtt = 30, existing = [], failPut = null, auth = true } = {}) {
+function world({ rtt = 30, existing = [], failPut = null, auth = true, disp = async () => ({ none: 'small' }), dispAllowed = true } = {}) {
   const store = new Set(existing), calls = { get: 0, put: 0, peak: 0, live: 0, order: [] }, cache = new Map();
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const ref = name => ({
@@ -42,13 +42,13 @@ function world({ rtt = 30, existing = [], failPut = null, auth = true } = {}) {
     bhMediaCacheGet: async k => cache.get(k), bhMediaCachePut: async (k, v) => { cache.set(k, v); },
     bhDiag: { record() {} }, bhLog() {},
     _makeThumbBlob: async f => new Blob([new Uint8Array(Math.max(1, f.size >> 4))], { type: 'image/webp' }),
-    bhDispEnqueueUpload() {},
+    bhDispEnqueueUpload() {}, _makeDisplayBlob: disp, _bhDispUrls: new Map(), _bhDispAllowed: () => dispAllowed,
     bhPrepareMedia: async f => f, _compressImage: async f => f, bhMediaPrecheck: async () => null,
     _isVideoFile: f => /^video\//.test(f.type),
     bhStorageErrTransient: e => /retry-limit|canceled|offline/.test(e && e.code || ''),
     _storeIdb: async () => 'idb://local',
   };
-  const api = load(['upfb', 'upsingle', 'upmany'], { stubs });
+  const api = load(['disp', 'upfb', 'upsingle', 'upmany'], { stubs });
   return { api, calls, store, cache };
 }
 const img = (n, size = 5000) => { const b = new Uint8Array(size); b[0] = n & 255; b[1] = n >> 8; return new Blob([b], { type: 'image/webp' }); };
@@ -61,6 +61,29 @@ test('new file: original and thumbnail go up together, with no thumbnail lookup 
   assert.equal(W.calls.peak, 2, 'original and thumbnail uploads overlap');
   assert.equal(W.calls.get, 3, 'one lookup before, two download URLs after; no thumbnail lookup');
   assert.equal(W.cache.get('thumb:' + url), url + '_thumb480');
+});
+
+test('new file: the display copy goes up with the original and is recorded, no lookup later', async () => {
+  const W = world({ disp: async f => ({ blob: new Blob([new Uint8Array(Math.max(1, f.size >> 2))], { type: 'image/webp' }) }) });
+  const url = await W.api.uploadToFirebaseStorage(img(1), 'u1');
+  assert.equal(W.calls.put, 3);
+  assert.ok(W.calls.peak >= 2, 'the display copy goes up while the original does');
+  assert.deepEqual(W.cache.get('disp:' + url), { url: url + '_disp2880' });
+  assert.ok(W.cache.get('blob:' + url + '_disp2880'), 'display copy is in the local cache');
+});
+
+test('new file that needs no display copy: remembered, nothing extra uploaded', async () => {
+  const W = world();
+  const url = await W.api.uploadToFirebaseStorage(img(1), 'u1');
+  assert.equal(W.calls.put, 2);
+  assert.equal(W.cache.get('disp:' + url).none, 'small');
+});
+
+test('phone / no WebP encoder: no display copy at upload, the background queue is asked instead', async () => {
+  const W = world({ dispAllowed: false });
+  const url = await W.api.uploadToFirebaseStorage(img(1), 'u1');
+  assert.equal(W.calls.put, 2);
+  assert.equal(W.cache.get('disp:' + url), undefined);
 });
 
 test('existing original: no upload, its thumbnail is looked up', async () => {

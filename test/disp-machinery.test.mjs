@@ -28,7 +28,7 @@ function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = '
     window: { matchMedia: () => ({ matches: true }), requestIdleCallback: undefined },
     navigator: { onLine: true },
     createImageBitmap: async () => { calls.decode++; return { width: w, height: h, close() {} }; },
-    document: { createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {} }), toBlob(cb, mime) { cb(new Blob([new Uint8Array(outSize)], { type: mime })); } }) },
+    document: { createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {} }), toDataURL: m => 'data:' + m + ';base64,', toBlob(cb, mime) { cb(new Blob([new Uint8Array(outSize)], { type: mime })); } }) },
   };
   const api = load(['fbimg', 'disp', 'dispmach'], { stubs });
   return { api, cache, calls, store, fbAuth, fbStorage };
@@ -105,7 +105,7 @@ test('run: refuses another account\'s path, a signed-out session and unsafe devi
   await out.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
   assert.equal(out.calls.put.length, 0);
   const lowMem = world();
-  const api = load(['fbimg', 'disp', 'dispmach'], { stubs: { _fbStorage: lowMem.fbStorage, _fbAuth: lowMem.fbAuth, bhMediaCacheGet: async () => undefined, bhMediaCachePut: async () => {}, bhDiag: { record() {} }, window: { matchMedia: () => ({ matches: true }) }, navigator: { onLine: true, deviceMemory: 2 }, createImageBitmap: async () => ({ width: 6000, height: 4000, close() {} }), document: {} } });
+  const api = load(['fbimg', 'disp', 'dispmach'], { stubs: { _fbStorage: lowMem.fbStorage, _fbAuth: lowMem.fbAuth, bhMediaCacheGet: async () => undefined, bhMediaCachePut: async () => {}, bhDiag: { record() {} }, window: { matchMedia: () => ({ matches: true }) }, navigator: { onLine: true, deviceMemory: 2 }, createImageBitmap: async () => ({ width: 6000, height: 4000, close() {} }), document: { createElement: () => ({ toDataURL: m => 'data:' + m + ';base64,' }) } } });
   await api._bhDispRun({ src: SRC, blob: file(6 * MB) });
   assert.equal(lowMem.calls.put.length, 0);
   assert.equal(lowMem.calls.get.length, 0, 'no Storage call on an unsafe device');
@@ -120,7 +120,7 @@ test('run: a transient Storage error is not cached and nothing is uploaded', asy
 
 test('decode failure (HEIC etc.) is remembered as failed', async () => {
   const W = world();
-  const api = load(['fbimg', 'disp', 'dispmach'], { stubs: { _fbStorage: W.fbStorage, _fbAuth: W.fbAuth, bhMediaCacheGet: async k => W.cache.get(k), bhMediaCachePut: async (k, v) => { W.cache.set(k, v); }, bhDiag: { record() {} }, window: { matchMedia: () => ({ matches: true }) }, navigator: { onLine: true }, createImageBitmap: async () => { throw new Error('unsupported'); }, document: {} } });
+  const api = load(['fbimg', 'disp', 'dispmach'], { stubs: { _fbStorage: W.fbStorage, _fbAuth: W.fbAuth, bhMediaCacheGet: async k => W.cache.get(k), bhMediaCachePut: async (k, v) => { W.cache.set(k, v); }, bhDiag: { record() {} }, window: { matchMedia: () => ({ matches: true }) }, navigator: { onLine: true }, createImageBitmap: async () => { throw new Error('unsupported'); }, document: { createElement: () => ({ toDataURL: m => 'data:' + m + ';base64,' }) } } });
   await api._bhDispRun({ src: SRC, blob: file(6 * MB, 'image/heic') });
   assert.equal(W.cache.get('disp:' + SRC).none, 'failed');
   assert.equal(W.calls.put.length, 0);
@@ -137,7 +137,7 @@ test('enqueue: ignores non-cloud sources, gif/svg, and a full queue; never throw
 test('run: records saying "no derivative needed/possible" stop the run before any Storage call or decode', async () => {
   for (const none of ['small', 'notSmaller', 'failed']) {
     const W = world();
-    W.cache.set('disp:' + SRC, { none, at: Date.now(), v: 2 });
+    W.cache.set('disp:' + SRC, { none, at: Date.now(), v: 3 });
     await W.api._bhDispRun({ src: SRC, blob: file(6 * MB) });
     assert.equal(W.calls.get.length, 0, none);
     assert.equal(W.calls.decode, 0, none);
