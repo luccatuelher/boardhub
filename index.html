@@ -220,6 +220,8 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 @keyframes overlayIn{from{opacity:0;}to{opacity:1;}}
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px);}to{opacity:1;transform:scale(1) translateY(0);}}
 /* Overlay now has a visible backdrop */
+.no-spin{-moz-appearance:textfield;appearance:textfield}
+.no-spin::-webkit-outer-spin-button,.no-spin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .overlay.note-peek{background:rgba(6,5,3,.74);backdrop-filter:blur(3px);padding:3vh 3vw!important}
 /* Centered on the whole window (the sidebar is dimmed too), and the shadow is
    black: the default one uses --ink, which is light in the dark theme and read as a glow. */
@@ -9411,6 +9413,15 @@ const daysBetween=(a,b)=>Math.round((new Date(b)-new Date(a))/86400000);
 const addDays=(dateStr,days)=>{const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+days);return localDateISO(d);};
 const todayISO=()=>localDateISO();
 // Currency formatting (pt-BR)
+// @bh-test-begin projtotal
+// A project's price: the value of one animatic times how many there are. With no
+// animatics counted yet the value stands for the whole job (what Valor always was).
+const bhProjectTotal=(unit,animatics)=>{
+  const u=Number(unit),a=Math.floor(Number(animatics));
+  if(!(u>0))return 0;
+  return u*(a>0?a:1);
+};
+// @bh-test-end projtotal
 const fmtBRL=v=>{const n=Number(v);if(!n||isNaN(n))return null;return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:2});};
 // Deadline countdown info: returns {label,date,color,bg,urgent} or null
 const deadlineInfo=deadline=>{
@@ -9966,6 +9977,15 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     });
   };
   const upd=(field,value)=>edit(prev=>({...prev,[field]:typeof value==='function'?value(prev[field]):value}));
+  // Valor = price of one animatic; the project's Total (stored in `budget`, which
+  // the project list and the pending-payments sum read) is Valor × Animatics.
+  // Older projects only have `budget`: it stands in for Valor until it is edited.
+  const setUnitValue=raw=>edit(prev=>({...prev,unitValue:raw,budget:bhProjectTotal(raw,prev.animatics)}));
+  const setAnimatics=raw=>edit(prev=>{
+    const a=Math.max(0,Math.floor(Number(raw)||0));
+    const unit=prev.unitValue??prev.budget;
+    return{...prev,animatics:a,unitValue:unit??'',budget:bhProjectTotal(unit,a)};
+  });
   const startRename=()=>{titleCancelRef.current=false;setTitleDraft(local.title||'');setRenamingTitle(true);};
   const commitRename=()=>{
     if(titleCancelRef.current){titleCancelRef.current=false;setRenamingTitle(false);return;}
@@ -10589,8 +10609,12 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               <span className="label label-section" style={{display:'block',marginBottom:16}}><StaveGlyph name="half"/>Financeiro</span>
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div>
-                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$)</div>
-                  <input type="number" min="0" step="50" className="input-box" value={local.budget||''} onChange={e=>upd('budget',e.target.value)} placeholder="0" style={{width:'100%'}}/>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Total</div>
+                  <div className="input-box" aria-label="Total do projeto" title="Valor × animatics" style={{width:'100%',boxSizing:'border-box',fontWeight:600,color:Number(local.budget)>0?'var(--text)':'var(--muted)',cursor:'default'}}>{fmtBRL(local.budget)||'—'}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Valor (R$){Number(local.animatics)>0?' por animatic':''}</div>
+                  <input type="number" inputMode="decimal" min="0" step="any" className="input-box no-spin" value={(local.unitValue??local.budget)||''} onChange={e=>setUnitValue(e.target.value)} placeholder="0" style={{width:'100%'}}/>
                 </div>
                 {Number(local.budget)>0&&(
                   <BhSwitch checked={!!local.paid} onChange={()=>upd('paid',v=>!v)} label="Pago" tone="ok"
@@ -10603,11 +10627,19 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
 
             {/* Painéis / Shots */}
             <div className="card" style={{padding:24}}>
-              <span className="label label-section" style={{display:'block',marginBottom:16}}><StaveGlyph name="beamed"/>Painéis / Shots</span>
+              <span className="label label-section" style={{display:'block',marginBottom:16}}><StaveGlyph name="beamed"/>Escopo</span>
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
                 <div>
-                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Total previsto</div>
-                  <input type="number" min="0" className="input-box" value={local.shotsTotal||''} onChange={e=>upd('shotsTotal',Math.max(0,Number(e.target.value)||0))} placeholder="Ex: 48" style={{width:'100%'}}/>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Animatics</div>
+                  <input type="number" inputMode="numeric" min="0" step="1" className="input-box no-spin" value={local.animatics||''} onChange={e=>setAnimatics(e.target.value)} placeholder="Ex: 5" style={{width:'100%'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Cenas</div>
+                  <input type="number" inputMode="numeric" min="0" step="1" className="input-box no-spin" value={local.scenes||''} onChange={e=>upd('scenes',Math.max(0,Math.floor(Number(e.target.value)||0)))} placeholder="Ex: 12" style={{width:'100%'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Painéis</div>
+                  <input type="number" inputMode="numeric" min="0" step="1" className="input-box no-spin" value={local.shotsTotal||''} onChange={e=>upd('shotsTotal',Math.max(0,Math.floor(Number(e.target.value)||0)))} placeholder="Ex: 48" style={{width:'100%'}}/>
                 </div>
                 {Number(local.shotsTotal)>0&&(()=>{
                   const done=Number(local.shotsDone)||0;
