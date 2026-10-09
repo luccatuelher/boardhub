@@ -46,6 +46,9 @@ test('a new task points back to its note and is found again', () => {
   assert.deepEqual(note.fromNote, { kind: 'note', id: 'n1' });
   const projects = [{ id: 1, projectTasks: [t, note, { id: 't3', text: 'sem nota' }] }, { id: 2, deleted: true, projectTasks: [t] }];
   assert.deepEqual(bhNoteTasks(projects, entry).map(r => [r.project.id, r.task.id]), [[1, 't1']]);
-  assert.deepEqual(bhNoteTasks(projects, { kind: 'entry', id: 'e1', folderId: 'other' }), []);
+  // the note keeps its id when it moves (loose note <-> entry): its tasks follow
+  assert.deepEqual(bhNoteTasks(projects, { kind: 'entry', id: 'e1', folderId: 'other' }).map(r => r.task.id), ['t1']);
+  assert.deepEqual(bhNoteTasks(projects, { kind: 'note', id: 'e1' }).map(r => r.task.id), ['t1']);
+  assert.deepEqual(bhNoteTasks(projects, { kind: 'entry', id: 'zz', folderId: 'f1' }), []);
   assert.deepEqual(bhNoteTasks(projects, { kind: 'note', id: 'n1' }).map(r => r.task.id), ['t2']);
 });

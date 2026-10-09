@@ -9076,12 +9076,14 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
       return{notes:list.map(n=>n===folder?{...n,entries}:n),expand:[folder.id],entryOf:folder.id};
     }
     if(kind==='folder')return put(folder.id,'after',fp);
-    return put(fp!=null?fp:folder.id,'after',null);
+    const anchor=fp!=null?byId.get(String(fp)):folder;
+    return put(anchor.id,'after',parentOf(anchor));
   }
   const par=parentOf(sel);
   if(kind==='note')return put(sel.id,'after',par);
   if(kind==='folder')return put(sel.id,'before',par);
-  return par!=null?put(par,'after',null):put(sel.id,'before',null);
+  // A category goes beside the category of the open note (categories may nest).
+  return par!=null?put(par,'after',parentOf(byId.get(String(par)))):put(sel.id,'before',null);
 };
 // @bh-test-end notecreate
 // @bh-test-begin notetask
@@ -9108,7 +9110,9 @@ const bhNoteProjects=(projects,notes,target)=>{
 };
 const bhNoteTaskMatches=(task,target)=>{
   const r=task&&task.fromNote;
-  return !!r&&!!target&&r.kind===target.kind&&String(r.id)===String(target.id)&&(target.kind!=='entry'||String(r.folderId)===String(target.folderId));
+  // By id only: a note keeps its id when it moves between a category, a folder
+  // and the root (becoming an entry or a loose note), and its tasks stay with it.
+  return !!r&&!!target&&String(r.id)===String(target.id);
 };
 const bhNoteTasks=(projects,target)=>{
   const out=[];
@@ -9131,7 +9135,8 @@ const bhDuplicateProject=p0=>{
   const idMap=new Map(allIds.map(id=>[id,bhNewId()]));
   return {...p0,id:bhNewId(),title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
     startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
-    projectTasks:sourceTasks.map(t=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
+    // fromNote (a task raised from a note) stays with the original: a copy would list twice on the note.
+    projectTasks:sourceTasks.map(({fromNote,...t})=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
     // content, and a Gallery post is fed by one task only: neither is copied.
     miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
@@ -13678,8 +13683,11 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
   const createNoteTask=()=>{
     const d=taskDraft;
     const text=d?String(d.title||'').trim():'';
-    const project=d&&noteProjects.find(p=>String(p.id)===String(d.projectId))||noteProjects[0];
-    if(!text||!project||!selected||!setProjects)return;
+    const project=d&&noteProjects.find(p=>String(p.id)===String(d.projectId));
+    if(!text||!selected||!setProjects)return;
+    // The chosen project is no longer linked (changed elsewhere meanwhile): say so
+    // instead of filing the task in another project.
+    if(!project){setTaskDraft(x=>x&&({...x,projectId:noteProjects[0]?String(noteProjects[0].id):'',notice:noteProjects.length?'O projeto escolhido não está mais ligado a esta nota. Confira e crie de novo.':'Esta nota não está mais ligada a nenhum projeto.'}));return;}
     const today=localDateISO();
     const task=bhNewNoteTask(selected,text,today,addDays(today,7),bhNewId());
     setProjects(prev=>prev.map(p=>String(p.id)!==String(project.id)?p:{...p,
@@ -14286,7 +14294,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
               <input autoFocus value={taskDraft.title} onChange={e=>setTaskDraft(d=>({...d,title:e.target.value}))} aria-label="Nome da tarefa" placeholder="Nome da tarefa" maxLength={160}
                 onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}}
                 onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setTaskDraft(null);}}}/>
-              {noteProjects.length>1&&<select value={taskDraft.projectId} onChange={e=>setTaskDraft(d=>({...d,projectId:e.target.value}))} aria-label="Projeto da tarefa">
+              {taskDraft.notice&&<span role="alert" style={{flexBasis:'100%',fontSize:'.72rem',color:'var(--danger-fg)'}}>{taskDraft.notice}</span>}
+              {(noteProjects.length>1||taskDraft.notice)&&noteProjects.length>0&&<select value={taskDraft.projectId} onChange={e=>setTaskDraft(d=>({...d,projectId:e.target.value}))} aria-label="Projeto da tarefa">
                 {noteProjects.map(p=><option key={p.id} value={String(p.id)}>{p.title||'Projeto'}</option>)}
               </select>}
               <button type="submit" className="btn btn-dark" disabled={!taskDraft.title.trim()}>Criar</button>

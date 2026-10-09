@@ -64,3 +64,14 @@ test('stale selection, trashed anchor and garbage input fall back to the end', (
   assert.equal(ids(bhNoteCreateAt(trashed, { kind: 'note', id: 'n2' }, 'note', item('x', 'note'))).at(-1), 'x');
   assert.deepEqual(ids(bhNoteCreateAt(null, null, 'note', item('x', 'note'))), ['x']);
 });
+
+test('nested categories: a new category goes beside the open note\'s category, inside the same parent', () => {
+  const nested = [
+    { id: 'b', type: 'category', title: 'B' },
+    { id: 'a', type: 'category', title: 'A', parentId: 'b' },
+    { id: 'n', type: 'note', title: 'x', parentId: 'a' },
+  ];
+  const r = bhNoteCreateAt(nested, { kind: 'note', id: 'n' }, 'category', item('z', 'category'));
+  assert.deepEqual(ids(r), ['b', 'a', 'z', 'n']);
+  assert.equal(r.notes.find(n => n.id === 'z').parentId, 'b');
+});
