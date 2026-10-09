@@ -8712,9 +8712,9 @@ const useTlWidth=()=>{
 };
 // The "Hoje" button of both timelines: scroll so today's column sits in the
 // middle of the calendar, i.e. of the width right of the sticky names column.
-// Today's column lands in the middle of the whole timeline (the names column
-// included), which is where the expand arrow sits, so the two line up.
-const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W+todayX+DAY_W/2-el.clientWidth/2);
+// Today's column lands in the middle of the CALENDAR you can see, i.e. of the
+// width right of the sticky names column (which covers the first LEFT_W px).
+const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W/2+todayX+DAY_W/2-el.clientWidth/2);
 const tlCenterToday=(el,todayX,DAY_W,LEFT_W)=>{
   if(!el)return;
   el.scrollTo({left:tlTodayLeft(el,todayX,DAY_W,LEFT_W),behavior:bhScrollBehavior()});
