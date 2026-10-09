@@ -326,6 +326,9 @@ input[type="date"]{font-family:'Alegreya Sans',sans-serif;}
 .gallery-search button{background:none;border:none;cursor:pointer;color:var(--muted);line-height:0;padding:2px}
 .gallery-tab-count{margin-left:5px;font-size:.66rem;color:var(--muted);font-weight:600}
 .gallery-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:0 0 8px;margin-bottom:16px;min-height:30px}
+.gallery-grid.drag-over{outline:2px dashed var(--text);outline-offset:6px;border-radius:10px}
+.drag-item.drag-before::after,.drag-item.drag-after::after{content:'';position:absolute;top:0;bottom:0;width:5px;background:var(--text);z-index:3;pointer-events:none}
+.drag-item.drag-before::after{left:0}.drag-item.drag-after::after{right:0}
 .gallery-section-head.drag-over{outline:2px dashed var(--text);outline-offset:4px;border-radius:6px}
 .gallery-section-count{margin-left:8px;font-size:.66rem;color:var(--muted);font-weight:600;letter-spacing:0}
 .gallery-section-tools{display:flex;gap:2px;opacity:.35;transition:opacity .12s}
@@ -11164,19 +11167,26 @@ const _galleryBlockEnd=(order,start)=>{
   while(i<order.length&&!isGallerySectionKey(order[i]))i++;
   return i;
 };
-// Moves one post. `to` is {beforeId} (drop on a card: same splice semantics
-// the flat manual grid always had) or {section} (null = unsectioned block)
+// Moves one post. `to` is {beforeId} / {afterId} (drop on the left / right half
+// of a card) or {section} (null = unsectioned block)
 // with `atEnd` to append instead of prepend.
 const galleryMovePost=(order,postId,to)=>{
   const key=String(postId);
   const next=[...order];
   const from=next.indexOf(key);
   if(from<0)return order;
-  if(to.beforeId!=null){
-    const target=next.indexOf(String(to.beforeId));
-    if(target<0||target===from)return order;
-    next.splice(from,1);next.splice(target,0,key);
-    return next;
+  if(to.beforeId!=null||to.afterId!=null){
+    // Always lands right before / right after the card dropped on: the anchor
+    // is looked up AFTER the dragged post leaves its old place, so moving a
+    // post forward no longer ends up one slot too far (the first card of a
+    // section could not be taken).
+    const anchor=String(to.beforeId!=null?to.beforeId:to.afterId);
+    if(anchor===key)return order;
+    next.splice(from,1);
+    const t=next.indexOf(anchor);
+    if(t<0)return order;
+    next.splice(to.beforeId!=null?t:t+1,0,key);
+    return next.every((k,i)=>k===order[i])?order:next;
   }
   next.splice(from,1);
   const start=to.section==null?-1:next.indexOf(gallerySectionKey(to.section));
@@ -11196,7 +11206,7 @@ const galleryMoveSection=(order,sectionId,beforeSectionId)=>{
   rest.splice(at,0,...block);
   return rest;
 };
-const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,setFolders,navTick,isMobile,projects})=>{
+const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -11399,9 +11409,9 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     const next=fn(base,f);
     return next===base?f:{...f,manualOrder:next};
   });
-  const reorderGalleryPosts=(fromId,toId)=>{
+  const reorderGalleryPosts=(fromId,toId,side='before')=>{
     if(sortMode!=='manual'||String(fromId)===String(toId))return;
-    editManualOrder(order=>galleryMovePost(order,fromId,{beforeId:toId}));
+    editManualOrder(order=>galleryMovePost(order,fromId,side==='after'?{afterId:toId}:{beforeId:toId}));
   };
   const movePostToSection=(postId,sectionId,atEnd=true)=>{
     editManualOrder(order=>galleryMovePost(order,postId,{section:sectionId,atEnd}));
@@ -11470,6 +11480,44 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     if(i<0)return;
     if(dir<0&&i>0)editManualOrder(order=>galleryMoveSection(order,id,ids[i-1]));
     if(dir>0&&i<ids.length-1)editManualOrder(order=>galleryMoveSection(order,id,ids[i+2]??null));
+  };
+  // Takes a whole section (its title and every post under it) to another
+  // folder, placed at the end of that folder.
+  const moveSectionToFolder=(sectionId,targetId)=>{
+    if(trash||!activeFolderData||String(targetId)===String(activeFolder))return;
+    const target=liveFolders.find(f=>String(f.id)===String(targetId));
+    const sec=folderSections.find(s=>s.id===sectionId);
+    if(!target||!sec)return;
+    const srcOrder=galleryMaterializeOrder(activeFolderData,active);
+    const start=srcOrder.indexOf(gallerySectionKey(sectionId));
+    if(start<0)return;
+    // Only posts that really belong here travel: live ones of this folder and
+    // its own trashed ones. A stale key (a post filed elsewhere since) stays.
+    const inBlock=srcOrder.slice(start+1,_galleryBlockEnd(srcOrder,start));
+    const liveIds=new Set(active.map(p=>String(p.id)));
+    const trashedIds=new Set(galleryOnlyPosts.filter(p=>p.deleted&&String(p.folder)===String(activeFolder)).map(p=>String(p.id)));
+    const moved=inBlock.filter(k=>liveIds.has(k)||trashedIds.has(k));
+    const movedSet=new Set(moved);
+    const newId=target.sections.some(s=>s.id===sectionId)?'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,5):sectionId;
+    const targetPosts=galleryOnlyPosts.filter(p=>!p.deleted&&homeOf(p)===String(targetId));
+    // A moved post may still have an old key in the target's order: drop it so
+    // it lands inside the section, not at its old spot.
+    const targetOrder=galleryMaterializeOrder(target,targetPosts).filter(k=>!movedSet.has(k));
+    setPosts(prev=>prev.map(p=>movedSet.has(String(p.id))?{...p,folder:target.id}:p));
+    setFolders(prev=>(prev||[]).map(f=>{
+      if(String(f.id)===String(activeFolder)){
+        const nf=normalizeGalleryFolder(f);
+        return{...nf,sections:nf.sections.filter(x=>x.id!==sectionId),manualOrder:srcOrder.filter(k=>k!==gallerySectionKey(sectionId)&&!movedSet.has(k))};
+      }
+      if(String(f.id)===String(targetId)){
+        const nf=normalizeGalleryFolder(f);
+        return{...nf,sections:[...nf.sections,{id:newId,label:sec.label}],manualOrder:[...targetOrder,gallerySectionKey(newId),...moved]};
+      }
+      return f;
+    }));
+    if(editingSectionId===sectionId)setEditingSectionId(null);
+    if(menuEditId===sectionId)setMenuEditId(null);
+    onSectionFolderMoved?.({from:String(activeFolder),to:String(targetId),oldId:sectionId,newId,postIds:moved});
   };
   // Position of the open post inside its block, for the "move" arrows.
   // Field-level write on the stored post: writing back the whole `selected`
@@ -11608,19 +11656,36 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
   };
   const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setPosts(p=>p.filter(x=>String(x.id)!==String(id)));}};
 
-  const clearGalleryDragMarks=()=>document.querySelectorAll('.drag-over,.drag-over-left').forEach(el=>el.classList.remove('drag-over','drag-over-left'));
+  const clearGalleryDragMarks=()=>document.querySelectorAll('.drag-over,.drag-over-left,.drag-before,.drag-after').forEach(el=>el.classList.remove('drag-over','drag-over-left','drag-before','drag-after'));
   const formatPostDate=date=>{try{const d=new Date(String(date||'').slice(0,10)+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace('.','');}catch{return date||'';}};
   // One card for every browse mode. `manual` adds the drag behaviour; trash
   // mode adds restore/delete and disables opening.
+  const cardDropSide=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX<r.left+r.width/2?'before':'after';};
   const renderPostCard=(post,{manual})=>{
     const src=post.images.length>0?(post.bannerImage||post.images[0]):null;
     const dragProps=manual?{
       draggable:true,
       onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;e.currentTarget.style.opacity='.45';},
       onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;postDragEndRef.current=Date.now();clearGalleryDragMarks();},
-      onDragOver:e=>{if(postDragRef.current==null||String(postDragRef.current)===String(post.id))return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drag-over-left');},
-      onDragLeave:e=>e.currentTarget.classList.remove('drag-over-left'),
-      onDrop:e=>{e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('drag-over-left');const from=postDragRef.current;if(from!=null&&String(from)!==String(post.id))reorderGalleryPosts(from,post.id);postDragRef.current=null;postDragEndRef.current=Date.now();},
+      // The pointer decides: left half = before this card, right half = after it
+      // (a bar on that edge shows where the post will land).
+      onDragOver:e=>{
+        if(postDragRef.current==null||String(postDragRef.current)===String(post.id))return;
+        e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';
+        const side=cardDropSide(e),c=e.currentTarget.classList;
+        c.toggle('drag-before',side==='before');c.toggle('drag-after',side==='after');
+      },
+      onDragLeave:e=>e.currentTarget.classList.remove('drag-before','drag-after'),
+      onDrop:e=>{
+        // A dragged SECTION falls through to the block under the card.
+        if(postDragRef.current==null)return;
+        e.preventDefault();e.stopPropagation();
+        const side=cardDropSide(e);
+        e.currentTarget.classList.remove('drag-before','drag-after');
+        const from=postDragRef.current;
+        if(String(from)!==String(post.id))reorderGalleryPosts(from,post.id,side);
+        postDragRef.current=null;postDragEndRef.current=Date.now();
+      },
     }:(!trash&&folderSections.length?{
       draggable:true,
       onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;e.currentTarget.style.opacity='.45';},
@@ -11841,9 +11906,24 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
               draggable
               onDragStart={e=>{e.dataTransfer.effectAllowed='move';folderDragRef.current=idx;e.currentTarget.style.opacity='0.45';}}
               onDragEnd={e=>{e.currentTarget.style.opacity='1';folderDragRef.current=null;document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));}}
-              onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('drag-over');}}
+              onDragOver={e=>{
+                // A section dropped here moves to this folder (not onto its own tab).
+                const sectionOver=sectionDragRef.current!=null&&String(f.id)!==String(activeFolder);
+                if(!sectionOver&&folderDragRef.current==null)return;
+                e.preventDefault();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drag-over');}}
               onDragLeave={e=>{e.currentTarget.classList.remove('drag-over');}}
-              onDrop={e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(folderDragRef.current!=null&&folderDragRef.current!==idx){reorderFolders(folderDragRef.current,idx);folderDragRef.current=null;}}}
+              onDrop={e=>{
+                e.currentTarget.classList.remove('drag-over');
+                if(sectionDragRef.current!=null){
+                  e.preventDefault();
+                  const sid=sectionDragRef.current;
+                  sectionDragRef.current=null;clearGalleryDragMarks();setSectionMenuOpen(false);
+                  moveSectionToFolder(sid,f.id);
+                  return;
+                }
+                if(folderDragRef.current==null)return;
+                e.preventDefault();
+                if(folderDragRef.current!==idx){reorderFolders(folderDragRef.current,idx);folderDragRef.current=null;}}}
               style={{display:'flex',alignItems:'center',gap:4,paddingRight:2,marginRight:4,borderBottom:activeFolder===f.id?'2px solid var(--text)':'2px solid transparent',marginBottom:-1}}
             >
               <Icon name="grip-vertical" size={11} className="drag-handle" style={{color:'var(--muted)',opacity:0,transition:'opacity .12s'}}
@@ -11933,9 +12013,18 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                   const iconBtn={background:'none',border:'none',cursor:'pointer',padding:4,lineHeight:0,color:'var(--muted)',borderRadius:5};
                   if(sec.id==null&&!folderSections.length)return null;
                   return <div key={sec.id??'none'} role="menuitem"
-                    onDragOver={e=>{if(postDragRef.current==null)return;e.preventDefault();e.currentTarget.style.background='rgba(var(--ink),.08)';}}
+                    draggable={sec.id!=null&&!editing}
+                    onDragStart={e=>{if(sec.id==null||editing){e.preventDefault();return;}e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(sec.id));}catch{/*silent-ok: the ref already carries the id*/}sectionDragRef.current=sec.id;}}
+                    onDragEnd={()=>{sectionDragRef.current=null;clearGalleryDragMarks();}}
+                    onDragOver={e=>{
+                      if(sectionDragRef.current!=null){if(sec.id==null||sec.id===sectionDragRef.current)return;e.preventDefault();e.currentTarget.style.background='rgba(var(--ink),.08)';return;}
+                      if(postDragRef.current==null)return;e.preventDefault();e.currentTarget.style.background='rgba(var(--ink),.08)';}}
                     onDragLeave={e=>{e.currentTarget.style.background='transparent';}}
-                    onDrop={e=>{e.preventDefault();e.currentTarget.style.background='transparent';if(postDragRef.current!=null){setPostSection(postDragRef.current,sec.id);postDragRef.current=null;postDragEndRef.current=Date.now();}}}
+                    onDrop={e=>{
+                      e.preventDefault();e.currentTarget.style.background='transparent';
+                      // A section dropped on a row goes right before it.
+                      if(sectionDragRef.current!=null){const d=sectionDragRef.current;sectionDragRef.current=null;if(sec.id!=null)editManualOrder(o=>galleryMoveSection(o,d,sec.id));return;}
+                      if(postDragRef.current!=null){setPostSection(postDragRef.current,sec.id);postDragRef.current=null;postDragEndRef.current=Date.now();}}}
                     style={{display:'flex',alignItems:'center',gap:4,padding:'3px 6px 3px 8px',borderRadius:7}}>
                     {editing
                       ?<input autoFocus value={menuLabel} onChange={e=>setMenuLabel(e.target.value)} aria-label="Nome da seção" className="gallery-section-input" style={{flex:1,minWidth:0}}
@@ -11946,22 +12035,23 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                     {!editing&&<span className="gallery-section-count">{count}</span>}
                     {sec.id!=null&&!editing&&<>
                       <button type="button" style={iconBtn} onClick={()=>{setMenuEditId(sec.id);setMenuLabel(sec.label);}} title="Renomear" aria-label={'Renomear seção '+sec.label}><Icon name="pencil" size={12}/></button>
-                      <button type="button" style={{...iconBtn,opacity:idx<=0?.3:1}} disabled={idx<=0} onClick={()=>shiftSection(sec.id,-1)} title="Subir" aria-label={'Subir seção '+sec.label}><Icon name="arrow-up" size={12}/></button>
-                      <button type="button" style={{...iconBtn,opacity:idx>=orderedSections.length-1?.3:1}} disabled={idx>=orderedSections.length-1} onClick={()=>shiftSection(sec.id,1)} title="Descer" aria-label={'Descer seção '+sec.label}><Icon name="arrow-down" size={12}/></button>
+                      {/* Drag to reorder; phones have no drag, so they keep the arrows. */}
+                      {isMobile&&<><button type="button" style={{...iconBtn,opacity:idx<=0?.3:1}} disabled={idx<=0} onClick={()=>shiftSection(sec.id,-1)} title="Subir" aria-label={'Subir seção '+sec.label}><Icon name="arrow-up" size={12}/></button>
+                      <button type="button" style={{...iconBtn,opacity:idx>=orderedSections.length-1?.3:1}} disabled={idx>=orderedSections.length-1} onClick={()=>shiftSection(sec.id,1)} title="Descer" aria-label={'Descer seção '+sec.label}><Icon name="arrow-down" size={12}/></button></>}
                       <button type="button" style={{...iconBtn,color:'var(--danger-fg)'}} onClick={()=>removeSection(sec.id)} title="Remover (os posts continuam na pasta)" aria-label={'Remover seção '+sec.label}><Icon name="x" size={12}/></button>
                     </>}
                   </div>;
                 })}
                 <button type="button" className="btn btn-outline" onClick={()=>addSection(true)} style={{width:'100%',justifyContent:'center',padding:'6px 10px',fontSize:'.74rem',marginTop:folderSections.length?6:0}}>
                   <Icon name="plus" size={11}/> Nova seção</button>
-                {folderSections.length>0&&<div style={{fontSize:'.66rem',color:'var(--muted)',padding:'6px 8px 2px',lineHeight:1.35}}>{isMobile?'Abra um post para escolher a seção dele.':'Arraste um post até uma seção, ou escolha a seção ao abrir o post.'}</div>}
+                {folderSections.length>0&&<div style={{fontSize:'.66rem',color:'var(--muted)',padding:'6px 8px 2px',lineHeight:1.35}}>{isMobile?'Abra um post para escolher a seção dele.':'Arraste um post até uma seção, ou escolha a seção ao abrir o post. Arraste uma seção para reordenar, ou até uma pasta (aba) para levá-la com os posts.'}</div>}
               </div>}
             </div>
           </div>
           {sortMode==='manual'&&<span style={{fontSize:'.7rem',color:'var(--muted)',flexBasis:'100%'}}>
             {isMobile
               ?'Abra um post para mudar a posição ou a seção dele. Use as setas no título de uma seção para mover o bloco inteiro.'
-              :<>Arraste os posts para qualquer posição{hasSections?' ou para o título de uma seção':''}. Arraste o título de uma seção para mover o bloco inteiro. A ordem é salva separadamente para esta pasta.</>}</span>}
+              :<>Arraste os posts para qualquer posição{hasSections?' ou para o título de uma seção':''}. Arraste o título de uma seção para mover o bloco inteiro, ou solte-o numa pasta (aba) para levar a seção com os posts. A ordem é salva separadamente para esta pasta.</>}</span>}
         </div>
       )}
       {/* Trashed folders panel */}
@@ -12020,7 +12110,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                 {hasSections&&(
                   <div className={`gallery-section-head${g.section?' drag-item':''}`}
                     draggable={!!g.section&&editingSectionId!==sid}
-                    onDragStart={e=>{if(!g.section)return;e.dataTransfer.effectAllowed='move';sectionDragRef.current=sid;e.currentTarget.style.opacity='.45';}}
+                    onDragStart={e=>{if(!g.section)return;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(sid));}catch{/*silent-ok: the ref already carries the id*/}sectionDragRef.current=sid;e.currentTarget.style.opacity='.45';}}
                     onDragEnd={e=>{e.currentTarget.style.opacity='1';sectionDragRef.current=null;clearGalleryDragMarks();}}
                     onDragOver={e=>{
                       const draggingSection=sectionDragRef.current!=null;
@@ -12047,16 +12137,26 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
                     {g.section&&editingSectionId!==sid&&(
                       <div className="gallery-section-tools">
                         <button onClick={()=>{setEditingSectionId(sid);setSectionLabel(g.section.label);}} title="Renomear seção" aria-label={'Renomear seção '+g.section.label}><Icon name="pencil" size={12}/></button>
-                        <button onClick={()=>shiftSection(sid,-1)} disabled={sectionIdx<=0} title="Subir seção" aria-label="Subir seção"><Icon name="arrow-up" size={12}/></button>
-                        <button onClick={()=>shiftSection(sid,1)} disabled={sectionIdx>=sectionCount-1} title="Descer seção" aria-label="Descer seção"><Icon name="arrow-down" size={12}/></button>
+                        {isMobile&&<><button onClick={()=>shiftSection(sid,-1)} disabled={sectionIdx<=0} title="Subir seção" aria-label="Subir seção"><Icon name="arrow-up" size={12}/></button>
+                        <button onClick={()=>shiftSection(sid,1)} disabled={sectionIdx>=sectionCount-1} title="Descer seção" aria-label="Descer seção"><Icon name="arrow-down" size={12}/></button></>}
                         <button onClick={()=>removeSection(sid)} title="Remover seção (os posts continuam na pasta)" aria-label={'Remover seção '+g.section.label} className="danger"><Icon name="x" size={12}/></button>
                       </div>
                     )}
                   </div>
                 )}
                 <div className="gallery-grid" style={{gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}
-                  onDragOver={e=>{if(postDragRef.current==null)return;e.preventDefault();e.dataTransfer.dropEffect='move';}}
+                  onDragOver={e=>{
+                    if(postDragRef.current!=null){e.preventDefault();e.dataTransfer.dropEffect='move';return;}
+                    // A section dragged over another section's block goes after it.
+                    if(sectionDragRef.current!=null&&g.section&&sectionDragRef.current!==sid){e.preventDefault();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drag-over');}}}
+                  onDragLeave={e=>e.currentTarget.classList.remove('drag-over')}
                   onDrop={e=>{
+                    if(sectionDragRef.current!=null){
+                      e.preventDefault();e.currentTarget.classList.remove('drag-over');
+                      const d=sectionDragRef.current;sectionDragRef.current=null;
+                      if(g.section&&d!==sid){const ids=orderedSections.map(x=>x.id);editManualOrder(o=>galleryMoveSection(o,d,ids[ids.indexOf(sid)+1]??null));}
+                      clearGalleryDragMarks();return;
+                    }
                     // Cards stop propagation, so this only fires on the gaps and
                     // the trailing drop zone: append to the end of this block.
                     if(postDragRef.current==null)return;
@@ -17127,6 +17227,17 @@ const App=()=>{
     setSelectedProject(project);rememberProjectsMode('detail',project);setView('project-detail');
     window.history.pushState(null,'',`#project-detail/${encodeURIComponent(id)}`);
   },[projects,rememberCurrentScroll,rememberProjectsMode]);
+  // A section moved to another gallery folder: projects linked to it (or to a
+  // post inside it) follow, otherwise their link would silently go empty.
+  const handleGallerySectionMoved=useCallback(({from,to,oldId,newId,postIds})=>{
+    const moved=new Set((postIds||[]).map(String));
+    setProjects(prev=>prev.map(p=>{
+      if(String(p.galleryFolder||'')!==from)return p;
+      if(String(p.gallerySection||'')===oldId)return{...p,galleryFolder:to,gallerySection:newId};
+      if(!p.gallerySection&&p.galleryPost&&moved.has(String(p.galleryPost)))return{...p,galleryFolder:to};
+      return p;
+    }));
+  },[]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
   const handleOpenSessionPost=useCallback((session,post)=>{
     // A project session saved as a task note opens that note on the project page.
@@ -17398,7 +17509,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
