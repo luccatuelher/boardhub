@@ -14839,7 +14839,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
                 <Icon name="log-out" size={13}/> Sair
               </button>
             </div>
-            <button className="btn btn-outline" disabled={loading||bhEntityModes.has(fbUser.uid)} onClick={handleEntityMigration}>{bhEntityModes.has(fbUser.uid)?'Sincronização por item ativa':'Ativar sincronização por item'}</button>
+            {/* Once the account has it, every device follows it automatically: the
+                button only exists for an account that was never switched over. */}
+            {!bhEntityModes.has(fbUser.uid)&&<button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>}
             {syncStatus==='error'&&(
               <button className="btn btn-danger" style={{width:'100%',justifyContent:'center'}} onClick={handleDiscardLocal} disabled={loading}>
                 <Icon name="cloud-download" size={14}/> Descartar locais e puxar da nuvem
