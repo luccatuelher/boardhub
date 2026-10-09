@@ -2897,38 +2897,49 @@ const Img=({src,priority,full,thumb=!full,...props})=>{
     style={local?props.style:{...props.style,animation:'imgFadeIn .12s ease'}}/>;
 };
 
-// Full-view image for the lightboxes. ONE persistent <img>: the previous frame
-// stays on screen until the next image is resolved and decoded (bhLb*), then the
-// src is swapped to an image that is already hot — no blank frame, no refade.
-// The very first image (or one the preloader cannot load) uses <Img>, which has
-// the thumbnail-first path and the "missing file" placeholder.
+// Full-view image for the lightboxes, double-buffered. The VISIBLE <img> never
+// has its src changed: Firefox (and Safari) blank an <img> while a new src
+// loads, which showed as a black flash on every flip even with the image already
+// in memory. The next picture loads and decodes in a hidden layer on top, and is
+// promoted (same DOM node, so nothing reloads) only once it is ready to paint.
+// What to show next, in order: the decoded original (bhLb*), else this image's
+// thumbnail (right picture, softer), else keep the previous frame; the very
+// first image falls back to <Img> (placeholder / "missing file" state).
 const LightboxImage=({src,srcs,index,onClick})=>{
   const [,bump]=React.useState(0);
   const [slow,setSlow]=React.useState('');
-  const lastUrl=React.useRef('');
+  const [front,setFront]=React.useState('');
   const dir=React.useRef(1),prev=React.useRef(index);
   if(prev.current!==index){dir.current=index>prev.current?1:-1;prev.current=index;}
   React.useEffect(()=>{_lb.listener=()=>bump(n=>n+1);return()=>{_lb.listener=null;};},[]);
   React.useEffect(()=>{bhLbSetWindow(srcs,index,dir.current,bhLbBudget());},[srcs,index]);
   React.useEffect(()=>()=>bhLbDispose(),[]);
   const ready=bhLbPeek(src);
-  // Not ready after a moment and nothing to show for it: stop holding the
-  // previous frame (it would look like the wrong image) and let <Img> show its
-  // placeholder.
+  const thumb=ready?'':_lbThumb(src);
+  const want=ready?ready.url:thumb;
+  const wantRef=React.useRef(want);wantRef.current=want;
   React.useEffect(()=>{
     if(ready)return;
     const t=setTimeout(()=>setSlow(src),350);
     return()=>clearTimeout(t);
   },[src,!!ready]);// eslint-disable-line react-hooks/exhaustive-deps
-  if(ready)lastUrl.current=ready.url;
-  // Order of preference: the decoded original; else this image's thumbnail (right
-  // picture, softer); else keep the previous frame for a moment; else <Img>.
-  const thumb=ready?'':_lbThumb(src);
-  const url=ready?ready.url:(thumb||lastUrl.current);
-  const waiting=!ready&&(bhLbFailed(src)||index<0||(slow===src&&!thumb));
-  if(!url||waiting)return <Img src={src} full priority onClick={onClick} alt=""/>;
-  if(thumb)lastUrl.current=thumb;
-  return <img alt="" src={url} onClick={onClick} decoding="sync" style={{animation:'none'}}/>;
+  const promote=e=>{
+    const el=e.currentTarget,url=el.getAttribute('src');
+    (el.decode?el.decode():Promise.resolve()).catch(()=>{}).then(()=>{if(wantRef.current===url)setFront(url);});
+  };
+  const failed=!ready&&(bhLbFailed(src)||index<0||(slow===src&&!thumb&&!front));
+  if(failed||(!front&&!want))return <Img src={src} full priority onClick={onClick} alt=""/>;
+  const layer={position:'absolute',top:0,left:0,width:'100%',height:'100%',animation:'none'};
+  // One keyed list: when the hidden candidate is promoted it keeps its DOM node
+  // (React moves it), so the picture is not reloaded and cannot blank.
+  const layers=[];
+  if(front)layers.push(<img key={front} alt="" src={front} onClick={onClick} decoding="sync" style={{...layer,opacity:1}}/>);
+  if(want&&want!==front)layers.push(<img key={want} alt="" src={want} onLoad={promote} decoding="sync" style={{...layer,opacity:0,pointerEvents:'none'}}/>);
+  return <div style={{position:'relative',width:'100%',height:'100%'}}>
+    {!front&&<Img src={src} full priority onClick={onClick} alt=""/>}
+    {layers}
+    {front&&!want&&slow===src&&<div role="status" style={{position:'absolute',top:12,left:12,padding:'4px 10px',borderRadius:999,background:'rgba(0,0,0,.55)',color:'white',fontSize:'.72rem',fontWeight:600}}>Carregando…</div>}
+  </div>;
 };
 
 // BgImg: a <div> whose background-image auto-resolves idb:// refs (thumbnail by default).
