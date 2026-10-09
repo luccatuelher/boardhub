@@ -11380,10 +11380,16 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     if(!sectionMenuOpen||!el)return;
     el.style.transform='';
     const r=el.getBoundingClientRect();
-    const margin=8,vw=document.documentElement.clientWidth;
+    // Clamp to the nearest ancestor that clips (overflow hidden/auto), else the viewport.
+    const margin=8;
+    let lo=0,hi=document.documentElement.clientWidth;
+    for(let p=el.parentElement;p&&p!==document.body;p=p.parentElement){
+      const o=getComputedStyle(p);
+      if(o.overflowX!=='visible'){const pr=p.getBoundingClientRect();lo=Math.max(lo,pr.left);hi=Math.min(hi,pr.right);break;}
+    }
     let dx=0;
-    if(r.right>vw-margin)dx=vw-margin-r.right;
-    if(r.left+dx<margin)dx=margin-r.left;
+    if(r.right>hi-margin)dx=hi-margin-r.right;
+    if(r.left+dx<lo+margin)dx=lo+margin-r.left;
     if(dx)el.style.transform=`translateX(${Math.round(dx)}px)`;
   },[sectionMenuOpen,folderSections.length,menuEditId]);
   useEffect(()=>{setSectionMenuOpen(false);setMenuEditId(null);},[activeFolder,trash]);
