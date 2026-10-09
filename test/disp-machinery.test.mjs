@@ -7,7 +7,7 @@ const PATH = `users/u1/images/sha256_${HEX}_image_jpeg`;
 const SRC = `https://firebasestorage.googleapis.com/v0/b/bkt/o/${encodeURIComponent(PATH)}?alt=media&token=t`;
 
 // A fresh world per test: fake Storage, auth, cache, canvas, image decoder.
-function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = 'u1' } = {}) {
+function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = 'u1', deny = () => false } = {}) {
   const cache = new Map(), calls = { put: [], get: [], decode: 0 };
   const store = new Map(Object.entries(objects));
   const fbStorage = {
@@ -15,7 +15,7 @@ function world({ w = 6000, h = 4000, outSize = 800 * 1024, objects = {}, uid = '
     ref: name => ({
       fullPath: name,
       async getDownloadURL() { calls.get.push(name); if (!store.has(name)) { const e = new Error('nf'); e.code = 'storage/object-not-found'; throw e; } return 'https://dl/' + name; },
-      async put(blob, meta) { calls.put.push({ name, size: blob.size, type: meta.contentType }); store.set(name, blob); },
+      async put(blob, meta) { calls.put.push({ name, size: blob.size, type: meta.contentType }); if (deny(name)) { const e = new Error('denied'); e.code = 'storage/unauthorized'; throw e; } store.set(name, blob); },
     }),
   };
   const fbAuth = { currentUser: { uid } };
@@ -187,4 +187,18 @@ test('run: a lazy job reads the original back from the persistent cache; skips i
   assert.equal(gone.calls.put.length, 0);
   assert.equal(gone.calls.decode, 0);
   assert.equal(gone.cache.get('disp:' + SRC), undefined, 'nothing recorded, so it is retried later');
+});
+
+test('older upload: HD copy made next to it; refused by unpublished rules → "denied", retried within the hour', async () => {
+  const LPATH = 'users/u1/images/img_1787922414181_4gf8isfs1a7.jpg';
+  const LSRC = `https://firebasestorage.googleapis.com/v0/b/bkt/o/${encodeURIComponent(LPATH)}?alt=media&token=t`;
+  const ok = world({ w: 1920, h: 1080 });
+  assert.equal(await ok.api._bhDispRun({ src: LSRC, blob: file(160 * 1024) }), 'made');
+  assert.equal(ok.calls.put[0].name, LPATH + '_disp1280');
+  const W = world({ w: 1920, h: 1080, deny: n => n.includes('img_') });
+  assert.equal(await W.api._bhDispRun({ src: LSRC, blob: file(160 * 1024) }), 'denied');
+  const rec = W.cache.get('disp:' + LSRC);
+  assert.equal(rec.none, 'denied');
+  assert.equal(W.api.bhDispCacheState(rec, Date.now()).state, 'skip');
+  assert.equal(W.api.bhDispCacheState(rec, Date.now() + 2 * 36e5).state, 'lookup');
 });

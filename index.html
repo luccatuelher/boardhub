@@ -2551,9 +2551,11 @@ const BH_DISP_BOX=[1280,720],BH_DISP_SLACK=1.15,BH_DISP_SUFFIX='_disp1280';
 // Version of these rules. Every 'disp:' record carries it; a record from older
 // rules (v3 and before: 2880 px copies, byte thresholds) is looked at again.
 const BH_DISP_RULES=4;
+// Content-addressed uploads, and the older img_<time>_<random>.<ext> ones
+// (storage.rules allows their _disp1280 since 2026-10-09).
 const bhDispName=path=>{
   const p=String(path||'');
-  if(!/\/sha256_[0-9a-f]{64}_[a-z0-9_]+$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
+  if(!/\/(?:sha256_[0-9a-f]{64}_[a-z0-9_]+|img_\d+_[a-z0-9]+\.[a-z]+)$/i.test(p)||/_(?:thumb480|disp\d+)$/.test(p))return '';
   return p+BH_DISP_SUFFIX;
 };
 // Does this image need a derivative, and how big/what type? info: {w,h,bytes,type,animated,alpha}
@@ -2591,7 +2593,8 @@ const bhIsAnimated=(bytes,mime)=>{
 };
 // What the persistent cache says about an image's derivative.
 // rec: undefined | {url} | {none:'missing'|'failed'|'small'|'notSmaller'|'broken',at}
-const BH_DISP_TTL={missing:3*864e5,failed:864e5,broken:864e5};
+// denied: the storage rules refused the copy (not published yet): retried soon.
+const BH_DISP_TTL={missing:3*864e5,failed:864e5,broken:864e5,denied:36e5};
 // `old`: a copy made under older rules (the 2880 px one). Until the HD copy
 // exists it is still better than the original, and a device that saved it for
 // offline use keeps working.
@@ -3974,7 +3977,9 @@ const _bhDispRun=async job=>{
     // Create-only rule: if another tab or device got there first, use theirs.
     try{await ref.put(made.blob,{contentType:made.blob.type,cacheControl:'private,max-age=31536000,immutable'});}
     catch(e){if(!(e&&e.code==='storage/unauthorized'))throw e;made=null;}
-    url=await ref.getDownloadURL();
+    // Refused and nobody else made it: the rules do not allow this name (yet).
+    try{url=await ref.getDownloadURL();}
+    catch(e){if(made||!e||e.code!=='storage/object-not-found')throw e;await bhMediaCachePut('disp:'+job.src,{none:'denied',at:Date.now(),v:BH_DISP_RULES,...keep});return 'denied';}
     if(made){await bhMediaCachePut('blob:'+url,{blob:made.blob,at:Date.now()});_bhDisp.done++;}
   }
   await bhMediaCachePut('disp:'+job.src,{url,v:BH_DISP_RULES});_bhDispUrls.set(job.src,url);
@@ -4238,12 +4243,13 @@ const bhImageIsLocal=(src,rec)=>{
   return rec.blobs.has((d&&(d.url||d.old))||src);
 };
 // Has src's HD copy been settled under the current rules (made, or known not
-// to be needed)? Older uploads cannot get one and count as settled.
+// to be needed)? Images that cannot have one count as settled.
+const _bhCanHaveDisp=src=>{let name=src;try{name=decodeURIComponent(src);}catch{/*keep raw*/}return /(?:sha256_[a-f0-9]{64}_image_[a-z0-9_]+|\/img_\d+_[a-z0-9]+\.[a-z]+)(?:\?|$)/i.test(name);};
 const bhImageHdSettled=(src,rec,rules)=>{
-  if(!_bhContentAddressed(src))return true;
+  if(!_bhCanHaveDisp(src))return true;
   const d=rec.disps.get(src);
   if(!d||(d.v||1)<rules)return false;
-  return !!d.url||(!!d.none&&d.none!=='missing'&&d.none!=='broken');
+  return !!d.url||(!!d.none&&!['missing','broken','denied'].includes(d.none));
 };
 // have: srcs with nothing left to do (bhLocalImageSet), skipped without any
 // request. convert(src,full): makes the HD copy from the bytes just fetched for

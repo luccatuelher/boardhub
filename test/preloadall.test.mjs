@@ -115,5 +115,9 @@ test('local while the HD copy is pending: the older copy counts; HD settled only
   assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { none: 'missing', v: 4, at: 1 } }), 4), false);
   assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { url: 'hd', v: 4 } }), 4), true);
   assert.equal(bhImageHdSettled(ca, rec([], { [ca]: { none: 'small', v: 4, at: 1 } }), 4), true);
-  assert.equal(bhImageHdSettled('https://x/img_1_a.img', rec([], {}), 4), true, 'older uploads cannot get one');
+  const legacy = 'https://x/o/users%2Fu%2Fimages%2Fimg_1788957033185_raeqcd60f5m.img?alt=media';
+  assert.equal(bhImageHdSettled(legacy, rec([], {}), 4), false, 'older uploads get one too now');
+  assert.equal(bhImageHdSettled(legacy, rec([], { [legacy]: { none: 'small', v: 4, at: 1 } }), 4), true, 'about HD: settled with no copy');
+  assert.equal(bhImageHdSettled(legacy, rec([], { [legacy]: { none: 'denied', v: 4, at: 1 } }), 4), false, 'rules not published yet: tried again');
+  assert.equal(bhImageHdSettled('https://x/o/other.gif', rec([], {}), 4), true, 'names that can have no copy');
 });

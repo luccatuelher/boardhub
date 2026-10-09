@@ -12,6 +12,9 @@ test('name: appends _disp1280 to an original path, refuses derivatives and non-o
   assert.equal(bhDispName(`users/u1/images/sha256_${HEX}_image_jpeg_disp2880`), '');
   assert.equal(bhDispName(`users/u1/images/sha256_${HEX}_image_jpeg_disp1280`), '');
   assert.equal(bhDispName('users/u1/images/photo.jpg'), '');
+  assert.equal(bhDispName('users/u1/images/img_1788957033185_raeqcd60f5m.img'), 'users/u1/images/img_1788957033185_raeqcd60f5m.img_disp1280', 'older uploads');
+  assert.equal(bhDispName('users/u1/images/img_1787922414181_4gf8isfs1a7.jpg'), 'users/u1/images/img_1787922414181_4gf8isfs1a7.jpg_disp1280');
+  assert.equal(bhDispName('users/u1/images/img_1788957033185_raeqcd60f5m.img_disp1280'), '');
   assert.equal(bhDispName(`users/u1/images/sha256_short_image_jpeg`), '');
   assert.equal(bhDispName(null), '');
 });
@@ -97,4 +100,23 @@ test('cache state: every record from older rules is looked at again (2880 px cop
   assert.equal(bhDispCacheState({ none: 'small', at: 0, v: 3 }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'missing', at: now }, now).state, 'lookup');
   assert.equal(bhDispCacheState({ none: 'notSmaller', at: now, v: 2 }, now).state, 'lookup');
+});
+
+test('plan: any shape or size maps to its HD equivalent (fits an HD frame, never enlarged)', () => {
+  const fit = (w, h) => { const p = bhDispPlan({ w, h, bytes: MB, type: 'image/jpeg' }); return p.needed ? [p.targetW, p.targetH] : 'kept'; };
+  assert.deepEqual(fit(3840, 1634), [1280, 545], '4K scope 2.35');
+  assert.deepEqual(fit(4096, 1716), [1280, 536], 'DCI 4K scope 2.39');
+  assert.deepEqual(fit(2048, 858), [1280, 536], '2K scope');
+  assert.deepEqual(fit(4096, 2160), [1280, 675], 'DCI 4K 1.90');
+  assert.deepEqual(fit(1998, 1080), [1280, 692], 'flat 1.85');
+  assert.deepEqual(fit(3440, 1440), [1280, 536], 'ultrawide 21:9');
+  assert.deepEqual(fit(2731, 1157), [1280, 542], 'odd crop');
+  assert.deepEqual(fit(1600, 1200), [960, 720], '4:3');
+  assert.deepEqual(fit(2000, 2000), [720, 720], 'square');
+  assert.deepEqual(fit(1080, 1350), [720, 900], '4:5 portrait');
+  assert.deepEqual(fit(2160, 3840), [720, 1280], '9:16 portrait 4K');
+  assert.deepEqual(fit(8000, 1000), [1280, 160], 'panorama');
+  assert.equal(fit(1280, 545), 'kept', 'HD scope already');
+  assert.equal(fit(1400, 596), 'kept', 'about HD scope');
+  assert.equal(fit(640, 360), 'kept', 'smaller than HD is never enlarged');
 });

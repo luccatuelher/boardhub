@@ -17,7 +17,10 @@ service firebase.storage {
       // overwrite (a client bug, two tabs racing) is refused instead of replacing
       // an original or invalidating the download links other devices hold.
       allow create: if request.auth != null && request.auth.uid == uid
-        && file.matches('sha256_[0-9a-f]{64}_.*')
+        // Older uploads (img_<time>_<random>.<ext>) may get the same two
+        // derivatives; the originals themselves are never created again.
+        && (file.matches('sha256_[0-9a-f]{64}_.*')
+            || file.matches('img_[0-9]+_[a-z0-9]+[.][a-z]+_(thumb480|disp1280)'))
         && request.resource.size <= 60 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*')
             || request.resource.contentType.matches('video/.*')
