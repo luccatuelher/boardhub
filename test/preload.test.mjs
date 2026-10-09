@@ -30,9 +30,9 @@ test('budget: save-data and 2g are minimal, 3g reduced, default full, low memory
   assert.deepEqual(bhPreloadBudget({ effectiveType: '2g' }), { ahead: 1, behind: 0, conc: 1, maxBytes: 80 * MB });
   assert.deepEqual(bhPreloadBudget({ effectiveType: 'slow-2g' }), { ahead: 1, behind: 0, conc: 1, maxBytes: 80 * MB });
   assert.deepEqual(bhPreloadBudget({ effectiveType: '3g' }), { ahead: 2, behind: 1, conc: 2, maxBytes: 120 * MB });
-  assert.deepEqual(bhPreloadBudget({ effectiveType: '4g' }), { ahead: 4, behind: 2, conc: 3, maxBytes: 160 * MB });
-  assert.deepEqual(bhPreloadBudget(), { ahead: 4, behind: 2, conc: 3, maxBytes: 160 * MB });
-  assert.deepEqual(bhPreloadBudget({ deviceMemory: 4 }), { ahead: 2, behind: 1, conc: 3, maxBytes: 80 * MB });
+  assert.deepEqual(bhPreloadBudget({ effectiveType: '4g' }), { ahead: 6, behind: 2, conc: 4, maxBytes: 160 * MB });
+  assert.deepEqual(bhPreloadBudget(), { ahead: 6, behind: 2, conc: 4, maxBytes: 160 * MB });
+  assert.deepEqual(bhPreloadBudget({ deviceMemory: 4 }), { ahead: 2, behind: 1, conc: 4, maxBytes: 80 * MB });
 });
 
 test('fit: keeps the leading images that fit, always at least two', () => {

@@ -2516,7 +2516,7 @@ const bhPreloadBudget=(net={})=>{
   let b;
   if(net.saveData||/(^|-)2g$/.test(type))b={ahead:1,behind:0,conc:1,maxBytes:80*1048576};
   else if(type==='3g')b={ahead:2,behind:1,conc:2,maxBytes:120*1048576};
-  else b={ahead:4,behind:2,conc:3,maxBytes:160*1048576};
+  else b={ahead:6,behind:2,conc:4,maxBytes:160*1048576};
   if(net.deviceMemory&&net.deviceMemory<=4)b={...b,ahead:Math.min(b.ahead,2),behind:Math.min(b.behind,1),maxBytes:Math.min(b.maxBytes,80*1048576)};
   return b;
 };
@@ -2848,20 +2848,24 @@ const LightboxImage=({src,srcs,index,onClick})=>{
   if(prev.current!==index){dir.current=index>prev.current?1:-1;prev.current=index;}
   React.useEffect(()=>{_lb.listener=()=>bump(n=>n+1);return()=>{_lb.listener=null;};},[]);
   React.useEffect(()=>{bhLbSetWindow(srcs,index,dir.current,bhLbBudget());},[srcs,index]);
-  React.useEffect(()=>bhLbIdleWarm(srcs,index),[srcs]);// eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(()=>()=>bhLbDispose(),[]);
   const ready=bhLbPeek(src);
-  // Not ready after a moment: stop holding the previous frame (it would look
-  // like the wrong image) and let <Img> show the thumbnail or placeholder.
+  // Not ready after a moment and nothing to show for it: stop holding the
+  // previous frame (it would look like the wrong image) and let <Img> show its
+  // placeholder.
   React.useEffect(()=>{
     if(ready)return;
     const t=setTimeout(()=>setSlow(src),350);
     return()=>clearTimeout(t);
   },[src,!!ready]);// eslint-disable-line react-hooks/exhaustive-deps
   if(ready)lastUrl.current=ready.url;
-  const url=ready?ready.url:lastUrl.current;
-  const waiting=!ready&&(bhLbFailed(src)||slow===src||!_lb.entries.has(src));
+  // Order of preference: the decoded original; else this image's thumbnail (right
+  // picture, softer); else keep the previous frame for a moment; else <Img>.
+  const thumb=ready?'':_lbThumb(src);
+  const url=ready?ready.url:(thumb||lastUrl.current);
+  const waiting=!ready&&(bhLbFailed(src)||index<0||(slow===src&&!thumb));
   if(!url||waiting)return <Img src={src} full priority onClick={onClick} alt=""/>;
+  if(thumb)lastUrl.current=thumb;
   return <img alt="" src={url} onClick={onClick} decoding="sync" style={{animation:'none'}}/>;
 };
 
@@ -3642,7 +3646,7 @@ const bhRemoteDisplay=async(src,thumb)=>{
 // to the next one paints at once. One entry per src: queued -> loading -> ready
 // (or failed). Entries outside the window are released: object-URL pins and
 // remote refcounts go back, so nothing leaks after the lightbox closes.
-const _lb={entries:new Map(),queue:[],active:0,conc:3,listener:null,idleToken:0};
+const _lb={entries:new Map(),queue:[],active:0,conc:3,listener:null,last:null};
 const bhLbBudget=()=>{
   try{const c=navigator.connection||{};return bhPreloadBudget({saveData:c.saveData,effectiveType:c.effectiveType,deviceMemory:navigator.deviceMemory});}
   catch{return bhPreloadBudget();}
@@ -3719,31 +3723,48 @@ const bhLbSetWindow=(srcs,index,dir,budget)=>{
 const bhLbPeek=src=>{const e=_lb.entries.get(src);return e&&e.state==='ready'?e:null;};
 const bhLbFailed=src=>_lb.entries.get(src)?.state==='failed';
 const bhLbDispose=()=>{
-  _lb.idleToken++;_lb.listener=null;_lb.queue=[];_lb.last=null;
+  _lb.listener=null;_lb.queue=[];_lb.last=null;
   for(const [src,e] of [..._lb.entries])_lbKill(src,e);
 };
-// Opening a post also warms (nearest first, up to 20) its cloud images into the persistent
-// blob cache (no decoding, one at a time, when the browser is idle), so the next
-// time the post opens nothing waits on the network. Desktop, no Save-Data.
-const bhLbIdleWarm=(srcs,index=0)=>{
+// Opening a post warms its cloud images (nearest first, up to 40) into the
+// persistent blob cache with a few parallel downloads, no decoding, so by the
+// time the full view opens most originals are local. Desktop, no Save-Data,
+// not on slow connections. Returns a stop function.
+const _warm={token:0};
+const bhWarmPost=(srcs,index=0,{delay=600,conc=3,max=40}={})=>{
   try{
     const c=navigator.connection||{};
     if(c.saveData||/(^|-)[23]g$/.test(String(c.effectiveType||''))||(window.matchMedia&&!window.matchMedia('(min-width: 769px)').matches))return ()=>{};
   }catch{return ()=>{};}
-  const token=++_lb.idleToken;
-  const todo=(Array.isArray(srcs)?srcs:[]).map((s,i)=>({s,d:Math.abs(i-index)})).filter(x=>typeof x.s==='string'&&bhIsFirebaseImage(x.s)&&!isVideoSrc(x.s)).sort((a,b)=>a.d-b.d).slice(0,20).map(x=>x.s);
-  const idle=window.requestIdleCallback||(f=>setTimeout(f,200));
-  const t=setTimeout(async()=>{
-    for(const src of todo){
-      if(_lb.idleToken!==token)return;
-      await new Promise(r=>idle(r));
-      if(_lb.idleToken!==token)return;
-      try{const r=await bhRemoteDisplay(src,false);r.release();}catch{/*silent-ok: best-effort warm-up*/}
-    }
-    // The cache sweep otherwise runs once, a minute after boot.
-    if(_lb.idleToken===token)bhMediaCacheSweep().catch(()=>{});
-  },2000);
-  return ()=>{clearTimeout(t);if(_lb.idleToken===token)_lb.idleToken++;};
+  const token=++_warm.token;
+  const todo=(Array.isArray(srcs)?srcs:[]).map((s,i)=>({s,d:Math.abs(i-index)})).filter(x=>typeof x.s==='string'&&bhIsFirebaseImage(x.s)&&!isVideoSrc(x.s)).sort((a,b)=>a.d-b.d).slice(0,max).map(x=>x.s);
+  const idle=window.requestIdleCallback||(f=>setTimeout(f,50));
+  let pending=todo.length;
+  const t=setTimeout(()=>{
+    const worker=async()=>{
+      while(_warm.token===token&&todo.length){
+        const src=todo.shift();
+        await new Promise(r=>idle(r));
+        if(_warm.token!==token)return;
+        try{const r=await bhRemoteDisplay(src,false);r.release();}catch{/*silent-ok: best-effort warm-up*/}
+      }
+      // The cache sweep otherwise runs once, a minute after boot.
+      if(--pending<=0&&_warm.token===token)bhMediaCacheSweep().catch(()=>{});
+    };
+    pending=conc;
+    for(let i=0;i<conc;i++)worker();
+  },delay);
+  return ()=>{clearTimeout(t);if(_warm.token===token)_warm.token++;};
+};
+// Thumbnail of an image that is already in memory (the grid loaded it): shown
+// at once while the original is still on its way.
+const _lbThumb=src=>{
+  try{
+    if(typeof src!=='string')return '';
+    if(src.startsWith('idb://'))return _thumbCache[src.slice(6)]||'';
+    const t=_bhThumbUrls.get(src);
+    return (t&&_bhRemoteUrls.get(t)?.url)||'';
+  }catch{return '';}
 };
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
 // are NEVER re-encoded. Thumbnails are separate optional derivatives.
@@ -10593,6 +10614,8 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
     updPost(selected.id,p=>{const images=[...p.images];const at=images.indexOf(img);if(at<0)return p;images.splice(at,1);images.splice(Math.max(0,Math.min(to,images.length)),0,img);return {...p,images};});
   };
   const lightboxImages=useMemo(()=>((selected?.images)||[]).filter(img=>!isVideoSrc(img)),[selected?.images]);
+  // Open post: pull its originals into the local cache in the background.
+  useEffect(()=>bhWarmPost(lightboxImages,0),[lightboxImages]);
   const lightboxIndex=useMemo(()=>lightbox?lightboxImages.findIndex(img=>img===lightbox):-1,[lightbox,lightboxImages]);
   const canLightboxPrev=lightboxIndex>0;
   const canLightboxNext=lightboxIndex>=0&&lightboxIndex<lightboxImages.length-1;
