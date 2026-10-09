@@ -3743,12 +3743,26 @@ const _bhMediaPutLogged=new Set();
 // Over budget, the oldest blob: entries go until 80% of it is left. A dropped
 // blob costs one re-download; the other key families are never touched.
 const _bhBlobOf=v=>v instanceof Blob?v:(v&&v.blob instanceof Blob?v.blob:null);
+const bhMediaKeepAll=()=>{try{return localStorage.getItem('bh_media_keepall')==='1';}catch{return false;}};
+// Size of the downloaded-image cache (bytes), for the Sincronizar screen.
+const bhMediaCacheSize=async()=>{
+  try{
+    const db=await bhMediaDb();
+    return await new Promise((resolve,reject)=>{
+      let total=0;const req=db.transaction('cache','readonly').objectStore('cache').openCursor(IDBKeyRange.bound('blob:','blob:\uffff'));
+      req.onsuccess=()=>{const c=req.result;if(!c){resolve(total);return;}const b=_bhBlobOf(c.value);total+=b?b.size:0;c.continue();};
+      req.onerror=()=>reject(req.error);
+    });
+  }catch{return 0;}
+};
 const bhMediaCacheSweep=async(budgetBytes)=>{
   try{
     let budget=budgetBytes;
     if(budget==null){
       let quota=0;try{quota=(await navigator.storage.estimate()).quota||0;}catch{/*silent-ok: no estimate means the fixed cap alone applies*/}
-      budget=Math.min(200*1024*1024,quota?Math.floor(quota*0.2):200*1024*1024);
+      // "Keep every image on this computer" (Sincronizar > Baixar todas as imagens):
+      // half of the origin's quota instead of the usual 200 MB.
+      budget=bhMediaKeepAll()?(quota?Math.floor(quota*0.5):2*1024*1024*1024):Math.min(200*1024*1024,quota?Math.floor(quota*0.2):200*1024*1024);
     }
     const db=await bhMediaDb();
     const rows=await new Promise((resolve,reject)=>{
@@ -4107,6 +4121,41 @@ const _lbThumb=src=>{
     return (t&&_bhRemoteUrls.get(t)?.url)||'';
   }catch{return '';}
 };
+// Sincronizar > "Baixar todas as imagens": every Gallery post's cloud images
+// (thumbnail for the grids + display copy/original for the full view) into the
+// persistent cache, 4 at a time, most recent posts first. Returns counts.
+// @bh-test-begin preloadall
+const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
+  const list=(Array.isArray(posts)?posts:[]).filter(p=>p&&!p.deleted)
+    .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const seen=new Set(),srcs=[];
+  for(const p of list)for(const src of (p.images||[]))if(typeof src==='string'&&!seen.has(src)&&bhIsFirebaseImage(src)&&!isVideoSrc(src)){seen.add(src);srcs.push(src);}
+  let next=0,done=0,failed=0;
+  const worker=async()=>{
+    while(next<srcs.length&&!isCancelled()){
+      const src=srcs[next++];
+      try{
+        const t=await bhRemoteDisplay(src,'thumb');t.release();
+        const f=await bhRemoteDisplay(src,'disp');f.release();
+      }catch(e){failed++;bhLog('preloadAll',e,String(src).slice(0,120));}
+      done++;onProgress(done,srcs.length);
+    }
+  };
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  return {total:srcs.length,done,failed};
+};
+// @bh-test-end preloadall
+// One run at a time, independent of the screen (leaving Sincronizar does not
+// stop it; coming back shows its progress).
+const _bhPreloadRun={state:null,cancel:false,listeners:new Set(),result:null};
+const _bhPreloadEmit=()=>_bhPreloadRun.listeners.forEach(f=>{try{f();}catch{/*silent-ok*/}});
+const bhPreloadAllStart=posts=>{
+  if(_bhPreloadRun.state)return;
+  _bhPreloadRun.cancel=false;_bhPreloadRun.result=null;_bhPreloadRun.state={done:0,total:0};_bhPreloadEmit();
+  bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel)
+    .then(r=>{_bhPreloadRun.result={...r,cancelled:_bhPreloadRun.cancel};},e=>{_bhPreloadRun.result={error:String(e&&e.message||e)};})
+    .finally(()=>{_bhPreloadRun.state=null;_bhPreloadEmit();});
+};
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
 // are NEVER re-encoded. Thumbnails are separate optional derivatives.
 // @bh-test-begin upfb
@@ -4128,11 +4177,13 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
     // Thumbnail of a NEW original: made and uploaded while the original goes up
     // (it cannot exist yet, so no lookup first). If a rule refuses to overwrite a
     // leftover from an earlier attempt, the existing one is used.
+    let thumbBlob=null;
     const putThumb=async()=>{
       if(!wantThumb)return '';
       try{
         const blob=await _makeThumbBlob(file);
         if(!(blob.size<file.size))return '';
+        thumbBlob=blob;
         assertUser();bhDiag.record('uploadStarted',blob.size,'thumbnail');
         try{await thumbRef.put(blob,{...META,contentType:blob.type});}
         catch(e){if(e&&e.code==='storage/unauthorized')return await thumbRef.getDownloadURL();throw e;}
@@ -4166,6 +4217,15 @@ const uploadToFirebaseStorage=async(file,uid,onBytes)=>{
     }
     assertUser();
     if(thumb){_bhThumbUrls.set(url,thumb);await bhMediaCachePut('thumb:'+url,thumb);}
+    // The bytes are already here: put them in the local image cache, so the post
+    // shows (and flips through) the new images at once instead of downloading
+    // them again the first time they are viewed.
+    try{
+      if(/^image\//.test(mime)){
+        await bhMediaCachePut('blob:'+url,{blob:file,at:Date.now()});
+        if(thumb&&thumbBlob)await bhMediaCachePut('blob:'+thumb,{blob:thumbBlob,at:Date.now()});
+      }
+    }catch{/*silent-ok: only a speed-up*/}
     if(!thumb){thumb=url;await bhMediaCachePut('thumb:'+url,url);}
     // The display-size copy is made in the background (never delays the upload).
     if(/^image\//.test(mime)&&!/^image\/(?:gif|svg|avif)/.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
@@ -14376,6 +14436,45 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const showStatus=(type,msg)=>{setStatus({type,msg});if(type!=='err')setTimeout(()=>setStatus(null),8000);};
   const localImgCount=collectIdbKeys(appState).size;
   const imgurCount=useMemo(()=>bhCollectImgur(appState).size,[appState]);
+  // Offline images: every Gallery post's images kept on this computer.
+  const cloudImgCount=useMemo(()=>{const set=new Set();(appState?.galleryPosts||[]).forEach(p=>{if(p&&!p.deleted)(p.images||[]).forEach(src=>{if(bhIsFirebaseImage(src)&&!isVideoSrc(src))set.add(src);});});return set.size;},[appState]);
+  const [keepAll,setKeepAll]=useState(bhMediaKeepAll);
+  const [cacheBytes,setCacheBytes]=useState(null);
+  const [preload,setPreload]=useState(()=>_bhPreloadRun.state); // {done,total} while a run is going
+  useEffect(()=>{let live=true;bhMediaCacheSize().then(b=>{if(live)setCacheBytes(b);});return()=>{live=false;};},[]);
+  useEffect(()=>{
+    const on=()=>{
+      setPreload(_bhPreloadRun.state);
+      const r=_bhPreloadRun.result;
+      if(!_bhPreloadRun.state&&r){
+        _bhPreloadRun.result=null;
+        bhMediaCacheSize().then(bytes=>{
+          setCacheBytes(bytes);
+          if(r.error)showStatus('err','Falha: '+r.error);
+          else if(r.cancelled)showStatus('ok',`Parado. ${r.done} de ${r.total} imagens já estão neste computador.`);
+          else showStatus(r.failed?'err':'ok',r.failed?`${r.done-r.failed} imagens baixadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens neste computador (${bhFmtMB(bytes)}). Abrir e passar as imagens dos posts fica imediato.`);
+        });
+      }
+    };
+    _bhPreloadRun.listeners.add(on);on();
+    return()=>{_bhPreloadRun.listeners.delete(on);};
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
+  const handlePreloadAll=async()=>{
+    if(!fbUser){showStatus('err','Entre na sua conta para baixar as imagens da nuvem.');return;}
+    try{localStorage.setItem('bh_media_keepall','1');}catch{/*silent-ok*/}
+    setKeepAll(true);
+    // Ask the browser not to clear this data under storage pressure (a click is
+    // the right moment: Firefox shows its permission prompt only then).
+    try{await navigator.storage?.persist?.();}catch{/*silent-ok*/}
+    bhPreloadAllStart(appState?.galleryPosts);
+  };
+  const handleReleaseAll=async()=>{
+    try{localStorage.removeItem('bh_media_keepall');}catch{/*silent-ok*/}
+    setKeepAll(false);
+    await bhMediaCacheSweep();
+    setCacheBytes(await bhMediaCacheSize());
+    showStatus('ok','Espaço liberado: o cache de imagens volta ao limite normal (200 MB).');
+  };
 
   const signIn=async()=>{
     try{
@@ -14673,6 +14772,29 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             <button className="btn btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={handleReupload} disabled={loading}>
               <Icon name="cloud-upload" size={14}/> Re-enviar Imagens ({localImgCount})
             </button>
+          )}
+          {cloudImgCount>0&&(
+            <div style={{display:'flex',flexDirection:'column',gap:6,padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}>
+              <div style={{fontSize:'.82rem',fontWeight:600}}>Imagens neste computador</div>
+              <div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>
+                Baixa as imagens de todos os posts da Galeria ({cloudImgCount}) para este computador. Depois disso, abrir qualquer post e passar as imagens é imediato, sem esperar a internet.
+                {cacheBytes!=null&&<> Agora: {bhFmtMB(cacheBytes)}{keepAll?' (mantendo tudo)':' (limite normal: 200 MB)'}.</>}
+              </div>
+              {preload?(
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{flex:1,height:6,background:'var(--bg)',borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.round(preload.done/Math.max(1,preload.total)*100)}%`,background:'var(--text)'}}/></div>
+                  <span style={{fontSize:'.75rem',color:'var(--muted)'}}>{preload.done}/{preload.total}</span>
+                  <button type="button" className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.75rem'}} onClick={()=>{_bhPreloadRun.cancel=true;}}>Parar</button>
+                </div>
+              ):(
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button className="btn btn-outline" style={{flex:1,justifyContent:'center'}} onClick={handlePreloadAll} disabled={loading}>
+                    <Icon name="download" size={14}/> {keepAll?'Atualizar: baixar imagens novas':'Baixar todas as imagens'}
+                  </button>
+                  {keepAll&&<button className="btn btn-ghost" onClick={handleReleaseAll} disabled={loading} title="Volta ao limite normal de 200 MB; as imagens menos usadas são apagadas deste computador (continuam na nuvem).">Liberar espaço</button>}
+                </div>
+              )}
+            </div>
           )}
           {imgurCount>0&&(
             <button className="btn btn-outline" style={{width:'100%',justifyContent:'center'}} onClick={handleMigrateImgur} disabled={loading}
