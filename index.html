@@ -3733,10 +3733,14 @@ const bhMediaCachePut=async(key,value)=>{
     // Disposable cache: never reject a completed original upload. But a quota
     // failure here also hits syncbase:/entity-cache: writes, so say so once per kind.
     const kind=String(e&&e.name||'error');
+    _bhMediaPutFail.n++;_bhMediaPutFail.last=kind+(e&&e.message?': '+String(e.message).slice(0,120):'');
     if(!_bhMediaPutLogged.has(kind)){_bhMediaPutLogged.add(kind);bhLog('mediaCache.put',e,String(key).slice(0,24));}
   }
 };
 const _bhMediaPutLogged=new Set();
+// Failed image-cache writes, so "Baixar todas as imagens" can say the browser
+// refused to keep them instead of reporting success.
+const _bhMediaPutFail={n:0,last:''};
 // Remote-image blobs are the only unbounded entries in this store (syncbase:,
 // entity-cache:, upload: and thumb: are small or bounded). They are stored as
 // {blob,at}; entries written by older builds are a bare Blob and count as at=0.
@@ -4152,8 +4156,9 @@ const _bhPreloadEmit=()=>_bhPreloadRun.listeners.forEach(f=>{try{f();}catch{/*si
 const bhPreloadAllStart=posts=>{
   if(_bhPreloadRun.state)return;
   _bhPreloadRun.cancel=false;_bhPreloadRun.result=null;_bhPreloadRun.state={done:0,total:0};_bhPreloadEmit();
+  const failsBefore=_bhMediaPutFail.n;
   bhPreloadAllPosts(posts,(done,total)=>{_bhPreloadRun.state={done,total};_bhPreloadEmit();},()=>_bhPreloadRun.cancel)
-    .then(r=>{_bhPreloadRun.result={...r,cancelled:_bhPreloadRun.cancel};},e=>{_bhPreloadRun.result={error:String(e&&e.message||e)};})
+    .then(r=>{_bhPreloadRun.result={...r,cancelled:_bhPreloadRun.cancel,notSaved:_bhMediaPutFail.n-failsBefore,saveErr:_bhMediaPutFail.last};},e=>{_bhPreloadRun.result={error:String(e&&e.message||e)};})
     .finally(()=>{_bhPreloadRun.state=null;_bhPreloadEmit();});
 };
 // Content-addressed, immutable paths make retries/reloads idempotent. Originals
@@ -14441,7 +14446,18 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const [keepAll,setKeepAll]=useState(bhMediaKeepAll);
   const [cacheBytes,setCacheBytes]=useState(null);
   const [preload,setPreload]=useState(()=>_bhPreloadRun.state); // {done,total} while a run is going
-  useEffect(()=>{let live=true;bhMediaCacheSize().then(b=>{if(live)setCacheBytes(b);});return()=>{live=false;};},[]);
+  // What the browser reports for this site: whether it promised to keep the data
+  // and how much room it gives it. Shown so a browser that wipes or refuses the
+  // cache is visible instead of the button silently downloading everything again.
+  const [storeInfo,setStoreInfo]=useState(null);
+  const refreshStoreInfo=async()=>{
+    try{
+      const persisted=navigator.storage?.persisted?await navigator.storage.persisted():null;
+      const est=navigator.storage?.estimate?await navigator.storage.estimate():{};
+      setStoreInfo({persisted,usage:est.usage||0,quota:est.quota||0});
+    }catch{setStoreInfo(null);}
+  };
+  useEffect(()=>{let live=true;bhMediaCacheSize().then(b=>{if(live)setCacheBytes(b);});refreshStoreInfo();return()=>{live=false;};},[]);// eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
     const on=()=>{
       setPreload(_bhPreloadRun.state);
@@ -14450,7 +14466,10 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
         _bhPreloadRun.result=null;
         bhMediaCacheSize().then(bytes=>{
           setCacheBytes(bytes);
+          refreshStoreInfo();
           if(r.error)showStatus('err','Falha: '+r.error);
+          else if(r.notSaved)showStatus('err',`O navegador recusou guardar ${r.notSaved} imagens neste computador (${r.saveErr||'erro desconhecido'}). Elas abrem normalmente pela internet, mas não ficam salvas. Veja se há espaço livre no disco e se o navegador não está em modo privado.`);
+          else if(r.done-r.failed>=20&&bytes<1024*1024)showStatus('err',`As imagens foram baixadas, mas o navegador não as manteve (agora: ${bhFmtMB(bytes)}). Confira nas configurações do navegador se ele apaga cookies e dados de sites ao fechar, ou se está em modo privado; abra uma exceção para este site.`);
           else if(r.cancelled)showStatus('ok',`Parado. ${r.done} de ${r.total} imagens já estão neste computador.`);
           else showStatus(r.failed?'err':'ok',r.failed?`${r.done-r.failed} imagens baixadas; ${r.failed} falharam (tente de novo depois).`:`✓ ${r.total} imagens neste computador (${bhFmtMB(bytes)}). Abrir e passar as imagens dos posts fica imediato.`);
         });
@@ -14779,6 +14798,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
               <div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>
                 Baixa as imagens de todos os posts da Galeria ({cloudImgCount}) para este computador. Depois disso, abrir qualquer post e passar as imagens é imediato, sem esperar a internet.
                 {cacheBytes!=null&&<> Agora: {bhFmtMB(cacheBytes)}{keepAll?' (mantendo tudo)':' (limite normal: 200 MB)'}.</>}
+                {storeInfo&&<> Espaço do navegador para este site: {bhFmtMB(storeInfo.usage)} de {storeInfo.quota?bhFmtMB(storeInfo.quota):'?'}{storeInfo.persisted===true?', protegido contra limpeza automática':storeInfo.persisted===false?', sem proteção contra limpeza automática':''}.</>}
               </div>
               {preload?(
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
