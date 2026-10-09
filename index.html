@@ -4937,7 +4937,9 @@ const _bhThumbUrl=async file=>{
 const HoldReview=({files,onDone})=>{
   const [stage,setStage]=useState({done:0,total:files.length});
   const [analysis,setAnalysis]=useState(null);
-  const [preset,setPreset]=useState('normal');
+  // The last sensitivity chosen is remembered (this device).
+  const [preset,setPresetState]=useState(()=>{try{const v=localStorage.getItem('bh_hold_preset');return BH_HOLD_PRESETS[v]?v:'normal';}catch{return 'normal';}});
+  const setPreset=v=>{setPresetState(v);try{localStorage.setItem('bh_hold_preset',v);}catch{/*silent-ok: only a preference*/}};
   const [thumbs,setThumbs]=useState({});
   const cancelled=useRef(false);
   useEffect(()=>{
