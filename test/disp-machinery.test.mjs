@@ -118,10 +118,10 @@ test('run: a transient Storage error is not cached and nothing is uploaded', asy
   assert.equal(W.cache.get('disp:' + SRC), undefined);
 });
 
-test('decode failure (HEIC etc.) is remembered as failed', async () => {
+test('decode failure is remembered as failed', async () => {
   const W = world();
   const api = load(['fbimg', 'disp', 'dispmach'], { stubs: { _fbStorage: W.fbStorage, _fbAuth: W.fbAuth, bhMediaCacheGet: async k => W.cache.get(k), bhMediaCachePut: async (k, v) => { W.cache.set(k, v); }, bhDiag: { record() {} }, window: { matchMedia: () => ({ matches: true }) }, navigator: { onLine: true }, createImageBitmap: async () => { throw new Error('unsupported'); }, document: { createElement: () => ({ toDataURL: m => 'data:' + m + ';base64,' }) } } });
-  await api._bhDispRun({ src: SRC, blob: file(6 * MB, 'image/heic') });
+  await api._bhDispRun({ src: SRC, blob: file(6 * MB, 'image/jpeg') });
   assert.equal(W.cache.get('disp:' + SRC).none, 'failed');
   assert.equal(W.calls.put.length, 0);
 });

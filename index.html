@@ -3942,7 +3942,8 @@ const _bhDispRun=async job=>{
   if(!_bhDispAllowed())return '';
   const uid=_fbAuth.currentUser.uid;
   const path=job.path||_fbStorage.refFromURL(job.src).fullPath;
-  if(!path.startsWith('users/'+uid+'/'))return '';
+  // Another account's image: never ours to convert; settled so runs skip it.
+  if(!path.startsWith('users/'+uid+'/')){await bhMediaCachePut('disp:'+job.src,{none:'foreign',at:Date.now(),v:BH_DISP_RULES});return 'foreign';}
   const name=bhDispName(path);if(!name)return '';
   // Already known: a derivative exists, or this image does not need / cannot get
   // one ('small', 'notSmaller', 'failed'). Only 'missing' and 'broken' (and no
@@ -3964,6 +3965,8 @@ const _bhDispRun=async job=>{
     const source=job.blob||_bhBlobOf(await bhMediaCacheGet('blob:'+from));
     if(!(source instanceof Blob))return ''; // evicted meanwhile: retried the next time it is fetched
     const hint=(path.match(/sha256_[0-9a-f]{64}_(image_[a-z0-9_]+)$/i)||[])[1];
+    // Types that never get a copy: no full decode just to find that out.
+    if(/^image_(?:gif|svg|avif|heic)/i.test(hint||'')||/^image\/(?:gif|svg|avif|heic)/i.test(source.type)){await bhMediaCachePut('disp:'+job.src,{none:'small',at:Date.now(),v:BH_DISP_RULES,...keep});return 'small';}
     made=await _makeDisplayBlob(source,hint?hint.replace(/^image_/,'image/').replace(/_/g,'+'):undefined);
     if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now(),v:BH_DISP_RULES,...keep});return made.none||'failed';}
     if(_fbAuth?.currentUser?.uid!==uid)return '';
