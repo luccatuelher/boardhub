@@ -4156,7 +4156,7 @@ const _lbThumb=src=>{
 };
 // Sincronizar > "Baixar todas as imagens": every Gallery post's cloud images
 // (thumbnail for the grids + display copy/original for the full view) into the
-// persistent cache, 4 at a time, most recent posts first. Returns counts.
+// persistent cache, 8 at a time, most recent posts first. Returns counts.
 // @bh-test-begin preloadall
 const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
   const list=(Array.isArray(posts)?posts:[]).filter(p=>p&&!p.deleted)
@@ -4168,15 +4168,19 @@ const bhPreloadAllPosts=async(posts,onProgress,isCancelled)=>{
     while(next<srcs.length&&!isCancelled()&&!(typeof bhCorsBlocked==='function'&&bhCorsBlocked())){
       const src=srcs[next++];
       try{
-        const t=await bhRemoteDisplay(src,'thumb');t.release();
-        const f=await bhRemoteDisplay(src,'disp');f.release();
+        // Both at once (each starts with a Storage round trip); whichever
+        // succeeded is released even if the other failed.
+        const got=await Promise.allSettled([bhRemoteDisplay(src,'thumb'),bhRemoteDisplay(src,'disp')]);
+        got.forEach(g=>{if(g.status==='fulfilled')g.value.release();});
+        const bad=got.find(g=>g.status==='rejected');if(bad)throw bad.reason;
       }catch(e){failed++;bhLog('preloadAll',e,String(src).slice(0,120));}
       // Downloaded images wait in memory until written: keep that bounded.
       try{if(typeof _bhPendingPuts!=='undefined'&&_bhPendingPuts.set.size>16)await _bhPendingPuts.flush();}catch{/*silent-ok*/}
       done++;onProgress(done,srcs.length);
     }
   };
-  await Promise.all([worker(),worker(),worker(),worker()]);
+  // Bound by round trips to the bucket, not by bandwidth: 8 at a time.
+  await Promise.all(Array.from({length:8},()=>worker()));
   try{if(typeof _bhPendingPuts!=='undefined')await _bhPendingPuts.flush();}catch{/*silent-ok*/}
   return {total:srcs.length,done,failed,cors:typeof bhCorsBlocked==='function'&&bhCorsBlocked()};
 };

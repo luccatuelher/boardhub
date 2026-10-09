@@ -32,12 +32,12 @@ test('loads thumbnail and full view of every live post image once, newest posts 
   assert.ok(W.calls.findIndex(c => c[0] === fb(3)) < W.calls.findIndex(c => c[0] === fb(2)));
 });
 
-test('runs 4 at a time and stops when cancelled', async () => {
+test('runs 8 images at a time (thumbnail and full view together) and stops when cancelled', async () => {
   const W = world();
   const posts = [{ id: 1, date: 'x', images: Array.from({ length: 20 }, (_, i) => fb(i + 10)) }];
   let stop = false;
   const r = await W.bhPreloadAllPosts(posts, d => { if (d >= 6) stop = true; }, () => stop);
-  assert.ok(W.peak <= 4);
+  assert.ok(W.peak <= 16);
   assert.ok(r.done < 20 && r.done >= 6, 'stopped early: ' + r.done);
 });
 
