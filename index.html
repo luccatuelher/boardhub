@@ -11383,6 +11383,21 @@ const galleryMoveSection=(order,sectionId,beforeSectionId)=>{
   rest.splice(at,0,...block);
   return rest;
 };
+// The slide-deck controls shared by the section deck and the post viewer: both
+// arrows together at the bottom with the position between them, and an optional
+// caption above (Speaker Deck style).
+const DeckNav=({index,count,onPrev,onNext,caption})=>(
+  <div onClick={e=>e.stopPropagation()} style={{position:'absolute',left:'50%',bottom:16,transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8,zIndex:201,maxWidth:'92%'}}>
+    {caption?<div style={{color:'rgba(255,255,255,.75)',fontSize:'.76rem',textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'100%'}}>{caption}</div>:null}
+    <div style={{display:'flex',alignItems:'center',gap:4,padding:'4px 6px',borderRadius:999,background:'rgba(0,0,0,.5)',backdropFilter:'blur(6px)',border:'1px solid rgba(255,255,255,.1)'}}>
+      <button onClick={onPrev} disabled={index<=0} aria-label="Anterior" title="Anterior (←)" className="deck-nav"><Icon name="arrow-left" size={16}/></button>
+      <span style={{minWidth:64,textAlign:'center',color:'white',fontSize:'.78rem',fontWeight:600,fontVariantNumeric:'tabular-nums'}}>{index+1} / {count}</span>
+      <button onClick={onNext} disabled={index>=count-1} aria-label="Próxima" title="Próxima (→)" className="deck-nav"><Icon name="arrow-right" size={16}/></button>
+    </div>
+  </div>
+);
+// Click on the left / right half of a viewer's picture: dir -1 / +1.
+const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
 const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
@@ -11953,7 +11968,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     <LightboxShell onClose={()=>setDeck(null)}>
       <span className="deck-root" aria-hidden="true" style={{display:'none'}}/>
       <div className="lightbox-stage deck-stage" title="Clique na esquerda para voltar e na direita para avançar"
-        onClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();deckGo(e.clientX-r.left<r.width/2?-1:1);}}>
+        onClick={e=>{e.stopPropagation();deckGo(deckHalf(e));}}>
         <LightboxImage src={deckItem.src} srcs={deckSrcs} index={deck.index}/>
       </div>
       <div style={{position:'absolute',top:20,left:24,right:76,color:'rgba(255,255,255,.8)',fontSize:'.8rem',fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',pointerEvents:'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{deck.label}</div>
@@ -11961,14 +11976,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
         style={{position:'absolute',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
         <Icon name="x" size={20}/>
       </button>
-      <div onClick={e=>e.stopPropagation()} style={{position:'absolute',left:'50%',bottom:16,transform:'translateX(-50%)',display:'flex',flexDirection:'column',alignItems:'center',gap:8,zIndex:201,maxWidth:'92%'}}>
-        <div style={{color:'rgba(255,255,255,.75)',fontSize:'.76rem',textAlign:'center',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'100%'}}>{deckItem.title}{deckItem.date?' · '+formatPostDate(deckItem.date):''}</div>
-        <div style={{display:'flex',alignItems:'center',gap:4,padding:'4px 6px',borderRadius:999,background:'rgba(0,0,0,.5)',backdropFilter:'blur(6px)',border:'1px solid rgba(255,255,255,.1)'}}>
-          <button onClick={()=>deckGo(-1)} disabled={deck.index<=0} aria-label="Anterior" title="Anterior (←)" className="deck-nav"><Icon name="arrow-left" size={16}/></button>
-          <span style={{minWidth:64,textAlign:'center',color:'white',fontSize:'.78rem',fontWeight:600,fontVariantNumeric:'tabular-nums'}}>{deck.index+1} / {deck.items.length}</span>
-          <button onClick={()=>deckGo(1)} disabled={deck.index>=deck.items.length-1} aria-label="Próxima" title="Próxima (→)" className="deck-nav"><Icon name="arrow-right" size={16}/></button>
-        </div>
-      </div>
+      <DeckNav index={deck.index} count={deck.items.length} onPrev={()=>deckGo(-1)} onNext={()=>deckGo(1)} caption={deckItem.title+(deckItem.date?' · '+formatPostDate(deckItem.date):'')}/>
     </LightboxShell>,
     document.body
   ):null;
@@ -11978,26 +11986,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   // at scrollTop 0 instead of returning to the image the user had opened.
   const lightboxPortal=lightbox?ReactDOM.createPortal(
     <LightboxShell onClose={()=>setLightbox(null)}>
-      {lightboxImages.length>1&&(
-        <>
-          <button onClick={e=>{e.stopPropagation();goLightboxPrev();}} aria-label="Imagem anterior" title="Imagem anterior"
-            disabled={!canLightboxPrev}
-            style={{position:'absolute',left:isMobile?10:16,top:'50%',transform:'translateY(-50%)',background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',cursor:canLightboxPrev?'pointer':'default',color:'white',backdropFilter:'blur(4px)',zIndex:201,opacity:canLightboxPrev?1:.35}}>
-            <Icon name="arrow-left" size={20}/>
-          </button>
-          <button onClick={e=>{e.stopPropagation();goLightboxNext();}} aria-label="Próxima imagem" title="Próxima imagem"
-            disabled={!canLightboxNext}
-            style={{position:'absolute',right:isMobile?10:16,top:'50%',transform:'translateY(-50%)',background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',cursor:canLightboxNext?'pointer':'default',color:'white',backdropFilter:'blur(4px)',zIndex:201,opacity:canLightboxNext?1:.35}}>
-            <Icon name="arrow-right" size={20}/>
-          </button>
-          <div style={{position:'fixed',left:'50%',bottom:18,transform:'translateX(-50%)',padding:'6px 12px',borderRadius:999,background:'rgba(0,0,0,.4)',color:'white',fontSize:'.78rem',fontWeight:600,letterSpacing:'.02em',backdropFilter:'blur(4px)',zIndex:201,pointerEvents:'none'}}>
-            {Math.max(1,lightboxIndex+1)} / {lightboxImages.length}
-          </div>
-        </>
-      )}
-      <div className="lightbox-stage" onClick={()=>setLightbox(null)}>
-        <LightboxImage src={lightbox} srcs={lightboxImages} index={lightboxIndex} onClick={e=>e.stopPropagation()}/>
+      <span className="deck-root" aria-hidden="true" style={{display:'none'}}/>
+      <div className="lightbox-stage deck-stage" title={lightboxImages.length>1?'Clique na esquerda para voltar e na direita para avançar':undefined}
+        onClick={e=>{e.stopPropagation();if(lightboxImages.length<2){setLightbox(null);return;}if(deckHalf(e)<0)goLightboxPrev();else goLightboxNext();}}>
+        <LightboxImage src={lightbox} srcs={lightboxImages} index={lightboxIndex}/>
       </div>
+      {lightboxImages.length>1&&<DeckNav index={Math.max(0,lightboxIndex)} count={lightboxImages.length} onPrev={goLightboxPrev} onNext={goLightboxNext} caption={selected?.title||''}/>}
       <button onClick={()=>setLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
         <Icon name="x" size={20}/>
@@ -12049,6 +12043,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
             </div>
           </div>;
         })()}
+        {lightboxImages.length>0&&<button type="button" className="gallery-chip" onClick={()=>setLightbox(0)} title="Ver as imagens deste post uma a uma" aria-label="Apresentar as imagens deste post"><Icon name="monitor-play" size={12}/> Apresentar</button>}
         {/* Date editor */}
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
