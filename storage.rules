@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // Uploads are content-addressed: users/{uid}/images/sha256_<digest>_<mime>
-// (plus "_thumb480" derivatives). Limits mirror BH_MEDIA in index.html:
+// (plus "_thumb480" and "_disp2880" derivatives; the latter is a WebP copy
+// of at most 2880 px made in the background for the full-screen view). Limits mirror BH_MEDIA in index.html:
 // images are kept as uploaded, GIF <= 15 MB, video <= 60 MB.
 //
 // NOTE: getDownloadURL() links carry an access token and are readable by

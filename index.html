@@ -2470,6 +2470,14 @@ const warmSources=(srcs,limit=24,{full=false,priority='low'}={})=>{
     if(seen.has(src))continue;
     seen.add(src);
     if(src.startsWith('idb://')){local.push(src);n++;continue;}
+    if(bhIsFirebaseImage(src)){
+      // Cloud uploads: only the small thumbnail is warmed here. The raw original
+      // used to be requested for up to 48 images at once (on hover and on open),
+      // which saturated the connection and starved the image actually on screen.
+      // Originals come from the lightbox preloader / bhWarmPost, a few at a time.
+      if(!full)bhRemoteDisplay(src,'thumb').then(r=>r.release()).catch(()=>{});
+      n++;continue;
+    }
     if(/^https?:\/\//.test(src)){_preload(full?src:_httpThumb(src),priority);n++;}
   }
   if(local.length)warmKeys(local,limit);
@@ -2715,7 +2723,7 @@ const useDisplayUrlState=(src,thumb)=>{
     if(!src.startsWith('idb://')){
       if(bhIsFirebaseImage(src)){
         let release=null;
-        bhRemoteDisplay(src,thumb).then(result=>{
+        bhRemoteDisplay(src,thumb?'thumb':'disp').then(result=>{
           if(cancelled){result.release();return;}
           release=result.release;setState(result.url);
         }).catch(()=>{if(!cancelled)setState(src);});
@@ -3650,6 +3658,7 @@ const bhDigest=async bytes=>{
 };
 const _bhUploadInflight=new Map();
 const _bhThumbUrls=new Map();
+// @bh-test-begin fbimg
 const bhIsFirebaseImage=url=>{
   if(typeof url!=='string'||!/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\//.test(url))return false;
   try{
@@ -3658,16 +3667,130 @@ const bhIsFirebaseImage=url=>{
     return /(?:sha256_[a-f0-9]{64}_image_[a-z0-9_]+|\.(?:png|jpe?g|gif|webp|avif|bmp|heic|tiff?))$/i.test(path);
   }catch{return false;}
 };
+// @bh-test-end fbimg
 const _bhRemoteInflight=new Map(),_bhRemoteUrls=new Map();
-const bhRemoteDisplay=async(src,thumb)=>{
+// @bh-test-begin dispmach
+// ── DISPLAY-SIZE DERIVATIVE (see the `disp` test region) ───────────────
+const _bhDispUrls=new Map(),_bhDispInflight=new Map();
+// URL of src's display copy, or '' (use the original). Needs a signed-in
+// session to ask Storage; a cached answer works offline.
+const _bhDispLookup=async src=>{
+  if(typeof src!=='string'||!bhIsFirebaseImage(src))return '';
+  const mem=_bhDispUrls.get(src);if(mem)return mem;
+  const st=bhDispCacheState(await bhMediaCacheGet('disp:'+src),Date.now());
+  if(st.state==='url'){_bhDispUrls.set(src,st.url);return st.url;}
+  if(st.state==='skip')return '';
+  if(!_fbStorage||!_fbAuth?.currentUser)return '';
+  if(!_bhDispInflight.has(src))_bhDispInflight.set(src,(async()=>{
+    try{
+      const name=bhDispName(_fbStorage.refFromURL(src).fullPath);
+      if(!name){await bhMediaCachePut('disp:'+src,{none:'small',at:Date.now()});return '';}
+      const url=await _fbStorage.ref(name).getDownloadURL();
+      await bhMediaCachePut('disp:'+src,{url});_bhDispUrls.set(src,url);return url;
+    }catch(e){
+      if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('disp:'+src,{none:'missing',at:Date.now()});
+      return '';
+    }finally{_bhDispInflight.delete(src);}
+  })());
+  return _bhDispInflight.get(src);
+};
+const _bhDecodeBmp=async blob=>{
+  try{return await createImageBitmap(blob,{imageOrientation:'from-image',colorSpaceConversion:'default',premultiplyAlpha:'none'});}
+  catch{return await createImageBitmap(blob);}
+};
+// One decode: {blob} for the derivative, or {none:reason}.
+const _makeDisplayBlob=async file=>{
+  if(typeof createImageBitmap!=='function')return {none:'failed'};
+  let bmp=null;
+  try{
+    const head=new Uint8Array(await file.slice(0,262144).arrayBuffer());
+    const animated=bhIsAnimated(head,file.type);
+    bmp=await _bhDecodeBmp(file);
+    const plan=bhDispPlan({w:bmp.width,h:bmp.height,bytes:file.size,type:file.type,animated});
+    if(!plan.needed)return {none:plan.reason==='small'?'small':plan.reason==='animated'||plan.reason==='type'?'small':'failed'};
+    const c=document.createElement('canvas');c.width=plan.targetW;c.height=plan.targetH;
+    const cx=c.getContext('2d');cx.imageSmoothingEnabled=true;cx.imageSmoothingQuality='high';
+    cx.drawImage(bmp,0,0,plan.targetW,plan.targetH);
+    const out=await new Promise(res=>c.toBlob(b=>res(b),plan.mime,plan.quality));
+    if(!out||out.type!==plan.mime)return {none:'failed'};
+    if(!bhDispAccept(file.size,out.size))return {none:'notSmaller'};
+    return {blob:out};
+  }catch{return {none:'failed'};}
+  finally{if(bmp&&bmp.close)bmp.close();}
+};
+// Background generation: one job at a time, when idle, desktop only.
+const _bhDisp={q:[],running:false,done:0};
+const _bhDispAllowed=()=>{
+  try{
+    const c=navigator.connection||{};
+    return !!_fbStorage&&!!_fbAuth?.currentUser&&navigator.onLine!==false&&!c.saveData&&!/(^|-)[23]g$/.test(String(c.effectiveType||''))
+      &&(!navigator.deviceMemory||navigator.deviceMemory>=4)&&(!window.matchMedia||window.matchMedia('(min-width: 769px)').matches);
+  }catch{return false;}
+};
+const bhDispMaybeEnqueue=(src,blob)=>{
+  try{
+    if(typeof src!=='string'||!bhIsFirebaseImage(src)||!(blob instanceof Blob))return;
+    if(!/^image\//.test(blob.type)||/^image\/(?:gif|svg)/.test(blob.type))return;
+    if(_bhDisp.done>=60||_bhDisp.q.length>=8||_bhDisp.q.some(j=>j.src===src)||!_bhDispAllowed())return;
+    _bhDisp.q.push({src,blob});_bhDispPump();
+  }catch{/*silent-ok: a background optimisation never breaks viewing*/}
+};
+const bhDispEnqueueUpload=(src,path,blob)=>{
+  if(_bhDisp.q.length>=8||_bhDisp.q.some(j=>j.src===src))return;
+  _bhDisp.q.push({src,blob,path});_bhDispPump();
+};
+const _bhDispPump=()=>{
+  if(_bhDisp.running||!_bhDisp.q.length)return;
+  _bhDisp.running=true;
+  const idle=window.requestIdleCallback?f=>window.requestIdleCallback(f,{timeout:8000}):f=>setTimeout(f,500);
+  idle(async()=>{
+    const job=_bhDisp.q.shift();
+    try{await _bhDispRun(job);}catch(e){bhLog('disp.job',e);}
+    _bhDisp.running=false;_bhDispPump();
+  });
+};
+const _bhDispRun=async job=>{
+  if(!_bhDispAllowed())return;
+  const uid=_fbAuth.currentUser.uid;
+  const path=job.path||_fbStorage.refFromURL(job.src).fullPath;
+  if(!path.startsWith('users/'+uid+'/'))return;
+  const name=bhDispName(path);if(!name)return;
+  if(bhDispCacheState(await bhMediaCacheGet('disp:'+job.src),Date.now()).state==='url')return;
+  const ref=_fbStorage.ref(name);
+  let url='';
+  try{url=await ref.getDownloadURL();}
+  catch(e){if(!e||e.code!=='storage/object-not-found')return;/* transient: try again another time */}
+  if(!url){
+    const made=await _makeDisplayBlob(job.blob);
+    if(!made.blob){await bhMediaCachePut('disp:'+job.src,{none:made.none||'failed',at:Date.now()});return;}
+    if(_fbAuth?.currentUser?.uid!==uid)return;
+    bhDiag.record('uploadStarted',made.blob.size,'display');
+    await ref.put(made.blob,{contentType:made.blob.type,cacheControl:'private,max-age=31536000,immutable'});
+    url=await ref.getDownloadURL();
+    await bhMediaCachePut('blob:'+url,{blob:made.blob,at:Date.now()});
+    _bhDisp.done++;
+  }
+  await bhMediaCachePut('disp:'+job.src,{url});_bhDispUrls.set(job.src,url);
+};
+// @bh-test-end dispmach
+// variant: 'disp' (display-size derivative, falls back to the original), true or
+// 'thumb' (480px thumbnail), or false/undefined (the original).
+const bhRemoteDisplay=async(src,variant)=>{
+  const thumb=variant===true||variant==='thumb';
   let target=src;
+  if(variant==='disp'){const d=await _bhDispLookup(src);if(d)target=d;}
   if(thumb){
     let preview=_bhThumbUrls.get(src)||await bhMediaCacheGet('thumb:'+src);
     if(!preview&&/sha256_[a-f0-9]{64}_image_/.test(decodeURIComponent(src))&&_fbStorage)try{
       const ref=_fbStorage.refFromURL(src);
       preview=await _fbStorage.ref(ref.fullPath+'_thumb480').getDownloadURL();
       await bhMediaCachePut('thumb:'+src,preview);
-    }catch{await bhMediaCachePut('thumb:'+src,src);/* Missing derivative: remember the original fallback. */}
+    }catch(e){
+      // Only a thumbnail that really does not exist is remembered as missing;
+      // offline, not signed in yet or a rules error must not make the grid fall
+      // back to originals for good.
+      if(e&&e.code==='storage/object-not-found')await bhMediaCachePut('thumb:'+src,src);
+    }
     if(preview){target=preview;_bhThumbUrls.set(src,preview);}
   }
   let entry=_bhRemoteUrls.get(target);
@@ -3682,9 +3805,20 @@ const bhRemoteDisplay=async(src,thumb)=>{
         blob=await res.blob();bhDiag.record('imageDownloaded',blob.size);
         await bhMediaCachePut('blob:'+target,{blob,at:Date.now()});
       }
+      // An original we hold and have no display copy for: make one in the background.
+      if(target===src&&(variant==='disp'||variant===false||variant===undefined)&&!thumb)bhDispMaybeEnqueue(src,blob);
       const value={url:URL.createObjectURL(blob),refs:0,timer:null};_bhRemoteUrls.set(target,value);return value;
     })());
-    try{entry=await _bhRemoteInflight.get(target);}finally{_bhRemoteInflight.delete(target);}
+    try{entry=await _bhRemoteInflight.get(target);}
+    catch(e){
+      // A broken display copy (deleted, token changed): forget it, use the original.
+      if(variant==='disp'&&target!==src){
+        _bhDispUrls.delete(src);_bhRemoteInflight.delete(target);
+        await bhMediaCachePut('disp:'+src,{none:'broken',at:Date.now()});
+        return bhRemoteDisplay(src,false);
+      }
+      throw e;
+    }finally{_bhRemoteInflight.delete(target);}
   }else bhDiag.record('cacheHit',0,'image-memory');
   clearTimeout(entry.timer);entry.refs++;
   let released=false;
@@ -3712,7 +3846,7 @@ const _lbResolve=async src=>{
     let done=false;
     return {url,release:()=>{if(done)return;done=true;const n=(_objUrlPins.get(key)||1)-1;if(n>0)_objUrlPins.set(key,n);else _objUrlPins.delete(key);}};
   }
-  if(bhIsFirebaseImage(src))return bhRemoteDisplay(src,false);
+  if(bhIsFirebaseImage(src))return bhRemoteDisplay(src,'disp');
   return {url:src,release:()=>{}};
 };
 // An <Image> that has finished decoding keeps its pixels hot while we hold it.
@@ -3800,7 +3934,7 @@ const bhWarmPost=(srcs,index=0,{delay=600,conc=3,max=40}={})=>{
         const src=todo.shift();
         await new Promise(r=>idle(r));
         if(_warm.token!==token)return;
-        try{const r=await bhRemoteDisplay(src,false);r.release();}catch{/*silent-ok: best-effort warm-up*/}
+        try{const r=await bhRemoteDisplay(src,'disp');r.release();}catch{/*silent-ok: best-effort warm-up*/}
       }
       // The cache sweep otherwise runs once, a minute after boot.
       if(--pending<=0&&_warm.token===token)bhMediaCacheSweep().catch(()=>{});
@@ -3853,6 +3987,8 @@ const uploadToFirebaseStorage=async(file,uid)=>{
       }
     }catch{/* A derivative cannot turn a successful original upload into data loss. */}
     if(!thumb){thumb=url;await bhMediaCachePut('thumb:'+url,url);}
+    // The display-size copy is made in the background (never delays the upload).
+    if(/^image\//.test(mime))bhDispEnqueueUpload(url,ref.fullPath,file);
     await bhMediaCachePut('upload:'+key,{url,thumb});
     return url;
   })();
@@ -10785,6 +10921,8 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,folders,
       <div className="lightbox-stage" onClick={()=>setLightbox(null)}>
         <LightboxImage src={lightbox} srcs={lightboxImages} index={lightboxIndex} onClick={e=>e.stopPropagation()}/>
       </div>
+      {bhIsFirebaseImage(lightbox)&&<button onClick={e=>{e.stopPropagation();window.open(lightbox,'_blank','noopener');}} aria-label="Abrir imagem original" title="Abrir a imagem original (tamanho completo) em outra aba"
+        style={{position:'fixed',left:'50%',bottom:56,transform:'translateX(-50%)',padding:'5px 12px',borderRadius:999,background:'rgba(0,0,0,.4)',color:'white',border:'1px solid rgba(255,255,255,.12)',fontSize:'.72rem',fontWeight:600,cursor:'pointer'}}>Ver original</button>}
       <button onClick={()=>setLightbox(null)} aria-label="Fechar imagem" title="Fechar"
         style={{position:'fixed',top:20,right:20,background:'rgba(255,255,255,.14)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'50%',width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',backdropFilter:'blur(4px)',zIndex:201}}>
         <Icon name="x" size={20}/>
