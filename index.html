@@ -7154,6 +7154,9 @@ const bhMergePosts=(posts,visualIds,keepId,sep='\n\n')=>{
   };
 };
 // @bh-test-end postmerge
+// A session another tab keeps alive is rewritten at least every ~8s; a hidden tab can
+// be throttled to about one wake-up a minute, so only a longer silence means it is gone.
+const POMO_OWNER_STALE_MS=90000;
 const POMO_TASK_LS='boardhub_pomo_task';
 const pomoTaskPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO_TASK_LS)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return {};}};
 const pomoTaskPicksSave=v=>{try{localStorage.setItem(POMO_TASK_LS,JSON.stringify(v));}catch(e){bhLog('pomo.task',e,'the task chosen for the timer is not remembered');}};
@@ -7679,7 +7682,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     // A session another tab wrote seconds ago is still running there (that tab
     // rewrites it every few seconds): this tab must neither end it nor continue
     // it, or the same seconds would be credited twice.
-    if(fromAnotherDocument&&!saved?.abandonedSession&&Date.now()-(Number(saved?.savedAt)||0)<25000){
+    if(fromAnotherDocument&&!saved?.abandonedSession&&Date.now()-(Number(saved?.savedAt)||0)<POMO_OWNER_STALE_MS){
       return {timeLeft:focusMins*60,isActive:false,mode:'focus',endTimestamp:null,focusMins,targetKey,sessionMeta:null,abandonedSession:null,lockedElsewhere:true};
     }
     const abandonedSession=saved?.abandonedSession||(fromAnotherDocument?pomoAbandonedFromTimer(saved,Number(saved?.savedAt)||Date.now()):null);
@@ -7728,6 +7731,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const targetKeyRef    = useRef(_init.targetKey||'none');
   const lockedRef       = useRef(!!_init.lockedElsewhere);
   const [lockedElsewhere,setLockedElsewhere]=useState(!!_init.lockedElsewhere);
+  const [recoverTick,setRecoverTick]=useState(0);
   const sessionMetaRef  = useRef(_init.sessionMeta&&_init.mode==='focus'?_init.sessionMeta:null);
   const abandonedSessionRef=useRef(_init.abandonedSession||null);
   const circleRef       = useRef(null);
@@ -7865,7 +7869,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       return {...credited,rank:pomoRankAddSession(credited.rank,session)};
     });
     pomoTimerSave({isActive:false,mode:'focus',timeLeft:focusMinsRef.current*60,focusMins:focusMinsRef.current,targetKey:tk,sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:Date.now(),abandonedSession:null});
-  },[]);
+  },[recoverTick]);
 
   const changeTarget = key => {
     if(isActiveRef.current||sessionMetaRef.current)return;
@@ -7947,7 +7951,14 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     if(!lockedElsewhere)return;
     const id=setInterval(()=>{
       const saved=pomoTimerLoad();
-      if(!saved?.sessionMeta||saved.documentId===POMO_DOCUMENT_ID||Date.now()-(Number(saved.savedAt)||0)>=25000){lockedRef.current=false;setLockedElsewhere(false);}
+      if(!saved?.sessionMeta||saved.documentId===POMO_DOCUMENT_ID||Date.now()-(Number(saved.savedAt)||0)>=POMO_OWNER_STALE_MS){
+      lockedRef.current=false;
+      // The other tab is gone: recover what it left (a session it abandoned on close,
+      // or one it never got to close) exactly as a fresh load would.
+      const ab=saved?.abandonedSession||(saved?.sessionMeta&&saved.mode==='focus'&&saved.documentId!==POMO_DOCUMENT_ID?pomoAbandonedFromTimer(saved,Date.now()):null);
+      if(ab){abandonedSessionRef.current=ab;setRecoverTick(t=>t+1);}
+      setLockedElsewhere(false);
+    }
     },5000);
     return()=>clearInterval(id);
   },[lockedElsewhere]);
@@ -10112,8 +10123,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     [pomoData?.allocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
   const projectFocusSecs=((pomoData?.allocations||{})[projectFocusKey]||0)+projectLinkedSecs;
   // Today's time includes what the Gallery link brings in, like the total does.
-  const projectLinkedTodaySecs=useMemo(()=>pomoLinkedExtra(pomoData,[local],galleryFolders,galleryPosts,pomoTodayKey())[projectFocusKey]||0,
-    [pomoData?.dailyAllocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
+  const todayKey=pomoTodayKey();
+  const projectLinkedTodaySecs=useMemo(()=>pomoLinkedExtra(pomoData,[local],galleryFolders,galleryPosts,todayKey)[projectFocusKey]||0,
+    [todayKey,pomoData?.dailyAllocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
   const projectTodaySecs=(((pomoData?.dailyAllocations||{})[pomoTodayKey()]||{})[projectFocusKey]||0)+projectLinkedTodaySecs;
   // Each task's focus time is summed from the sessions filed under it: the
   // sessions its notes carry (moving a note moves its sessions), plus older
@@ -12340,9 +12352,9 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     // would throw those changes away and leave sessions pointing at a post that lost
     // their images: refuse instead.
     const cur=(posts||[]).find(p=>p&&String(p.id)===e.keepId);
-    if(e.after&&cur&&(cur.title!==e.after.title||cur.content!==e.after.content||JSON.stringify(cur.images||[])!==JSON.stringify(e.after.images))){
+    if(e.after&&(!cur||cur.title!==e.after.title||cur.content!==e.after.content||JSON.stringify(cur.images||[])!==JSON.stringify(e.after.images))){
       clearTimeout(undoToastTimerRef.current);setUndoToast(null);
-      bhAlert('O post unido foi alterado depois da junção. Desfazer agora apagaria essas mudanças, então a junção ficou como está.');
+      bhAlert('O post unido foi alterado (ou já foi unido a outro) depois da junção. Desfazer agora apagaria essas mudanças, então a junção ficou como está.');
       return false;
     }
     setPosts(prev=>{
