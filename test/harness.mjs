@@ -26,7 +26,7 @@ export const EXPECTED = {
   sync: ['bhEqual', 'bhMergeSync', 'bhSyncRankPoints', 'bhSyncPlan', 'bhSplitState', 'bhUtf8Bytes'],
   entity: ['bhEntityPack', 'bhEntityUnpack'],
   safehref: ['safeHref'],
-  rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'pomoRankMaintain', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays', 'pomoRetargetSession', 'pomoSessionParts', 'pomoRetargetPlan', 'pomoApplyRetargets', 'pomoSeedCycle', 'pomoCreditParts'],
+  rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'pomoRankMaintain', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays', 'pomoRetargetSession', 'pomoSessionParts', 'pomoRetargetPlan', 'pomoApplyRetargets', 'pomoSeedCycle', 'pomoCreditParts', 'pomoRefilePosts'],
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],

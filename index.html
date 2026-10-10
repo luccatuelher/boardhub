@@ -6378,6 +6378,37 @@ const pomoSessionParts=(session,fromKey)=>{
   const chunks=Array.isArray(session&&session.chunks)?session.chunks.filter(c=>c&&(c.targetKey==null||String(c.targetKey)===String(fromKey))):[];
   return chunks.length?chunks.map(c=>({dayKey:c.dateKey||session.date,secs:c.secs})):[{dayKey:session&&session.date,secs:Number(session&&session.durationSeconds)||0}];
 };
+// Posts filed under another category or section in the Gallery: the sessions
+// filed in them follow. A category session's time moves from its old category to
+// the new one (all-time and per day); its row takes the new category / section.
+// Project and unfiled sessions are left alone. `args`: {postIds, folderId,
+// folderLabel, sectionId (undefined = unchanged), sectionLabel}. Returns `base`
+// itself when nothing changes, so no write follows.
+const pomoRefilePosts=(base,args)=>{
+  const ids=new Set(((args&&args.postIds)||[]).map(String));
+  if(!base||!base.rank||!ids.size||args.folderId==null)return base;
+  const newKey='cat:'+String(args.folderId);
+  let out=base,changed=false;
+  const sessions=(base.rank.sessions||[]).map(row=>{
+    if(!row||row.galleryPostId==null||!ids.has(String(row.galleryPostId)))return row;
+    if(typeof row.targetKey!=='string'||!row.targetKey.startsWith('cat:'))return row;
+    let next=row;
+    if(row.targetKey!==newKey){
+      const parts=pomoSessionParts(row,row.targetKey);
+      out=pomoRetargetSession(out,row.targetKey,newKey,parts);
+      // The marker keeps the NET move since registration (see pomoApplyRetargets).
+      const from=row.retarget&&row.retarget.from?row.retarget.from:row.targetKey;
+      next={...next,targetKey:newKey,targetLabel:args.folderLabel||row.targetLabel,retarget:{from,to:newKey,parts:(row.retarget&&row.retarget.parts)||parts}};
+      changed=true;
+    }
+    if(args.sectionId!==undefined&&String(row.sectionId||'')!==String(args.sectionId||'')){
+      next={...next,sectionId:args.sectionId||null,sectionLabel:args.sectionLabel||''};
+      changed=true;
+    }
+    return next;
+  });
+  return changed?{...out,rank:{...out.rank,sessions}}:base;
+};
 // What registering `session` moves, read from the session's ROW in `base` (not
 // from the dialog): only a still-pending row whose stored key differs from the
 // one chosen. A retry after a partial failure finds the row already saved and
@@ -11757,7 +11788,7 @@ const DeckNav=({index,count,onPrev,onNext,caption})=>(
 );
 // Click on the left / right half of a viewer's picture: dir -1 / +1.
 const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
-const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,onPostsMerged,folders,setFolders,navTick,isMobile,projects})=>{
+const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -11966,6 +11997,8 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   };
   const movePostToSection=(postId,sectionId,atEnd=true)=>{
     editManualOrder(order=>galleryMovePost(order,postId,{section:sectionId,atEnd}));
+    // The sessions filed in this post follow it into the new section.
+    onPostsRefiled?.({postIds:[postId],folderId:activeFolder,sectionId:sectionId??null,sectionLabel:folderSections.find(x=>x.id===sectionId)?.label||''});
   };
   // sectionId null = "Sem seção". Works in every sort mode.
   const setPostSection=(postId,sectionId)=>{
@@ -12069,6 +12102,8 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     if(editingSectionId===sectionId)setEditingSectionId(null);
     if(menuEditId===sectionId)setMenuEditId(null);
     onSectionFolderMoved?.({from:String(activeFolder),to:String(targetId),oldId:sectionId,newId,postIds:moved});
+    // The sessions filed in those posts follow them to the new folder (and its section).
+    onPostsRefiled?.({postIds:moved,folderId:targetId,sectionId:newId,sectionLabel:sec.label});
   };
   // Position of the open post inside its block, for the "move" arrows.
   // Field-level write on the stored post: writing back the whole `selected`
@@ -12502,7 +12537,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
           <span className="label label-field" style={{flexShrink:0}}>Pasta</span>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             {FOLDERS.map(f=>(
-              <button key={f.id} onClick={()=>upd('folder',f.id)} aria-pressed={String(selected.folder)===String(f.id)}
+              <button key={f.id} onClick={()=>{
+                if(String(selected.folder)===String(f.id))return;
+                upd('folder',f.id);
+                // In the new folder the post has no section; its sessions follow it there.
+                onPostsRefiled?.({postIds:[selected.id],folderId:f.id,sectionId:null,sectionLabel:''});
+              }} aria-pressed={String(selected.folder)===String(f.id)}
                 className={`gallery-chip${String(selected.folder)===String(f.id)?' on':''}`}>
                 {f.label}
               </button>
@@ -18108,6 +18148,16 @@ const App=()=>{
       return out;
     }));
   },[]);
+  // Gallery posts filed under another category or section: the sessions filed in
+  // them follow, so their time is counted where the post now is (pomoRefilePosts).
+  const handlePostsRefiled=useCallback(({postIds,folderId,sectionId,sectionLabel})=>{
+    const folder=(galleryFolders||[]).find(f=>f&&String(f.id)===String(folderId));
+    setPomoData(prev=>{
+      const base=pomoNormalize(prev);
+      const next=pomoRefilePosts(base,{postIds,folderId,folderLabel:folder?String(folder.label||''):'',sectionId,sectionLabel});
+      return next===base?prev:next; // nothing moved: no write
+    });
+  },[galleryFolders]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
   const handleOpenSessionPost=useCallback((session,post)=>{
     // A project session saved as a task note opens that note on the project page.
@@ -18380,7 +18430,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 

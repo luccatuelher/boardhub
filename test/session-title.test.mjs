@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhSessionPostTitle, bhPlaceInSection, pomoRetargetSession, pomoSessionParts, pomoRetargetPlan, pomoApplyRetargets, pomoNormalize, pomoMergeProgress, pomoCreditParts, rankDefault } = load(['date', 'sesstitle', 'rank']);
+const { bhSessionPostTitle, bhPlaceInSection, pomoRetargetSession, pomoSessionParts, pomoRetargetPlan, pomoApplyRetargets, pomoNormalize, pomoMergeProgress, pomoCreditParts, rankDefault, pomoRefilePosts } = load(['date', 'sesstitle', 'rank']);
 
 test('default post title: day/month, a dash, then what the session was about', () => {
   assert.equal(bhSessionPostTitle('2026-10-08', 'Back from the brink'), '08/10 - Back from the brink');
@@ -127,4 +127,43 @@ test('credit on the rank\'s own day is untouched, and a finished day is not rewa
   const r = pomoCreditParts(done, [{ dayKey: '2026-10-09', secs: 600 }], 'cat:a');
   // that day was already past 2h: only the small post-victory units, no new 200-250 reward
   assert.ok(r.rank.points - 500 <= 40, 'points gained ' + (r.rank.points - 500));
+});
+
+test('a post filed under another category: its sessions and their time follow (and the section)', () => {
+  const rows = [
+    { id: 's1', status: 'saved', targetKey: 'cat:a', targetLabel: 'A', galleryPostId: 'p1', date: '2026-10-10', durationSeconds: 600, sectionId: 'x', sectionLabel: 'X' },
+    { id: 's2', status: 'saved', targetKey: 'cat:a', galleryPostId: 'p2', date: '2026-10-10', durationSeconds: 900 },     // another post
+    { id: 's3', status: 'saved', targetKey: 'project:7', galleryPostId: 'p1', date: '2026-10-10', durationSeconds: 70 }, // project session
+  ];
+  const base = withSessions({ 'cat:a': 1500, 'project:7': 70 }, rows);
+  const r = pomoRefilePosts(base, { postIds: ['p1'], folderId: 'b', folderLabel: 'B', sectionId: 'y', sectionLabel: 'Y' });
+  assert.equal(r.allocations['cat:a'], 900);
+  assert.equal(r.allocations['cat:b'], 600);
+  assert.equal(r.allocations['project:7'], 70);
+  const row = r.rank.sessions.find(x => x.id === 's1');
+  assert.equal(row.targetKey, 'cat:b');
+  assert.equal(row.targetLabel, 'B');
+  assert.equal(row.sectionId, 'y');
+  assert.equal(row.retarget.from, 'cat:a');
+  assert.equal(row.retarget.to, 'cat:b');
+  assert.equal(r.rank.sessions.find(x => x.id === 's2').targetKey, 'cat:a');
+  assert.equal(r.rank.sessions.find(x => x.id === 's3').targetKey, 'project:7');
+});
+
+test('refile: a second move keeps the net marker; same place or only a section change moves no time', () => {
+  const rows = [{ id: 's1', status: 'saved', targetKey: 'cat:a', galleryPostId: 'p1', date: '2026-10-10', durationSeconds: 600 }];
+  const base = withSessions({ 'cat:a': 600 }, rows);
+  const once = pomoRefilePosts(base, { postIds: ['p1'], folderId: 'b', folderLabel: 'B' });
+  const twice = pomoRefilePosts(once, { postIds: ['p1'], folderId: 'c', folderLabel: 'C' });
+  assert.equal(twice.allocations['cat:c'], 600);
+  assert.equal('cat:b' in twice.allocations, false);
+  assert.equal(twice.rank.sessions[0].retarget.from, 'cat:a');
+  assert.equal(twice.rank.sessions[0].retarget.to, 'cat:c');
+  // same category: only the section label moves, no seconds
+  const sec = pomoRefilePosts(base, { postIds: ['p1'], folderId: 'a', sectionId: 's9', sectionLabel: 'Nine' });
+  assert.equal(sec.allocations['cat:a'], 600);
+  assert.equal(sec.rank.sessions[0].sectionId, 's9');
+  // nothing to do: the very same object comes back
+  assert.equal(pomoRefilePosts(base, { postIds: ['zz'], folderId: 'b' }), base);
+  assert.equal(pomoRefilePosts(base, { postIds: ['p1'], folderId: 'a' }), base);
 });
