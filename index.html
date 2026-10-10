@@ -6926,7 +6926,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
           {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?(Array.isArray(taskNote.note.images)?taskNote.note.images:[]):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
             <div className="rank-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={opens?'image':'minus'} size={14} style={{opacity:.28}}/>}</div>
-            <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{pomoFmtSecs(row.durationSeconds||0)} de foco{taskNote&&<> · {taskNote.mini.title||'Tarefa'}</>}{showPoints&&<> · +{Number(row.pointsAwarded||0)} pts</>}</span></div>
+            <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{[row.targetLabel||'Sem categoria',row.sectionLabel].filter(Boolean).join(' › ')} · {pomoFmtSecs(row.durationSeconds||0)} de foco{taskNote&&<> · {taskNote.mini.title||'Tarefa'}</>}{showPoints&&<> · +{Number(row.pointsAwarded||0)} pts</>}</span></div>
             {status?<span className={'rank-session-status '+status.cls}>{status.label}</span>:<span/>}
           </div>})}
         </section>)}</div>
@@ -7019,6 +7019,34 @@ const bhSessionPostTitle=(date,label)=>{
   const name=String(label||'').trim()||'Sem categoria';
   return m?m[3]+'/'+m[2]+' - '+name:name;
 };
+// A session registered under another category than the one it ran on: its
+// seconds move between the two categories' totals (all-time and per day).
+// Only category → category moves; 'none' and project sessions are left alone.
+// `parts` are [{dayKey|dateKey, secs}] (the session's chunks).
+const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
+  const isCat=k=>typeof k==='string'&&k.startsWith('cat:');
+  if(!base||fromKey===toKey||!isCat(fromKey)||!isCat(toKey))return base;
+  const list=(Array.isArray(parts)?parts:[]).map(p=>({dayKey:p&&(p.dayKey||p.dateKey),secs:Math.max(0,Number(p&&p.secs)||0)})).filter(p=>p.dayKey&&p.secs>0);
+  if(!list.length)return base;
+  const allocations={...(base.allocations||{})},daily={...(base.dailyAllocations||{})};
+  for(const {dayKey,secs} of list){
+    allocations[fromKey]=Math.max(0,(allocations[fromKey]||0)-secs);
+    if(!allocations[fromKey])delete allocations[fromKey];
+    allocations[toKey]=(allocations[toKey]||0)+secs;
+    const dm={...(daily[dayKey]||{})};
+    dm[fromKey]=Math.max(0,(dm[fromKey]||0)-secs);
+    if(!dm[fromKey])delete dm[fromKey];
+    dm[toKey]=(dm[toKey]||0)+secs;
+    daily[dayKey]=dm;
+  }
+  return {...base,allocations,dailyAllocations:daily};
+};
+// The per-day seconds a session credited to `fromKey` (its chunks; older
+// sessions without chunks count their whole duration on the day they ended).
+const pomoSessionParts=(session,fromKey)=>{
+  const chunks=Array.isArray(session&&session.chunks)?session.chunks.filter(c=>c&&(c.targetKey==null||String(c.targetKey)===String(fromKey))):[];
+  return chunks.length?chunks.map(c=>({dayKey:c.dateKey||session.date,secs:c.secs})):[{dayKey:session&&session.date,secs:Number(session&&session.durationSeconds)||0}];
+};
 // A new post made from a focus session goes to the TOP of the chosen section
 // (right after its marker in the folder's manualOrder), like any new post.
 // Returns the same array when the section marker is missing.
@@ -7040,7 +7068,6 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   // (or a task created right here, '__new__'), so its default title names the
   // day rather than the project the task already belongs to.
   const taskTitleDefault='Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-  const galleryTitleDefault=bhSessionPostTitle(session.date||localDateISO(),session.sectionLabel||session.targetLabel);
   const liveFolders=useMemo(()=>{
     return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
   },[galleryFolders]);
@@ -7051,6 +7078,19 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
     return String((liveFolders.find(f=>String(f.id)===cat)||liveFolders[0]||{id:''}).id);
   });
+  // The section of the chosen folder (sections live in the folder). It starts on
+  // the one picked in the timer, when that is still the same folder; changing
+  // the folder offers that folder's remembered section, or none.
+  const sectionsOfFolder=fid=>{const f=liveFolders.find(x=>String(x.id)===String(fid));return f?normalizeGallerySections(f.sections):[];};
+  const [sectionId,setSectionId]=useState(()=>{
+    const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
+    return !isProjectSession&&session.sectionId&&cat===folderId&&sectionsOfFolder(folderId).some(x=>x.id===session.sectionId)?session.sectionId:'';
+  });
+  const folderSectionList=useMemo(()=>sectionsOfFolder(folderId),[liveFolders,folderId]);//eslint-disable-line react-hooks/exhaustive-deps
+  const sectionObj=isProjectSession?null:(folderSectionList.find(x=>x.id===sectionId)||null);
+  const chosenFolder=liveFolders.find(f=>String(f.id)===String(folderId))||null;
+  // The post title follows what it is filed under: the section, else the category.
+  const galleryTitleDefault=bhSessionPostTitle(session.date||localDateISO(),sectionObj?sectionObj.label:(isProjectSession?session.targetLabel:(chosenFolder?chosenFolder.label:session.targetLabel)));
   // A folder a project is linked to (project.galleryFolder) lets a category
   // session go into one of that project's tasks too: the projects offered here
   // follow the folder chosen below. "Só na Galeria" (none) is the default and
@@ -7101,9 +7141,15 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     const tasks=p?(p.projectTasks||[]):[];
     setTaskChoice(p?(last!=null&&tasks.some(t=>t&&String(t.id)===String(last))?String(last):(tasks.some(t=>t&&t.id!=null)?'':'__new__')):'');
     setNewTaskName('');setGalleryLink('');setShowInGallery(true);setError('');
-    // The default title follows the mode; one the user typed is left alone.
-    setTitle(t=>t===taskTitleDefault||t===galleryTitleDefault?(p?taskTitleDefault:galleryTitleDefault):t);
   };
+  // The default title follows the mode, the category and the section; a title
+  // the user typed is left alone (only a title equal to the previous default moves).
+  const prevDefaultTitleRef=useRef(defaultTitle);
+  useEffect(()=>{
+    const prev=prevDefaultTitleRef.current;
+    prevDefaultTitleRef.current=defaultTitle;
+    if(prev!==defaultTitle)setTitle(t=>t===prev?defaultTitle:t);
+  },[defaultTitle]);
   const [existingPostId,setExistingPostId]=useState('');
   const existingPost=eligiblePosts.find(p=>String(p.id)===String(existingPostId))||null;
   const [offline,setOffline]=useState(()=>typeof navigator!=='undefined'&&navigator.onLine===false);
@@ -7164,14 +7210,21 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     if(!asTask&&saveMode==='append'&&!existingPost){setError('Escolha o post que receberá as novas imagens.');return;}
     savingRef.current=true;setSaving(true);setError('');
     try{
+      // The category (and section) chosen here decide where the post goes and
+      // where the focus time is counted: a category session moved to another
+      // folder carries its new key and where it came from.
+      const catSession=!isProjectSession&&String(session.targetKey||'').startsWith('cat:');
+      const retargeted=catSession&&chosenFolder&&('cat:'+chosenFolder.id)!==String(session.targetKey);
+      const routing={...(retargeted?{targetKey:'cat:'+chosenFolder.id,targetLabel:chosenFolder.label,retargetFrom:String(session.targetKey)}:{}),
+        ...(isProjectSession?{}:{sectionId:sectionId||null,sectionLabel:sectionObj?sectionObj.label:''})};
       const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}),(i,pct)=>setProgress(p=>({done:p?.done||i,total:files.length,compact:pct})));
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
-      if(asTask)await onSave({...session,title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,
+      if(asTask)await onSave({...session,...routing,title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,
         taskId:taskChoice!=='__new__'?taskChoice:null,newTaskName:taskChoice==='__new__'?newTaskName.trim():'',
         hideInGallery:!!linkedPost&&!showInGallery,galleryLink:linkedPost?'':galleryLink,
         // A category session filed into a linked project's task: which project.
         ...(isProjectSession?{}:{linkProjectId:String(taskProject.id)})});
-      else await onSave({...session,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId,existingPostId:saveMode==='append'?existingPost.id:null});
+      else await onSave({...session,...routing,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId,existingPostId:saveMode==='append'?existingPost.id:null});
       // Next session on this folder starts on the same choice ('' = only the Gallery).
       if(!isProjectSession&&linkedProjects.length)bhSessionLinkSave(folderId,taskProject?taskProject.id:'');
     }catch(e){
@@ -7193,7 +7246,8 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         <button type="button" className={saveMode==='append'?'active':''} aria-pressed={saveMode==='append'} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
       </div>}
       <div className="session-post-destination">
-        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{const fid=e.target.value,list=projectsOfFolder(fid),mem=rememberedProject(fid,list);setFolderId(fid);setExistingPostId('');pickLinkProject(mem?mem.id:'',list);}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
+        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{const fid=e.target.value,list=projectsOfFolder(fid),mem=rememberedProject(fid,list);setFolderId(fid);setExistingPostId('');const remembered=pomoSectionPicksLoad()[String(fid)];setSectionId(sectionsOfFolder(fid).some(x=>x.id===remembered)?remembered:'');pickLinkProject(mem?mem.id:'',list);}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
+        {!asTask&&folderSectionList.length>0&&<label className="session-post-field"><span>Seção</span><select value={sectionId} onChange={e=>setSectionId(e.target.value)} disabled={saving||saveMode==='append'} aria-label="Seção da categoria"><option value="">Sem seção</option>{folderSectionList.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>}
         {!asTask&&saveMode==='append'&&<label className="session-post-field"><span>Post existente</span><select value={existingPostId} onChange={e=>setExistingPostId(e.target.value)} disabled={saving||!eligiblePosts.length}><option value="">{eligiblePosts.length?'Escolha um post':'Nenhum post nesta categoria'}</option>{eligiblePosts.map(p=><option key={p.id} value={p.id}>{p.title||'Sem título'}</option>)}</select></label>}
       </div>
       {linkedProjects.length>0&&<div className="session-post-destination" style={{gridTemplateColumns:'1fr'}}>
@@ -7672,6 +7726,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         // pending, so its capture dialog opens again on the next visit (a few
         // seconds of focus is just recorded as abandoned, as before).
         sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
+        chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
         victoryProgressSeconds:scoreAfter.cycleSeconds,status:(Math.max(0,Number(abandoned.durationSeconds)||0)>=60?'pending':'abandoned'),images:[],galleryPostId:null
       };
       return {...credited,rank:pomoRankAddSession(credited.rank,session)};
@@ -7820,6 +7875,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
             // The section picked inside the category: the post lands there and its title follows it.
             sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
             pointsAwarded,victoryProgressSeconds:scoreAfter.cycleSeconds,
+            // Per-day seconds credited to the target: lets registering the session under another category move them.
+            chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
             status:'pending',images:[],galleryPostId:null
           });
           fireNotification('Pomodoro', 'Sessão de foco encerrada! Hora de pausar. ☕');
@@ -16672,9 +16729,11 @@ const App=()=>{
       if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
       if(moved.length)setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===linkId?{...p,images:(p.images||[]).filter(s=>!moved.includes(s))}:p));
       setPomoData(prev=>{
-        const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
+        const base0=pomoNormalize(prev);
+        const base=session.retargetFrom?pomoRetargetSession(base0,session.retargetFrom,session.targetKey,pomoSessionParts(session,session.retargetFrom)):base0;
+        const rank=rankNormalize(base.rank);
         const status=session.storageStatus==='local'?'saved-local':'saved';
-        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:filedPostId,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
+        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(session.retargetFrom?{targetKey:session.targetKey,targetLabel:session.targetLabel}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:filedPostId,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
         return{...base,rank:{...rank,sessions}};
       });
       return;
@@ -16717,7 +16776,7 @@ const App=()=>{
     };
     // A new post from a session that had a section picked in its category goes
     // to the top of that section.
-    if(destination==='gallery'&&!existing&&session.sectionId&&String(session.targetKey)===pomoCategoryKey(folderId)){
+    if(destination==='gallery'&&!existing&&session.sectionId&&folderId){
       setGalleryFolders(prev=>(prev||[]).map(f=>{
         if(!f||String(f.id)!==folderId)return f;
         const nf=normalizeGalleryFolder(f);
@@ -16739,9 +16798,12 @@ const App=()=>{
       });
     });
     setPomoData(prev=>{
-      const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
+      const base0=pomoNormalize(prev);
+      // Registered under another category than it ran on: its time follows.
+      const base=session.retargetFrom?pomoRetargetSession(base0,session.retargetFrom,session.targetKey,pomoSessionParts(session,session.retargetFrom)):base0;
+      const rank=rankNormalize(base.rank);
       const status=session.storageStatus==='local'?'saved-local':'saved';
-      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,title:session.title||existing?.title||bhSessionPostTitle(session.date||localDateISO(),target),status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
+      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(session.retargetFrom?{targetKey:session.targetKey,targetLabel:session.targetLabel}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:session.title||existing?.title||bhSessionPostTitle(session.date||localDateISO(),target),status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
       return{...base,rank:{...rank,sessions}};
     });
   },[galleryPosts,projects,taskPostLinks]);

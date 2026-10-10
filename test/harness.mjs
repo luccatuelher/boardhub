@@ -30,7 +30,7 @@ export const EXPECTED = {
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],
-  sesstitle: ['bhSessionPostTitle', 'bhPlaceInSection'],
+  sesstitle: ['bhSessionPostTitle', 'bhPlaceInSection', 'pomoRetargetSession', 'pomoSessionParts'],
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
