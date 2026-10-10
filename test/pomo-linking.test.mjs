@@ -61,3 +61,20 @@ test('single linked post, deleted projects and unlinked projects', () => {
   assert.equal(extra['project:2'], undefined);
   assert.equal(extra['project:3'], undefined);
 });
+
+test('today: the same rules, for one day only', () => {
+  const data = {
+    allocations: { 'cat:F': 9000, 'project:1': 900 },
+    dailyAllocations: { '2026-10-10': { 'cat:F': 1500, 'project:1': 300 }, '2026-10-09': { 'cat:F': 7500 } },
+    rank: { sessions: [
+      sess({ id: 'a', date: '2026-10-10', targetKey: 'cat:F', galleryPostId: 'p3' }),
+      sess({ id: 'b', date: '2026-10-09', targetKey: 'cat:F', galleryPostId: 'p3' }),
+    ] },
+  };
+  const folderLink = pomoLinkedExtra(data, [{ id: 1, galleryFolder: 'F' }], folders, posts, '2026-10-10');
+  assert.equal(folderLink['project:1'], 1500);
+  assert.equal(folderLink['cat:F'], 300);
+  const sectionLink = pomoLinkedExtra(data, [{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], folders, posts, '2026-10-10');
+  assert.equal(sectionLink['project:1'], 600); // only today's session
+  assert.equal(pomoLinkedExtra(data, [{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], folders, posts)['project:1'], 1200); // totals unchanged
+});

@@ -1436,6 +1436,13 @@ const bhFindTaskNote=(projects,noteId)=>{
   }
   return null;
 };
+// True when the note sits in a project that is in the trash (it comes back with
+// the project), so the session history can say that instead of "note deleted".
+const bhTaskNoteTrashed=(projects,noteId)=>{
+  if(noteId==null)return false;
+  const id=String(noteId);
+  return (Array.isArray(projects)?projects:[]).some(p=>p&&p.deleted&&(Array.isArray(p.miniProjects)?p.miniProjects:[]).some(m=>(Array.isArray(m?.innerNotes)?m.innerNotes:[]).some(n=>n&&String(n.id)===id)));
+};
 // One-time reorganisation (2026-09-25): the project tab "Sessões de foco" is
 // gone. Each project-session post becomes notes under a task of its project:
 // the task the post was filed under, else a new task named after the post
@@ -6983,7 +6990,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
   const pageCount=Math.max(1,Math.ceil(dayGroups.length/daysPerPage));
   useEffect(()=>{setPage(current=>Math.min(current,pageCount-1));},[pageCount]);
   const visibleGroups=dayGroups.slice(page*daysPerPage,(page+1)*daysPerPage);
-  const statusInfo=(row,post,taskNote)=>row.taskNoteId?(taskNote?{cls:'saved',label:'Na tarefa'}:{cls:'deleted',label:'Nota apagada'}):((row.projectPostId||row.galleryPostId)&&!post)?{cls:'deleted',label:'Post apagado'}:bhSessionUnregistered(row)?null:row.postDestination==='project'?{cls:'saved',label:'No projeto'}:row.status==='saved-local'?{cls:'local',label:'Neste dispositivo'}:row.status==='saved'?{cls:'saved',label:'Na galeria'}:{cls:'pending',label:'Imagem pendente'};
+  const statusInfo=(row,post,taskNote)=>row.taskNoteId?(taskNote?{cls:'saved',label:'Na tarefa'}:bhTaskNoteTrashed(projects,row.taskNoteId)?{cls:'local',label:'Projeto na lixeira'}:{cls:'deleted',label:'Nota apagada'}):((row.projectPostId||row.galleryPostId)&&!post)?{cls:'deleted',label:'Post apagado'}:bhSessionUnregistered(row)?null:row.postDestination==='project'?{cls:'saved',label:'No projeto'}:row.status==='saved-local'?{cls:'local',label:'Neste dispositivo'}:row.status==='saved'?{cls:'saved',label:'Na galeria'}:{cls:'pending',label:'Imagem pendente'};
   return <Modal title="Histórico de sessões" onClose={onClose} width={680}>
     {pomoData&&<div className="focus-hist-tabs" role="tablist">
       {[['sessions','Sessões'],['days','Por dia'],['months','Por mês']].map(([k,l])=><button key={k} type="button" role="tab" aria-selected={histTab===k} className={histTab===k?'on':''} onClick={()=>setHistTab(k)}>{l}</button>)}
@@ -7564,7 +7571,8 @@ const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
   },[pomoData?.days]);
   const statsTab=tab;
   const maxDay=dayEntries.reduce((m,e)=>Math.max(m,e[1]),1);
-  const totalAll=dayEntries.reduce((sum,e)=>sum+e[1],0);
+  // The total is every day on record, not just the 60 the day list shows.
+  const totalAll=useMemo(()=>Object.entries(pomoData?.days||{}).reduce((sum,[k,v])=>k!=='_total'&&k.length===10?sum+Math.max(0,Number(v)||0):sum,0),[pomoData?.days]);
   return(<div style={{display:'flex',flexDirection:'column',minHeight:0}}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',borderBottom:'1px solid var(--border)',flexShrink:0}}>
               <div style={{padding:'14px 20px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
@@ -10090,7 +10098,10 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const projectLinkedSecs=useMemo(()=>pomoLinkedExtra(pomoData,[local],galleryFolders,galleryPosts)[projectFocusKey]||0,
     [pomoData?.allocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
   const projectFocusSecs=((pomoData?.allocations||{})[projectFocusKey]||0)+projectLinkedSecs;
-  const projectTodaySecs=((pomoData?.dailyAllocations||{})[pomoTodayKey()]||{})[projectFocusKey]||0;
+  // Today's time includes what the Gallery link brings in, like the total does.
+  const projectLinkedTodaySecs=useMemo(()=>pomoLinkedExtra(pomoData,[local],galleryFolders,galleryPosts,pomoTodayKey())[projectFocusKey]||0,
+    [pomoData?.dailyAllocations,pomoData?.rank?.sessions,local.id,local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts,projectFocusKey]);
+  const projectTodaySecs=(((pomoData?.dailyAllocations||{})[pomoTodayKey()]||{})[projectFocusKey]||0)+projectLinkedTodaySecs;
   // Each task's focus time is summed from the sessions filed under it: the
   // sessions its notes carry (moving a note moves its sessions), plus older
   // sessions that recorded only a taskId and have no note. Never stored, so
@@ -11594,8 +11605,10 @@ const bhLinkedPostCount=(project,folders,posts)=>{
 // post, the sessions filed into those posts), and the category adds the time
 // of every project linked to it. Only raw allocations feed this, so nothing
 // is counted twice. Returns {targetKey: extra seconds}.
-const pomoLinkedExtra=(pomoData,projects,folders,posts)=>{
-  const alloc=pomoData?.allocations||{},sessions=pomoData?.rank?.sessions||[];
+// With `dayKey` it answers for that one day (today's time) instead of the totals.
+const pomoLinkedExtra=(pomoData,projects,folders,posts,dayKey=null)=>{
+  const alloc=dayKey?((pomoData&&pomoData.dailyAllocations&&pomoData.dailyAllocations[dayKey])||{}):(pomoData?.allocations||{});
+  const sessions=(pomoData?.rank?.sessions||[]).filter(x=>!dayKey||(x&&x.date===dayKey));
   const extra={};
   (projects||[]).forEach(p=>{
     if(!p||p.deleted)return;
