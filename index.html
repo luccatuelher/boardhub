@@ -6310,22 +6310,29 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
 };
 // A session registered under another category than the one it ran on: its
 // seconds move between the two categories' totals (all-time and per day).
-// Only category → category moves; 'none' and project sessions are left alone.
+// Category → category, or no category → a category; project sessions are left alone.
 // `parts` are [{dayKey|dateKey, secs}] (the session's chunks).
 const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
   const isCat=k=>typeof k==='string'&&k.startsWith('cat:');
-  if(!base||fromKey===toKey||!isCat(fromKey)||!isCat(toKey))return base;
+  // 'none' (no category) never credited anything, so moving out of it only adds.
+  if(!base||fromKey===toKey||!(isCat(fromKey)||fromKey==='none')||!isCat(toKey))return base;
   const list=(Array.isArray(parts)?parts:[]).map(p=>({dayKey:p&&(p.dayKey||p.dateKey),secs:Math.max(0,Number(p&&p.secs)||0)})).filter(p=>p.dayKey&&p.secs>0);
   if(!list.length)return base;
   const allocations={...(base.allocations||{})},daily={...(base.dailyAllocations||{})};
+  // Moves at most what the old key holds, so seconds are never created.
+  const take=(map,secs)=>{
+    if(fromKey==='none')return secs;
+    const moved=Math.min(secs,Math.max(0,Number(map[fromKey])||0));
+    map[fromKey]=(Number(map[fromKey])||0)-moved;
+    if(!(map[fromKey]>0))delete map[fromKey];
+    return moved;
+  };
   for(const {dayKey,secs} of list){
-    allocations[fromKey]=Math.max(0,(allocations[fromKey]||0)-secs);
-    if(!allocations[fromKey])delete allocations[fromKey];
-    allocations[toKey]=(allocations[toKey]||0)+secs;
+    const movedAll=take(allocations,secs);
+    if(movedAll>0)allocations[toKey]=(allocations[toKey]||0)+movedAll;
     const dm={...(daily[dayKey]||{})};
-    dm[fromKey]=Math.max(0,(dm[fromKey]||0)-secs);
-    if(!dm[fromKey])delete dm[fromKey];
-    dm[toKey]=(dm[toKey]||0)+secs;
+    const movedDay=take(dm,secs);
+    if(movedDay>0)dm[toKey]=(dm[toKey]||0)+movedDay;
     daily[dayKey]=dm;
   }
   return {...base,allocations,dailyAllocations:daily};
@@ -6369,7 +6376,10 @@ const pomoSyncGalleryCategories=(data,folders)=>{
   const alias=value=>({gestuais:'gesture',gestures:'gesture'}[clean(value)]||clean(value));
   const byName=new Map(live.map(c=>[alias(c.name),String(c.id)]));
   const byId=new Set(live.map(c=>String(c.id)));
-  const remap=new Map((base.categories||[]).map(c=>[String(c.id),byId.has(String(c.id))?String(c.id):(byName.get(alias(c.name))||String(c.id))]));
+  // Archived or trashed folders still exist: their time stays with them (it came
+  // back folded into a same-named live folder, for good, when one was archived).
+  const existing=new Set((Array.isArray(folders)?folders:[]).filter(f=>f&&f.id!=null).map(f=>String(f.id)));
+  const remap=new Map((base.categories||[]).map(c=>[String(c.id),byId.has(String(c.id))||existing.has(String(c.id))?String(c.id):(byName.get(alias(c.name))||String(c.id))]));
   const moveMap=source=>{
     const out={};
     for(const[key,value]of Object.entries(source||{})){
@@ -7140,7 +7150,10 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   // folder whatever the category. An archived one falls back to the first.
   const [folderId,setFolderId]=useState(()=>{
     const cat=String(session.targetKey||'').startsWith('cat:')?String(session.targetKey).slice(4):'';
-    return String((liveFolders.find(f=>String(f.id)===cat)||liveFolders[0]||{id:''}).id);
+    const live=liveFolders.find(f=>String(f.id)===cat);
+    // A session with no category (or whose folder is gone) is filed under a category
+    // chosen on purpose, since its time is credited there; never a silent first folder.
+    return live?String(live.id):(isProjectSession?String((liveFolders[0]||{id:''}).id):'');
   });
   // The section of the chosen folder (sections live in the folder). It starts on
   // the one picked in the timer, when that is still the same folder; changing
@@ -7283,9 +7296,9 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       // The category (and section) chosen here decide where the post goes and
       // where the focus time is counted: a category session moved to another
       // folder carries its new key and where it came from.
-      const catSession=!isProjectSession&&String(session.targetKey||'').startsWith('cat:');
+      const catSession=!isProjectSession&&(String(session.targetKey||'').startsWith('cat:')||session.targetKey==='none'||session.targetKey==null);
       const retargeted=catSession&&chosenFolder&&('cat:'+chosenFolder.id)!==String(session.targetKey);
-      const routing={...(retargeted?{targetKey:'cat:'+chosenFolder.id,targetLabel:chosenFolder.label,retargetFrom:String(session.targetKey)}:{}),
+      const routing={...(retargeted?{targetKey:'cat:'+chosenFolder.id,targetLabel:chosenFolder.label,retargetFrom:String(session.targetKey||'none')}:{}),
         ...(isProjectSession?{}:{sectionId:sectionId||null,sectionLabel:sectionObj?sectionObj.label:''})};
       const images=await uploadImages(files.map(x=>x.file),(done,total)=>setProgress({done,total}),(i,pct)=>setProgress(p=>({done:p?.done||i,total:files.length,compact:pct})));
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
@@ -7316,7 +7329,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         <button type="button" className={saveMode==='append'?'active':''} aria-pressed={saveMode==='append'} onClick={()=>setSaveMode('append')} disabled={saving}>Adicionar a um post</button>
       </div>}
       <div className="session-post-destination">
-        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{const fid=e.target.value,list=projectsOfFolder(fid),mem=rememberedProject(fid,list);setFolderId(fid);setExistingPostId('');const remembered=pomoSectionPicksLoad()[String(fid)];setSectionId(sectionsOfFolder(fid).some(x=>x.id===remembered)?remembered:'');pickLinkProject(mem?mem.id:'',list);}} disabled={saving}>{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
+        <label className="session-post-field"><span>Categoria</span><select value={folderId} onChange={e=>{const fid=e.target.value,list=projectsOfFolder(fid),mem=rememberedProject(fid,list);setFolderId(fid);setExistingPostId('');const remembered=pomoSectionPicksLoad()[String(fid)];setSectionId(sectionsOfFolder(fid).some(x=>x.id===remembered)?remembered:'');pickLinkProject(mem?mem.id:'',list);}} disabled={saving}>{folderId===''&&<option value="">Escolha a categoria</option>}{liveFolders.map(f=><option key={f.id} value={f.id}>{f.label}</option>)}</select></label>
         {!asTask&&folderSectionList.length>0&&<label className="session-post-field"><span>Seção</span><select value={sectionId} onChange={e=>setSectionId(e.target.value)} disabled={saving||saveMode==='append'} aria-label="Seção da categoria"><option value="">Sem seção</option>{folderSectionList.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}</select></label>}
         {!asTask&&saveMode==='append'&&<label className="session-post-field"><span>Post existente</span><select value={existingPostId} onChange={e=>setExistingPostId(e.target.value)} disabled={saving||!eligiblePosts.length}><option value="">{eligiblePosts.length?'Escolha um post':'Nenhum post nesta categoria'}</option>{eligiblePosts.map(p=><option key={p.id} value={p.id}>{p.title||'Sem título'}</option>)}</select></label>}
       </div>
@@ -7485,6 +7498,8 @@ const pomoAbandonedFromTimer=(saved,atMs=Date.now())=>{
 window.addEventListener('pagehide',()=>{
   const saved=pomoTimerLoad();
   if(!saved?.sessionMeta||saved.mode!=='focus')return;
+  // Another tab owns this session (it wrote it): closing THIS tab must not end it.
+  if(saved.documentId&&saved.documentId!==POMO_DOCUMENT_ID)return;
   const at=Date.now(),abandonedSession=pomoAbandonedFromTimer(saved,at);
   if(!abandonedSession)return;
   pomoTimerSave({isActive:false,mode:'focus',timeLeft:(saved.focusMins||30)*60,focusMins:saved.focusMins||30,targetKey:saved.targetKey||'none',sessionMeta:null,documentId:POMO_DOCUMENT_ID,savedAt:at,abandonedSession});
@@ -7640,6 +7655,12 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     const focusMins = saved?.focusMins ?? 30;
     const targetKey = saved?.targetKey || 'none';
     const fromAnotherDocument=saved?.sessionMeta&&saved?.mode==='focus'&&saved?.documentId!==POMO_DOCUMENT_ID;
+    // A session another tab wrote seconds ago is still running there (that tab
+    // rewrites it every few seconds): this tab must neither end it nor continue
+    // it, or the same seconds would be credited twice.
+    if(fromAnotherDocument&&!saved?.abandonedSession&&Date.now()-(Number(saved?.savedAt)||0)<25000){
+      return {timeLeft:focusMins*60,isActive:false,mode:'focus',endTimestamp:null,focusMins,targetKey,sessionMeta:null,abandonedSession:null,lockedElsewhere:true};
+    }
     const abandonedSession=saved?.abandonedSession||(fromAnotherDocument?pomoAbandonedFromTimer(saved,Number(saved?.savedAt)||Date.now()):null);
     if(abandonedSession){
       return {timeLeft:focusMins*60,isActive:false,mode:'focus',endTimestamp:null,focusMins,targetKey,sessionMeta:null,abandonedSession};
@@ -7684,6 +7705,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const unsavedSecsRef  = useRef(0);
   const pendingSecsRef  = useRef(0);
   const targetKeyRef    = useRef(_init.targetKey||'none');
+  const lockedRef       = useRef(!!_init.lockedElsewhere);
+  const [lockedElsewhere,setLockedElsewhere]=useState(!!_init.lockedElsewhere);
   const sessionMetaRef  = useRef(_init.sessionMeta&&_init.mode==='focus'?_init.sessionMeta:null);
   const abandonedSessionRef=useRef(_init.abandonedSession||null);
   const circleRef       = useRef(null);
@@ -7763,6 +7786,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   };
 
   const persist = (active, tLeft, m, fMins) => {
+    if(lockedRef.current)return; // another tab owns the stored session
     const fm = fMins ?? focusMinsRef.current;
     const tk=targetKeyRef.current||'none';
     if (active && tLeft > 0)
@@ -7838,6 +7862,34 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   },[showTargetMenu]);
   useEscapeLayer(showTargetMenu,()=>setShowTargetMenu(false));
 
+  // The history row of the session now in sessionMetaRef: what was credited
+  // (its chunks), where, and the section / task picked in the timer.
+  const buildFocusSessionRef = useRef(null);
+  buildFocusSessionRef.current = (endedAt) => {
+    const meta=sessionMetaRef.current;
+    const chunks=Array.isArray(meta?.chunks)?meta.chunks:[];
+    const durationSeconds=pomoSessionChunkSeconds(meta)||pomoSessionPlannedSeconds(meta,focusMinsRef.current);
+    const firstDate=chunks[0]?.dateKey?rankDateFromKey(chunks[0].dateKey):endedAt;
+    const startRank=rankNormalize(meta?.startRank||pomoData?.rank,firstDate);
+    const scoreAfter=chunks.reduce((score,chunk)=>pomoRankCredit(score,chunk.secs,chunk.targetKey,chunk.dateKey?rankDateFromKey(chunk.dateKey):endedAt),startRank);
+    const pointsAwarded=Math.max(0,scoreAfter.points-startRank.points);
+    const tk=targetKeyRef.current||'none';
+    return {
+      id:meta?.id||('focus-session-'+endedAt.getTime()+'-'+Math.random().toString(36).slice(2,6)),
+      seasonId:rankSeasonForDate(endedAt).id,
+      startedAt:meta?.startedAt||new Date(endedAt.getTime()-durationSeconds*1000).toISOString(),
+      endedAt:endedAt.toISOString(),date:localDateISO(endedAt),durationSeconds,
+      targetKey:tk,targetLabel:selectedTargetLabel,targetType:tk.startsWith('project:')?'project':tk.startsWith('cat:')?'category':'other',
+      // The section picked inside the category: the post lands there and its title follows it.
+      sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
+      // The task picked inside a project: the session counts for it from the start.
+      ...(tk.startsWith('project:')&&pickedTaskRef.current?{taskId:pickedTaskRef.current.id}:null),
+      pointsAwarded,victoryProgressSeconds:scoreAfter.cycleSeconds,
+      // Per-day seconds credited to the target: lets registering the session under another category move them.
+      chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
+      status:'pending',images:[],galleryPostId:null
+    };
+  };
   const flushPomoSecsRef = useRef(null);
   flushPomoSecsRef.current = () => {
     if (unsavedSecsRef.current <= 0) return;
@@ -7856,8 +7908,28 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
       pendingSecsRef.current = Math.max(0, pendingSecsRef.current - secs);
       return pomoCreditParts(pomoRankMaintain(prev),parts,tk);
     });
+    // The stored timer (with the chunks just credited) is rewritten at once, not
+    // only on a tick that lands on a multiple of 10: a throttled or discarded tab
+    // would otherwise recover a session that understates what was credited.
+    if(sessionMetaRef.current)persist(isActiveRef.current,timeLeftRef.current,modeRef.current,focusMinsRef.current);
   };
   const flushPomoSecs = () => flushPomoSecsRef.current?.();
+  // While a session exists (running or paused) the stored timer is refreshed
+  // every few seconds: it is how another tab tells a live session from an abandoned one.
+  useEffect(()=>{
+    const beat=()=>{if(sessionMetaRef.current&&!lockedRef.current)persist(isActiveRef.current,timeLeftRef.current,modeRef.current,focusMinsRef.current);};
+    const id=setInterval(beat,8000);
+    return()=>clearInterval(id);
+  },[]);
+  // A locked tab (another tab runs the session) wakes up once that session is gone.
+  useEffect(()=>{
+    if(!lockedElsewhere)return;
+    const id=setInterval(()=>{
+      const saved=pomoTimerLoad();
+      if(!saved?.sessionMeta||saved.documentId===POMO_DOCUMENT_ID||Date.now()-(Number(saved.savedAt)||0)>=25000){lockedRef.current=false;setLockedElsewhere(false);}
+    },5000);
+    return()=>clearInterval(id);
+  },[lockedElsewhere]);
   useEffect(() => { return () => {
     flushPomoSecsRef.current?.();
     if(sessionMetaRef.current)persist(isActiveRef.current,timeLeftRef.current,modeRef.current,focusMinsRef.current);
@@ -7945,30 +8017,9 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
           playPomoSound('work_end');
           // The countdown's real end, not the tick that noticed it late.
           const endedAt=new Date(Math.min(Date.now(),endTimestampRef.current||Date.now()));
-          const meta=sessionMetaRef.current;
-          const chunks=Array.isArray(meta?.chunks)?meta.chunks:[];
-          const durationSeconds=pomoSessionChunkSeconds(meta)||pomoSessionPlannedSeconds(meta,focusMinsRef.current);
-          const firstDate=chunks[0]?.dateKey?rankDateFromKey(chunks[0].dateKey):endedAt;
-          const startRank=rankNormalize(meta?.startRank||pomoData?.rank,firstDate);
-          const scoreAfter=chunks.reduce((score,chunk)=>pomoRankCredit(score,chunk.secs,chunk.targetKey,chunk.dateKey?rankDateFromKey(chunk.dateKey):endedAt),startRank);
-          const pointsAwarded=Math.max(0,scoreAfter.points-startRank.points);
-          const tk=targetKeyRef.current||'none';
+          const record=buildFocusSessionRef.current(endedAt);
           sessionMetaRef.current=null;
-          onSessionComplete?.({
-            id:meta?.id||('focus-session-'+endedAt.getTime()+'-'+Math.random().toString(36).slice(2,6)),
-            seasonId:rankSeasonForDate(endedAt).id,
-            startedAt:meta?.startedAt||new Date(endedAt.getTime()-durationSeconds*1000).toISOString(),
-            endedAt:endedAt.toISOString(),date:localDateISO(endedAt),durationSeconds,
-            targetKey:tk,targetLabel:selectedTargetLabel,targetType:tk.startsWith('project:')?'project':tk.startsWith('cat:')?'category':'other',
-            // The section picked inside the category: the post lands there and its title follows it.
-            sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
-            // The task picked inside a project: the session counts for it from the start.
-            ...(tk.startsWith('project:')&&pickedTaskRef.current?{taskId:pickedTaskRef.current.id}:null),
-            pointsAwarded,victoryProgressSeconds:scoreAfter.cycleSeconds,
-            // Per-day seconds credited to the target: lets registering the session under another category move them.
-            chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
-            status:'pending',images:[],galleryPostId:null
-          });
+          onSessionComplete?.(record);
           fireNotification('Pomodoro', 'Sessão de foco encerrada! Hora de pausar. ☕');
           setMode('break'); modeRef.current = 'break';
           setTimeLeft(BREAK_SECS); timeLeftRef.current = BREAK_SECS;
@@ -7990,7 +8041,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         if (unsavedSecsRef.current >= 30) flushPomoSecs();
       }
       setTimeLeft(remaining); timeLeftRef.current = remaining;
-      if (remaining % 10 === 0) persist(true, remaining, modeRef.current);
+      if (Math.floor(prev/10) !== Math.floor(remaining/10)) persist(true, remaining, modeRef.current);
     }, 500);
     return () => clearInterval(id);
   }, [isActive]);
@@ -7999,6 +8050,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const fireNotification = (title, body) => { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body }); };
 
   const toggle = () => {
+    if(lockedRef.current)return;
     requestNotifPermission();
     setIsActive(a => {
       const next = !a;
@@ -8015,6 +8067,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   };
   const reset = () => {
     flushPomoSecs();
+    // Time already credited by this session must stay reachable: it becomes a
+    // pending session to register (a few seconds is not worth a dialog).
+    if(modeRef.current==='focus'&&sessionMetaRef.current&&pomoSessionChunkSeconds(sessionMetaRef.current)>=60){
+      onSessionComplete?.(buildFocusSessionRef.current(new Date()));
+    }
     sessionMetaRef.current=null;
     setIsActive(false); isActiveRef.current = false; endTimestampRef.current = null;
     setMode('focus'); modeRef.current = 'focus';
@@ -8292,7 +8349,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
           </div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:5}}>
-              <button className="btn btn-outline" onClick={toggle} style={{flex:1,justifyContent:'center',padding:'5px 10px',fontSize:'.78rem'}}>
+              <button className="btn btn-outline" onClick={toggle} disabled={lockedElsewhere} title={lockedElsewhere?'Uma sessão está em andamento em outra aba do BoardHub':undefined} style={{flex:1,justifyContent:'center',padding:'5px 10px',fontSize:'.78rem',opacity:lockedElsewhere?.5:1}}>
                 <Icon name={isActive?'pause':'play'} size={12}/>
                 {isActive?'Pausar':(isFocus?'Iniciar':'Retomar')}
               </button>
@@ -8308,6 +8365,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                 <span style={{fontSize:'.9rem',lineHeight:1,color:soundOn&&!isBaseTempo(currentStar)?currentStar.color:'inherit'}}>♪</span>
               </button>
             </div>
+            {lockedElsewhere&&<div role="status" style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.4,margin:'0 0 6px'}}>Uma sessão está em andamento em outra aba. Esta aba só mostra o cronômetro parado.</div>}
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <div style={{display:'flex',alignItems:'center',gap:7,minWidth:0}}>
                 <div ref={targetMenuRef} style={{position:'relative',flex:1,minWidth:0}}>
@@ -12237,7 +12295,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     // The posts as they are now, for Ctrl+Z.
     const before=[];
     (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:p});});
-    _galleryMergeUndo.push({keepId:r.keepId,removedIds:r.removedIds,before});
+    _galleryMergeUndo.push({keepId:r.keepId,removedIds:r.removedIds,before,after:{title:name,images:r.images,content:r.content}});
     if(_galleryMergeUndo.length>20)_galleryMergeUndo.shift();
     // United into the chosen post: the others are gone (no trash); Ctrl+Z restores them.
     setPosts(prev=>prev.filter(p=>!(p&&removed.has(String(p.id)))).map(p=>String(p.id)===r.keepId?{...p,title:name,images:r.images,content:r.content,date:r.date,bannerImage:r.bannerImage,...(r.sourceSessionIds.length?{sourceSessionIds:r.sourceSessionIds}:null),...(r.sourceTargetKeys.length?{sourceTargetKeys:r.sourceTargetKeys}:null)}:p));
@@ -12252,6 +12310,15 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   const undoLastMerge=()=>{
     const e=_galleryMergeUndo.pop();
     if(!e)return false;
+    // If the merged post changed since (more images, a new title or text), going back
+    // would throw those changes away and leave sessions pointing at a post that lost
+    // their images: refuse instead.
+    const cur=(posts||[]).find(p=>p&&String(p.id)===e.keepId);
+    if(e.after&&cur&&(cur.title!==e.after.title||cur.content!==e.after.content||JSON.stringify(cur.images||[])!==JSON.stringify(e.after.images))){
+      clearTimeout(undoToastTimerRef.current);setUndoToast(null);
+      bhAlert('O post unido foi alterado depois da junção. Desfazer agora apagaria essas mudanças, então a junção ficou como está.');
+      return false;
+    }
     setPosts(prev=>{
       const byId=new Map(e.before.map(b=>[String(b.post.id),b]));
       const next=prev.map(p=>p&&String(p.id)===e.keepId&&byId.has(e.keepId)?byId.get(e.keepId).post:p);
@@ -16919,6 +16986,15 @@ const App=()=>{
     const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
     return{...base,rank:{...rank,sessions:(rank.sessions||[]).map(row=>String(row.id)===String(session.id)?{...row,status:'pending'}:row)}};
   }),[]);
+  // A new post made from a session goes to the top of a section of its folder.
+  const placePostInSection=useCallback((folderId,postId,sectionId)=>{
+    setGalleryFolders(prev=>(prev||[]).map(f=>{
+      if(!f||String(f.id)!==String(folderId))return f;
+      const nf=normalizeGalleryFolder(f);
+      if(!nf.sections.some(sec=>sec.id===sectionId))return f;
+      return{...nf,manualOrder:bhPlaceInSection(galleryMaterializeOrder(nf,[]),postId,sectionId)};
+    }));
+  },[]);
   const saveSessionToGallery=useCallback(async session=>{
     // A project session is a note under one of the project's tasks (created
     // here when named in the modal). The session row keeps the note's id; the
@@ -16973,6 +17049,11 @@ const App=()=>{
         return{...p,projectTasks,miniProjects};
       }));
       if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
+      // The task's new post lands in the project's linked section (or the one the
+      // session was filed under), or it would sit above every section, outside the
+      // scope the project counts time for.
+      const sectionForNew=project.gallerySection?String(project.gallerySection):(session.sectionId?String(session.sectionId):'');
+      if(newPost&&folderId&&sectionForNew)placePostInSection(folderId,newPost.id,sectionForNew);
       if(moved.length)setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===linkId?{...p,images:(p.images||[]).filter(s=>!moved.includes(s))}:p));
       setPomoData(prev=>{
         const base0=pomoNormalize(prev);
@@ -17023,15 +17104,7 @@ const App=()=>{
     };
     // A new post from a session that had a section picked in its category goes
     // to the top of that section.
-    if(destination==='gallery'&&!existing&&session.sectionId&&folderId){
-      setGalleryFolders(prev=>(prev||[]).map(f=>{
-        if(!f||String(f.id)!==folderId)return f;
-        const nf=normalizeGalleryFolder(f);
-        if(!nf.sections.some(sec=>sec.id===session.sectionId))return f;
-        const order=bhPlaceInSection(galleryMaterializeOrder(nf,[]),postId,session.sectionId);
-        return{...nf,manualOrder:order};
-      }));
-    }
+    if(destination==='gallery'&&!existing&&session.sectionId&&folderId)placePostInSection(folderId,postId,session.sectionId);
     setGalleryPosts(prev=>{
       const list=Array.isArray(prev)?prev:[];
       if(!existing)return[newPost,...list.filter(p=>String(p.sourceSessionId)!==String(session.id)&&!(Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[]).map(String).includes(String(session.id)))];
@@ -17926,37 +17999,41 @@ const App=()=>{
     const gone=new Set((removedIds||[]).map(String));
     if(!gone.size)return;
     // Rows and projects that pointed at a removed post follow it to the surviving
-    // one; they remember where they came from so Ctrl+Z can send them back.
+    // one. Every move is kept as {from,into} in a list, so chained merges (A into
+    // B, then B into C) can be undone one by one.
+    const follow=(value,list,keep)=>{
+      // → {value,list,changed}
+      if(undo){
+        const arr=Array.isArray(list)?list:[];
+        const at=arr.map((e,i)=>({e,i})).reverse().find(({e})=>e&&String(e.into)===String(keep)&&gone.has(String(e.from))&&String(value)===String(keep));
+        if(!at)return{value,list,changed:false};
+        return{value:at.e.from,list:arr.filter((_,i)=>i!==at.i),changed:true};
+      }
+      if(value==null||!gone.has(String(value)))return{value,list,changed:false};
+      return{value:keep,list:[...(Array.isArray(list)?list:[]),{from:value,into:keep}],changed:true};
+    };
     setPomoData(prev=>{
       const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
       let changed=false;
       const sessions=(rank.sessions||[]).map(row=>{
         if(!row)return row;
-        if(undo){
-          const g=row.mergedFromPostId!=null&&gone.has(String(row.mergedFromPostId))&&String(row.galleryPostId)===String(keepId);
-          const pp=row.mergedFromProjectPostId!=null&&gone.has(String(row.mergedFromProjectPostId))&&String(row.projectPostId)===String(keepId);
-          if(!g&&!pp)return row;
-          changed=true;
-          const {mergedFromPostId,mergedFromProjectPostId,...rest}=row;
-          return{...rest,...(g?{galleryPostId:mergedFromPostId}:{galleryPostId:row.galleryPostId}),...(pp?{projectPostId:mergedFromProjectPostId}:{projectPostId:row.projectPostId}),...(!g&&mergedFromPostId!=null?{mergedFromPostId}:null),...(!pp&&mergedFromProjectPostId!=null?{mergedFromProjectPostId}:null)};
-        }
-        const g=row.galleryPostId!=null&&gone.has(String(row.galleryPostId)),pp=row.projectPostId!=null&&gone.has(String(row.projectPostId));
-        if(!g&&!pp)return row;
+        const g=follow(row.galleryPostId,row.mergedFrom,keepId),pp=follow(row.projectPostId,row.mergedFromProject,keepId);
+        if(!g.changed&&!pp.changed)return row;
         changed=true;
-        return{...row,...(g?{galleryPostId:keepId,mergedFromPostId:row.galleryPostId}:null),...(pp?{projectPostId:keepId,mergedFromProjectPostId:row.projectPostId}:null)};
+        const out={...row};
+        if(g.changed){out.galleryPostId=g.value;out.mergedFrom=g.list;if(!g.list.length)delete out.mergedFrom;}
+        if(pp.changed){out.projectPostId=pp.value;out.mergedFromProject=pp.list;if(!pp.list.length)delete out.mergedFromProject;}
+        return out;
       });
       return changed?{...base,rank:{...rank,sessions}}:prev;
     });
     setProjects(prev=>prev.map(p=>{
       if(!p)return p;
-      if(undo){
-        if(p.galleryPostMergedFrom!=null&&gone.has(String(p.galleryPostMergedFrom))&&String(p.galleryPost)===String(keepId)){
-          const {galleryPostMergedFrom,...rest}=p;
-          return{...rest,galleryPost:galleryPostMergedFrom};
-        }
-        return p;
-      }
-      return p.galleryPost!=null&&gone.has(String(p.galleryPost))?{...p,galleryPost:keepId,galleryPostMergedFrom:p.galleryPost}:p;
+      const r=follow(p.galleryPost,p.galleryPostMergedFrom,keepId);
+      if(!r.changed)return p;
+      const out={...p,galleryPost:r.value,galleryPostMergedFrom:r.list};
+      if(!r.list.length)delete out.galleryPostMergedFrom;
+      return out;
     }));
   },[]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);

@@ -47,13 +47,29 @@ test('retarget: a key that reaches zero is dropped; never goes negative', () => 
   assert.equal('cat:a' in r.dailyAllocations['2026-10-09'], false);
 });
 
-test('retarget: none, project and same-key moves change nothing', () => {
+test('retarget: project and same-key moves change nothing', () => {
   const base = { allocations: { 'cat:a': 10 }, dailyAllocations: {} };
   const parts = [{ dateKey: '2026-10-09', secs: 5 }];
-  assert.equal(pomoRetargetSession(base, 'none', 'cat:a', parts), base);
   assert.equal(pomoRetargetSession(base, 'cat:a', 'project:1', parts), base);
+  assert.equal(pomoRetargetSession(base, 'project:1', 'cat:a', parts), base);
   assert.equal(pomoRetargetSession(base, 'cat:a', 'cat:a', parts), base);
   assert.equal(pomoRetargetSession(base, 'cat:a', 'cat:b', []), base);
+  assert.equal(pomoRetargetSession(base, 'none', 'none', parts), base);
+});
+
+test('retarget: a session with no category only adds to the chosen one', () => {
+  const base = { allocations: { 'cat:a': 10 }, dailyAllocations: { '2026-10-09': { 'cat:a': 10 } } };
+  const r = pomoRetargetSession(base, 'none', 'cat:b', [{ dateKey: '2026-10-09', secs: 600 }]);
+  assert.deepEqual(r.allocations, { 'cat:a': 10, 'cat:b': 600 });
+  assert.deepEqual(r.dailyAllocations['2026-10-09'], { 'cat:a': 10, 'cat:b': 600 });
+});
+
+test('retarget: moves at most what the old category holds (no seconds are created)', () => {
+  const base = { allocations: { 'cat:a': 200, 'cat:b': 0 }, dailyAllocations: { '2026-10-09': { 'cat:a': 50 } } };
+  const r = pomoRetargetSession(base, 'cat:a', 'cat:b', [{ dateKey: '2026-10-09', secs: 600 }]);
+  assert.equal('cat:a' in r.allocations, false);
+  assert.equal(r.allocations['cat:b'], 200);
+  assert.deepEqual(r.dailyAllocations['2026-10-09'], { 'cat:b': 50 });
 });
 
 test('session parts: its chunks for the old key, else the whole duration on its day', () => {
