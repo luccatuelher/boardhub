@@ -350,6 +350,7 @@ body:has(.overlay.note-peek) .lightbox{left:0!important}
 .gallery-arrow{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .gallery-arrow:focus-visible{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}
 @media (hover:none){.gallery-arrow{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}}
+.card.drag-over{outline:2px dashed var(--text);outline-offset:-2px}
 .post-sel{position:absolute;top:8px;right:8px;z-index:3;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.7);color:transparent;cursor:pointer;opacity:0;transition:opacity .12s,background .12s;padding:0}
 .card:hover .post-sel,.post-sel:focus-visible,.post-sel.on{opacity:1}
 .post-sel.on{background:var(--text);border-color:var(--text);color:var(--bg)}
@@ -7123,6 +7124,9 @@ const bhMergePosts=(posts,visualIds,keepId,sep='\n\n')=>{
   };
 };
 // @bh-test-end postmerge
+const POMO_TASK_LS='boardhub_pomo_task';
+const pomoTaskPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO_TASK_LS)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return {};}};
+const pomoTaskPicksSave=v=>{try{localStorage.setItem(POMO_TASK_LS,JSON.stringify(v));}catch(e){bhLog('pomo.task',e,'the task chosen for the timer is not remembered');}};
 const POMO_SECTION_LS='boardhub_pomo_section';
 const pomoSectionPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO_SECTION_LS)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return {};}};
 const pomoSectionPicksSave=v=>{try{localStorage.setItem(POMO_SECTION_LS,JSON.stringify(v));}catch(e){bhLog('pomo.section',e,'the section chosen for the timer is not remembered');}};
@@ -7175,7 +7179,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   // Starts on the task this project's last session went to, while it exists;
   // with no tasks at all, on "new task".
   const [taskChoice,setTaskChoice]=useState(()=>{
-    const last=isProjectSession?lastTaskId:(taskProject&&lastTaskByProject?lastTaskByProject.get(String(taskProject.id)):null);
+    const last=isProjectSession?(session.taskId!=null&&session.taskId!==''?session.taskId:lastTaskId):(taskProject&&lastTaskByProject?lastTaskByProject.get(String(taskProject.id)):null);
     if(last!=null&&projectTasks.some(t=>t&&String(t.id)===String(last)))return String(last);
     return projectTasks.some(t=>t&&t.id!=null)?'':'__new__';
   });
@@ -7725,6 +7729,19 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const pickedSection = selectedCategoryAny?(catSections.find(s=>s.id===sectionPicks[String(selectedCategoryAny.id)])||null):null;
   const pickedSectionRef = useRef(null);
   pickedSectionRef.current = pickedSection;
+  // The task of the chosen project this session works on (remembered per project).
+  // Its time is counted for that task, and still for the project and, through the
+  // project's link, for its category.
+  const projectTaskOptions = useMemo(()=>{
+    if(!selectedProjectAny)return [];
+    return projectTaskNamed(selectedProjectAny.projectTasks||[],selectedProjectAny.miniProjects)
+      .filter(t=>t&&t.id!=null&&t.status!=='Concluído')
+      .map(t=>({id:String(t.id),label:String(t.text||t.title||'Tarefa')}));
+  },[selectedProjectAny]);
+  const [taskPicks,setTaskPicks]=useState(pomoTaskPicksLoad);
+  const pickedTask = selectedProjectAny?(projectTaskOptions.find(t=>t.id===taskPicks[String(selectedProjectAny.id)])||null):null;
+  const pickedTaskRef = useRef(null);
+  pickedTaskRef.current = pickedTask;
   const selectedTargetLabel =
     targetKey==='none' ? 'Sem categoria' :
     selectedProjectAny?.title || selectedCategoryAny?.name || 'Sem categoria';
@@ -7734,6 +7751,10 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   // Once a focus session has started, its destination must remain stable even
   // while paused. Otherwise one session can silently be filed under two targets.
   const targetLocked = isActive || !!sessionMetaRef.current;
+  const changeTask = id => {
+    if(targetLocked||!selectedProjectAny)return;
+    setTaskPicks(prev=>{const next={...prev,[String(selectedProjectAny.id)]:id||''};pomoTaskPicksSave(next);return next;});
+  };
   const changeSection = id => {
     if(targetLocked||!selectedCategoryAny)return;
     setSectionPicks(prev=>{const next={...prev,[String(selectedCategoryAny.id)]:id||''};pomoSectionPicksSave(next);return next;});
@@ -7790,6 +7811,7 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         // pending, so its capture dialog opens again on the next visit (a few
         // seconds of focus is just recorded as abandoned, as before).
         sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
+        ...(tk.startsWith('project:')&&pickedTaskRef.current?{taskId:pickedTaskRef.current.id}:null),
         chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
         victoryProgressSeconds:scoreAfter.cycleSeconds,status:(Math.max(0,Number(abandoned.durationSeconds)||0)>=60?'pending':'abandoned'),images:[],galleryPostId:null
       };
@@ -7938,6 +7960,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
             targetKey:tk,targetLabel:selectedTargetLabel,targetType:tk.startsWith('project:')?'project':tk.startsWith('cat:')?'category':'other',
             // The section picked inside the category: the post lands there and its title follows it.
             sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
+            // The task picked inside a project: the session counts for it from the start.
+            ...(tk.startsWith('project:')&&pickedTaskRef.current?{taskId:pickedTaskRef.current.id}:null),
             pointsAwarded,victoryProgressSeconds:scoreAfter.cycleSeconds,
             // Per-day seconds credited to the target: lets registering the session under another category move them.
             chunks:chunks.map(c=>({targetKey:c.targetKey,dateKey:c.dateKey,secs:c.secs})),
@@ -8369,6 +8393,12 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                     {pomoFmtSecs(selectedTargetTotal)}
                   </span>}
               </div>
+              {projectTaskOptions.length>0&&<select value={pickedTask?pickedTask.id:''} onChange={e=>changeTask(e.target.value)} disabled={targetLocked}
+                aria-label="Tarefa do projeto" title={targetLocked?'Conclua ou reinicie a sessão para trocar a tarefa':'Tarefa em que esta sessão trabalha'}
+                style={{width:'100%',minWidth:0,height:28,border:'1px solid var(--border)',borderRadius:8,background:'var(--bg)',color:'var(--text)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.7rem',fontWeight:500,padding:'0 6px',outline:'none',cursor:targetLocked?'not-allowed':'pointer',opacity:targetLocked?.65:1}}>
+                <option value="">Sem tarefa</option>
+                {projectTaskOptions.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>}
               {catSections.length>0&&<select value={pickedSection?pickedSection.id:''} onChange={e=>changeSection(e.target.value)} disabled={targetLocked}
                 aria-label="Seção dentro da categoria" title={targetLocked?'Conclua ou reinicie a sessão para trocar a seção':'Seção do post desta sessão'}
                 style={{width:'100%',minWidth:0,height:28,border:'1px solid var(--border)',borderRadius:8,background:'var(--bg)',color:'var(--text)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.7rem',fontWeight:500,padding:'0 6px',outline:'none',cursor:targetLocked?'not-allowed':'pointer',opacity:targetLocked?.65:1}}>
@@ -11561,6 +11591,10 @@ const galleryMoveSection=(order,sectionId,beforeSectionId)=>{
   rest.splice(at,0,...block);
   return rest;
 };
+// Merged Gallery posts, newest last, so Ctrl+Z can bring them back. Module-level:
+// it survives leaving the Gallery and coming back within the same visit.
+// Each entry: {keepId, removedIds, before:[{index,post}]} (the posts as they were).
+const _galleryMergeUndo=[];
 // The slide-deck controls shared by the section deck and the post viewer: both
 // arrows together at the bottom with the position between them, and an optional
 // caption above (Speaker Deck style).
@@ -12060,10 +12094,19 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
         else if(String(from)!==String(post.id))reorderGalleryPosts(from,post.id,side);
         postDragRef.current=null;multiDragRef.current=false;postDragEndRef.current=Date.now();
       },
-    }:(!trash&&folderSections.length?{
+    }:(!trash&&(folderSections.length||(selIds.size>=2&&selIds.has(String(post.id))))?{
       draggable:true,
-      onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;e.currentTarget.style.opacity='.45';},
-      onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;postDragEndRef.current=Date.now();clearGalleryDragMarks();setSectionMenuOpen(false);},
+      onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;multiDragRef.current=selIds.size>=2&&selIds.has(String(post.id));e.currentTarget.style.opacity='.45';},
+      onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;multiDragRef.current=false;postDragEndRef.current=Date.now();clearGalleryDragMarks();setSectionMenuOpen(false);},
+      // In every sorting a ticked group dragged onto a card merges into it.
+      onDragOver:e=>{if(!multiDragRef.current||String(postDragRef.current)===String(post.id)||!mergeable(post))return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';e.currentTarget.classList.add('drag-over');},
+      onDragLeave:e=>e.currentTarget.classList.remove('drag-over'),
+      onDrop:e=>{
+        if(!multiDragRef.current)return;
+        e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('drag-over');
+        if(mergeable(post))startMerge([...selIds],post.id);
+        postDragRef.current=null;multiDragRef.current=false;postDragEndRef.current=Date.now();
+      },
     }:{});
     const sec=!manual&&!trash?postSection.get(String(post.id)):null;
     return(
@@ -12073,14 +12116,14 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
           if(trash)return;
           if(manual&&Date.now()-postDragEndRef.current<=180)return;
           // Ctrl/Shift-click, or any click while some cards are ticked, ticks the card.
-          if(mergeable(post)&&(e.ctrlKey||e.metaKey||e.shiftKey||selIds.size>0)){e.preventDefault();toggleSel(post.id);return;}
+          if(mergeable(post)&&(e.ctrlKey||e.metaKey||e.shiftKey||selIds.size>0)){e.preventDefault();toggleSel(post.id,e.shiftKey);return;}
           setSelected(post);
         }}
         onPointerEnter={()=>{if(!trash)warmSources(post.images,24);}}
         {...keyActivate(()=>setSelected(post),'Abrir post '+(post.title||''),!trash)}>
         {manual&&<div className="gallery-grip" title="Arraste para mover"><Icon name="grip-vertical" size={12}/></div>}
         {!trash&&mergeable(post)&&<button type="button" className={'post-sel'+(selIds.has(String(post.id))?' on':'')} aria-pressed={selIds.has(String(post.id))} aria-label={(selIds.has(String(post.id))?'Desmarcar':'Marcar')+' post para juntar'} title="Marcar para juntar posts"
-          onClick={e=>{e.stopPropagation();toggleSel(post.id);}}><Icon name="check" size={12}/></button>}
+          onClick={e=>{e.stopPropagation();toggleSel(post.id,e.shiftKey);}}><Icon name="check" size={12}/></button>}
         <div className="cover-wrap" style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
           {src==null
             ?<Icon name="image" size={28} style={{opacity:.2}}/>
@@ -12136,7 +12179,24 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   const [mergeDraft,setMergeDraft]=useState(null); // {ids:[],keepId,name}
   const multiDragRef=useRef(false);
   const mergeable=p=>!!p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p);
-  const toggleSel=id=>setSelIds(prev=>{const next=new Set(prev),k=String(id);if(next.has(k))next.delete(k);else next.add(k);return next;});
+  const lastSelRef=useRef(null);
+  // Shift (range=true) ticks every card between the last one ticked and this one,
+  // in the order they are shown, whatever the sorting.
+  const toggleSel=(id,range=false)=>setSelIds(prev=>{
+    const k=String(id),next=new Set(prev);
+    if(range&&lastSelRef.current!=null){
+      const a=visualIds.indexOf(lastSelRef.current),b=visualIds.indexOf(k);
+      if(a>=0&&b>=0){
+        const ok=new Set(galleryOnlyPosts.filter(mergeable).map(p=>String(p.id)));
+        visualIds.slice(Math.min(a,b),Math.max(a,b)+1).forEach(i=>{if(ok.has(i))next.add(i);});
+        lastSelRef.current=k;
+        return next;
+      }
+    }
+    if(next.has(k))next.delete(k);else next.add(k);
+    lastSelRef.current=k;
+    return next;
+  });
   useEffect(()=>{setSelIds(new Set());setMergeDraft(null);},[activeFolder,trash]);
   const visualIds=useMemo(()=>{
     if(sortMode==='manual'&&manualLayout)return manualLayout.flatMap(g=>g.posts.map(p=>String(p.id)));
@@ -12156,16 +12216,49 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     const r=bhMergePosts(galleryOnlyPosts.filter(p=>d.ids.includes(String(p.id))&&mergeable(p)),visualIds,d.keepId,BH_SESSION_SEP);
     if(!r||!r.removedIds.length){setMergeDraft(null);return;}
     const name=d.name.trim()||r.defaultName||'Sem título';
-    const removed=new Set(r.removedIds),stamp=new Date().toISOString();
-    setPosts(prev=>prev.map(p=>{
-      const id=String(p.id);
-      if(id===r.keepId)return{...p,title:name,images:r.images,content:r.content,date:r.date,bannerImage:r.bannerImage,...(r.sourceSessionIds.length?{sourceSessionIds:r.sourceSessionIds}:null),...(r.sourceTargetKeys.length?{sourceTargetKeys:r.sourceTargetKeys}:null)};
-      if(removed.has(id))return{...p,deleted:true,deletedAt:stamp,mergedInto:r.keepId};
-      return p;
-    }));
-    onPostsMerged?.({keepId:r.keepId,removedIds:r.removedIds});
+    const removed=new Set(r.removedIds),all=new Set([r.keepId,...r.removedIds]);
+    // The posts as they are now, for Ctrl+Z.
+    const before=[];
+    (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:p});});
+    _galleryMergeUndo.push({keepId:r.keepId,removedIds:r.removedIds,before});
+    if(_galleryMergeUndo.length>20)_galleryMergeUndo.shift();
+    // United into the chosen post: the others are gone (no trash); Ctrl+Z restores them.
+    setPosts(prev=>prev.filter(p=>!(p&&removed.has(String(p.id)))).map(p=>String(p.id)===r.keepId?{...p,title:name,images:r.images,content:r.content,date:r.date,bannerImage:r.bannerImage,...(r.sourceSessionIds.length?{sourceSessionIds:r.sourceSessionIds}:null),...(r.sourceTargetKeys.length?{sourceTargetKeys:r.sourceTargetKeys}:null)}:p));
+    onPostsMerged?.({keepId:r.keepId,removedIds:r.removedIds,undo:false});
     setSelIds(new Set());setMergeDraft(null);
+    clearTimeout(undoToastTimerRef.current);setUndoToast(r.removedIds.length+1);
+    undoToastTimerRef.current=setTimeout(()=>setUndoToast(null),10000);
   };
+  const [undoToast,setUndoToast]=useState(null); // posts in the last merge, while the "undo" offer is shown
+  const undoToastTimerRef=useRef(null);
+  useEffect(()=>()=>clearTimeout(undoToastTimerRef.current),[]);
+  const undoLastMerge=()=>{
+    const e=_galleryMergeUndo.pop();
+    if(!e)return false;
+    setPosts(prev=>{
+      const byId=new Map(e.before.map(b=>[String(b.post.id),b]));
+      const next=prev.map(p=>p&&String(p.id)===e.keepId&&byId.has(e.keepId)?byId.get(e.keepId).post:p);
+      const have=new Set(next.filter(Boolean).map(p=>String(p.id)));
+      e.before.filter(b=>String(b.post.id)!==e.keepId&&!have.has(String(b.post.id))).sort((a,b)=>a.index-b.index)
+        .forEach(b=>{next.splice(Math.min(b.index,next.length),0,b.post);});
+      return next;
+    });
+    onPostsMerged?.({keepId:e.keepId,removedIds:e.removedIds,undo:true});
+    clearTimeout(undoToastTimerRef.current);setUndoToast(null);
+    return true;
+  };
+  const undoLastMergeRef=useRef(null);undoLastMergeRef.current=undoLastMerge;
+  useEffect(()=>{
+    const onKey=e=>{
+      if(!(e.ctrlKey||e.metaKey)||e.shiftKey||e.altKey||(e.key!=='z'&&e.key!=='Z'))return;
+      const t=e.target;
+      if(t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')||t.isContentEditable))return;
+      if(!_galleryMergeUndo.length)return;
+      e.preventDefault();undoLastMergeRef.current();
+    };
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[]);
   // SECTION DECK: every image of a section's posts, from the one at the bottom of the section (oldest) to the top (newest), one at a
   // time like a slide deck (Speaker Deck): arrows together at the bottom, and a
   // click on the left / right half of the picture goes back / forward.
@@ -12337,13 +12430,17 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
       <button type="button" className="btn btn-dark" disabled={selIds.size<2} onClick={()=>startMerge([...selIds],null)} title="Une as imagens dos posts marcados num só">Juntar</button>
       <button type="button" className="btn btn-ghost" onClick={()=>setSelIds(new Set())}>Limpar</button>
     </div>}
+    {undoToast&&<div className="merge-bar" role="status">
+      <span>{undoToast} posts unidos</span>
+      <button type="button" className="btn btn-outline" onClick={()=>undoLastMergeRef.current()}>Desfazer (Ctrl+Z)</button>
+    </div>}
     {mergeDraft&&<Modal title={'Juntar '+mergeDraft.ids.length+' posts'} onClose={()=>setMergeDraft(null)} width={460}>
       <form onSubmit={e=>{e.preventDefault();confirmMerge();}} style={{display:'flex',flexDirection:'column',gap:12}}>
         <label style={{display:'flex',flexDirection:'column',gap:6,fontSize:'.78rem',color:'var(--muted)'}}>Nome do post unido
           <input autoFocus className="input-box" value={mergeDraft.name} maxLength={160} onChange={e=>setMergeDraft(d=>({...d,name:e.target.value}))}
             onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} placeholder="Sem data, só o nome"/>
         </label>
-        <div style={{fontSize:'.74rem',color:'var(--muted)',lineHeight:1.5}}>As imagens ficam do mais antigo (o post de baixo) ao mais novo (o de cima). Os outros posts vão para a lixeira e podem ser restaurados.</div>
+        <div style={{fontSize:'.74rem',color:'var(--muted)',lineHeight:1.5}}>As imagens ficam do mais antigo (o post de baixo) ao mais novo (o de cima). Os outros posts são unidos a este. Ctrl+Z desfaz.</div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
           <button type="button" className="btn btn-ghost" onClick={()=>setMergeDraft(null)}>Cancelar</button>
           <button type="submit" className="btn btn-dark" disabled={!mergeDraft.name.trim()}>Juntar posts</button>
@@ -17808,22 +17905,42 @@ const App=()=>{
   },[]);
   // Gallery posts merged into one: sessions and projects that pointed at a
   // removed post now point at the surviving one.
-  const handlePostsMerged=useCallback(({keepId,removedIds})=>{
+  const handlePostsMerged=useCallback(({keepId,removedIds,undo})=>{
     const gone=new Set((removedIds||[]).map(String));
     if(!gone.size)return;
+    // Rows and projects that pointed at a removed post follow it to the surviving
+    // one; they remember where they came from so Ctrl+Z can send them back.
     setPomoData(prev=>{
       const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
       let changed=false;
       const sessions=(rank.sessions||[]).map(row=>{
         if(!row)return row;
+        if(undo){
+          const g=row.mergedFromPostId!=null&&gone.has(String(row.mergedFromPostId))&&String(row.galleryPostId)===String(keepId);
+          const pp=row.mergedFromProjectPostId!=null&&gone.has(String(row.mergedFromProjectPostId))&&String(row.projectPostId)===String(keepId);
+          if(!g&&!pp)return row;
+          changed=true;
+          const {mergedFromPostId,mergedFromProjectPostId,...rest}=row;
+          return{...rest,...(g?{galleryPostId:mergedFromPostId}:{galleryPostId:row.galleryPostId}),...(pp?{projectPostId:mergedFromProjectPostId}:{projectPostId:row.projectPostId}),...(!g&&mergedFromPostId!=null?{mergedFromPostId}:null),...(!pp&&mergedFromProjectPostId!=null?{mergedFromProjectPostId}:null)};
+        }
         const g=row.galleryPostId!=null&&gone.has(String(row.galleryPostId)),pp=row.projectPostId!=null&&gone.has(String(row.projectPostId));
         if(!g&&!pp)return row;
         changed=true;
-        return{...row,...(g?{galleryPostId:keepId}:null),...(pp?{projectPostId:keepId}:null)};
+        return{...row,...(g?{galleryPostId:keepId,mergedFromPostId:row.galleryPostId}:null),...(pp?{projectPostId:keepId,mergedFromProjectPostId:row.projectPostId}:null)};
       });
       return changed?{...base,rank:{...rank,sessions}}:prev;
     });
-    setProjects(prev=>prev.map(p=>p&&p.galleryPost!=null&&gone.has(String(p.galleryPost))?{...p,galleryPost:keepId}:p));
+    setProjects(prev=>prev.map(p=>{
+      if(!p)return p;
+      if(undo){
+        if(p.galleryPostMergedFrom!=null&&gone.has(String(p.galleryPostMergedFrom))&&String(p.galleryPost)===String(keepId)){
+          const {galleryPostMergedFrom,...rest}=p;
+          return{...rest,galleryPost:galleryPostMergedFrom};
+        }
+        return p;
+      }
+      return p.galleryPost!=null&&gone.has(String(p.galleryPost))?{...p,galleryPost:keepId,galleryPostMergedFrom:p.galleryPost}:p;
+    }));
   },[]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
   const handleOpenSessionPost=useCallback((session,post)=>{
