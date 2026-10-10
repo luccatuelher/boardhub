@@ -7125,8 +7125,15 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       try{await bhMediaPrecheck(file);accepted.push(file);}
       catch(e){refused.push(bhUploadErrorText(e,'Não foi possível ler "'+(file.name||'arquivo')+'".'));}
     }
+    // A big batch of frames (an exported animatic): offer one frame per hold, as
+    // the Gallery does, before the previews are built and anything is uploaded.
+    let chosen=accepted;
     if(accepted.length){
-      const entries=accepted.map(file=>{const preview=URL.createObjectURL(file);previewUrlsRef.current.push(preview);return{file,preview,video:_isVideoFile(file),id:Date.now()+'-'+Math.random()};});
+      const picked=await bhPickHoldFrames(accepted);
+      chosen=picked&&picked.length?picked:[];
+    }
+    if(chosen.length){
+      const entries=chosen.map(file=>{const preview=URL.createObjectURL(file);previewUrlsRef.current.push(preview);return{file,preview,video:_isVideoFile(file),id:Date.now()+'-'+Math.random()};});
       setFiles(prev=>[...prev,...entries]);
     }
     setError(refused.join(' '));
