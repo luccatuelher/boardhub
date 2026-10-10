@@ -31,6 +31,7 @@ export const EXPECTED = {
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],
   sesstitle: ['bhSessionPostTitle', 'bhPlaceInSection'],
+  gallinks: ['DEFAULT_GALLERY_FOLDERS', 'normalizeGallerySections', 'galleryManualLayout', 'bhProjectGalleryScope', 'bhLinkedPostCount', 'pomoLinkedExtra'],
   postmerge: ['bhStripPostDate', 'bhMergePosts'],
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],

@@ -9359,6 +9359,8 @@ const bhDuplicateProject=p0=>{
   const idMap=new Map(allIds.map(id=>[id,bhNewId()]));
   return {...p0,id:bhNewId(),title:p0.title+' (cópia)',status:'Em Andamento',deleted:false,
     startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
+    // The Gallery link brings the category's time into a project: a copy would show it twice.
+    galleryFolder:'',gallerySection:'',galleryPost:'',
     // fromNote (a task raised from a note) stays with the original: a copy would list twice on the note.
     projectTasks:sourceTasks.map(({fromNote,...t})=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
@@ -11401,6 +11403,7 @@ const useFileDrop=(onFiles,enabled=true)=>{
 };
 
 // - GALLERY -
+// @bh-test-begin gallinks
 const DEFAULT_GALLERY_FOLDERS=[
   {id:'work',label:'Work',deleted:false,sortMode:'month',manualOrder:[]},
   {id:'movie-studies',label:'Movie Studies',deleted:false,sortMode:'month',manualOrder:[]},
@@ -11517,8 +11520,9 @@ const bhProjectGalleryScope=(project,folders,posts)=>{
   if(postId)return{folderId,sectionId,postId,postIds:new Set([postId])};
   if(!sectionId)return{folderId,sectionId:'',postId:'',postIds:null};
   const folder=(folders||[]).find(f=>f&&String(f.id)===folderId);
-  const live=(posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===folderId);
-  const group=folder?galleryManualLayout(folder,live).find(g=>g.section&&String(g.section.id)===sectionId):null;
+  // Trashed posts keep their place in the section, so their sessions still count.
+  const inFolder=(posts||[]).filter(p=>p&&!isProjectScopedPost(p)&&String(p.folder)===folderId);
+  const group=folder?galleryManualLayout(folder,inFolder).find(g=>g.section&&String(g.section.id)===sectionId):null;
   return{folderId,sectionId,postId:'',postIds:new Set(group?group.posts.map(p=>String(p.id)):[])};
 };
 // Live Gallery posts a project is linked to (its folder, section or post).
@@ -11539,14 +11543,25 @@ const pomoLinkedExtra=(pomoData,projects,folders,posts)=>{
     if(!p||p.deleted)return;
     const scope=bhProjectGalleryScope(p,folders,posts);if(!scope)return;
     const pk=pomoProjectKey(p.id),ck=pomoCategoryKey(scope.folderId);
+    // Whole folder: all of the category's time. A section or a post: the sessions
+    // filed into those posts, under ANY category key (a section moved to another
+    // folder keeps its sessions' old key), plus this folder's sessions filed into
+    // a task of THIS project. Each session is counted once.
     const catPart=scope.postIds
-      ?sessions.reduce((sum,x)=>x&&x.targetKey===ck&&x.galleryPostId!=null&&scope.postIds.has(String(x.galleryPostId))?sum+(Number(x.durationSeconds)||0):sum,0)
+      ?sessions.reduce((sum,x)=>{
+        if(!x)return sum;
+        const key=typeof x.targetKey==='string'?x.targetKey:'';
+        const inScope=key.startsWith('cat:')&&x.galleryPostId!=null&&scope.postIds.has(String(x.galleryPostId));
+        const viaTask=key===ck&&x.taskProjectId!=null&&String(x.taskProjectId)===String(p.id);
+        return inScope||viaTask?sum+(Number(x.durationSeconds)||0):sum;
+      },0)
       :(alloc[ck]||0);
     extra[pk]=(extra[pk]||0)+catPart;
     extra[ck]=(extra[ck]||0)+(alloc[pk]||0);
   });
   return extra;
 };
+// @bh-test-end gallinks
 // Index just past the last post of the block that starts at `start` (the
 // position of the next section marker, or the end).
 const _galleryBlockEnd=(order,start)=>{
