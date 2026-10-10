@@ -7668,7 +7668,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
         targetKey:tk,targetLabel:selectedTargetLabel,
         targetType:tk.startsWith('project:')?'project':tk.startsWith('cat:')?'category':'other',
         pointsAwarded:Math.max(0,scoreAfter.points-startRank.points),
-        victoryProgressSeconds:scoreAfter.cycleSeconds,status:'abandoned',images:[],galleryPostId:null
+        // Left the app before registering: a session with real focus time stays
+        // pending, so its capture dialog opens again on the next visit (a few
+        // seconds of focus is just recorded as abandoned, as before).
+        sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
+        victoryProgressSeconds:scoreAfter.cycleSeconds,status:(Math.max(0,Number(abandoned.durationSeconds)||0)>=60?'pending':'abandoned'),images:[],galleryPostId:null
       };
       return {...credited,rank:pomoRankAddSession(credited.rank,session)};
     });
