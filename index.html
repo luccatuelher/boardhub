@@ -6315,6 +6315,34 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
 };
+// Credit for a day other than the one the rank's cycle is on (the part of a
+// session after midnight, a late flush, a recovered session) starts from what
+// that day already had, not from an empty cycle: otherwise the day's 2-hour
+// victory is missed or earned twice. `days`/`daily` are the ledgers BEFORE the
+// credit.
+const pomoSeedCycle=(rank,days,daily,dayKey)=>{
+  if(!rank||rank.cycleDate===dayKey)return rank;
+  const cycleSeconds=Math.min(7200,Math.max(0,Number(days&&days[dayKey])||0));
+  const map=(daily&&daily[dayKey])||{};
+  const projectSecs=Object.entries(map).reduce((n,[k,v])=>String(k).startsWith('project:')?n+(Number(v)||0):n,0);
+  return {...rank,cycleDate:dayKey,cycleSeconds,cycleProjectSeconds:Math.min(cycleSeconds,projectSecs),postVictoryPointUnits:0};
+};
+const pomoCreditParts=(base,parts,tk)=>{
+  const days={...base.days};
+  let allocations=base.allocations,dailyAllocations=base.dailyAllocations,rank=base.rank;
+  for(const {dayKey,secs} of parts){
+    rank=pomoSeedCycle(rank,days,dailyAllocations,dayKey);
+    days[dayKey]=(days[dayKey]||0)+secs;
+    if(tk!=='none'){
+      allocations={...allocations,[tk]:(allocations[tk]||0)+secs};
+      const dayMap={...(dailyAllocations[dayKey]||{})};
+      dayMap[tk]=(dayMap[tk]||0)+secs;
+      dailyAllocations={...dailyAllocations,[dayKey]:dayMap};
+    }
+    rank=pomoRankCredit(rank,secs,tk,rankDateFromKey(dayKey));
+  }
+  return {...base,days,allocations,dailyAllocations,rank};
+};
 // A session registered under another category than the one it ran on: its
 // seconds move between the two categories' totals (all-time and per day).
 // Category → category, or no category → a category; project sessions are left alone.
@@ -6457,21 +6485,6 @@ const pomoSplitByDay=(secs,endMs=Date.now())=>{
 };
 // Adds day-split focus seconds to the day totals, the target's totals and
 // the rank; and to a session's chunk list.
-const pomoCreditParts=(base,parts,tk)=>{
-  const days={...base.days};
-  let allocations=base.allocations,dailyAllocations=base.dailyAllocations,rank=base.rank;
-  for(const {dayKey,secs} of parts){
-    days[dayKey]=(days[dayKey]||0)+secs;
-    if(tk!=='none'){
-      allocations={...allocations,[tk]:(allocations[tk]||0)+secs};
-      const dayMap={...(dailyAllocations[dayKey]||{})};
-      dayMap[tk]=(dayMap[tk]||0)+secs;
-      dailyAllocations={...dailyAllocations,[dayKey]:dayMap};
-    }
-    rank=pomoRankCredit(rank,secs,tk,rankDateFromKey(dayKey));
-  }
-  return {...base,days,allocations,dailyAllocations,rank};
-};
 const pomoAddChunks=(chunks,parts,tk)=>{
   const out=[...(Array.isArray(chunks)?chunks:[])];
   for(const {dayKey,secs} of parts){

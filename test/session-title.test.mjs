@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhSessionPostTitle, bhPlaceInSection, pomoRetargetSession, pomoSessionParts, pomoRetargetPlan, pomoApplyRetargets, pomoNormalize, pomoMergeProgress } = load(['date', 'sesstitle', 'rank']);
+const { bhSessionPostTitle, bhPlaceInSection, pomoRetargetSession, pomoSessionParts, pomoRetargetPlan, pomoApplyRetargets, pomoNormalize, pomoMergeProgress, pomoCreditParts, rankDefault } = load(['date', 'sesstitle', 'rank']);
 
 test('default post title: day/month, a dash, then what the session was about', () => {
   assert.equal(bhSessionPostTitle('2026-10-08', 'Back from the brink'), '08/10 - Back from the brink');
@@ -106,4 +106,25 @@ test('apply retargets: a side that already counted it is left alone', () => {
   const moved = { id: 's1', retarget: { from: 'cat:a', to: 'cat:b', parts: [{ dayKey: '2026-10-10', secs: 600 }] } };
   const done = withSessions({ 'cat:b': 600 }, [moved]);
   assert.equal(pomoApplyRetargets(done, done), done);
+});
+
+test('credit for a past day starts from what that day already had (midnight split / late flush)', () => {
+  const today = new Date(2026, 9, 10, 0, 5), yesterday = '2026-10-09';
+  const base = pomoNormalize({ days: { [yesterday]: 6800 }, allocations: {}, dailyAllocations: {}, rank: { seasonId: rankDefault(today).seasonId, points: 100, cycleDate: '2026-10-10', cycleSeconds: 0 } }, today);
+  assert.equal(base.rank.cycleDate, '2026-10-10');
+  const r = pomoCreditParts(base, [{ dayKey: yesterday, secs: 1200 }, { dayKey: '2026-10-10', secs: 300 }], 'cat:a');
+  // 6800 + 1200 crosses the 2h victory of yesterday: the reward (200-250) is earned once
+  assert.ok(r.rank.points >= 300 && r.rank.points <= 360, 'points ' + r.rank.points);
+  assert.equal(r.days[yesterday], 8000);
+  assert.equal(r.days['2026-10-10'], 300);
+  assert.equal(r.rank.cycleDate, '2026-10-10');
+  assert.equal(r.rank.cycleSeconds, 300);
+});
+
+test('credit on the rank\'s own day is untouched, and a finished day is not rewarded twice', () => {
+  const today = new Date(2026, 9, 10, 12, 0);
+  const done = pomoNormalize({ days: { '2026-10-09': 7300 }, rank: { seasonId: rankDefault(today).seasonId, points: 500, cycleDate: '2026-10-10', cycleSeconds: 0 } }, today);
+  const r = pomoCreditParts(done, [{ dayKey: '2026-10-09', secs: 600 }], 'cat:a');
+  // that day was already past 2h: only the small post-victory units, no new 200-250 reward
+  assert.ok(r.rank.points - 500 <= 40, 'points gained ' + (r.rank.points - 500));
 });
