@@ -7019,14 +7019,28 @@ const bhSessionPostTitle=(date,label)=>{
   const name=String(label||'').trim()||'Sem categoria';
   return m?m[3]+'/'+m[2]+' - '+name:name;
 };
+// A new post made from a focus session goes to the TOP of the chosen section
+// (right after its marker in the folder's manualOrder), like any new post.
+// Returns the same array when the section marker is missing.
+const bhPlaceInSection=(order,postId,sectionId)=>{
+  const list=Array.isArray(order)?order:[];
+  const marker='sec:'+sectionId,key=String(postId);
+  if(!list.includes(marker))return list;
+  const next=list.filter(k=>k!==key);
+  next.splice(next.indexOf(marker)+1,0,key);
+  return next;
+};
 // @bh-test-end sesstitle
+const POMO_SECTION_LS='boardhub_pomo_section';
+const pomoSectionPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO_SECTION_LS)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return {};}};
+const pomoSectionPicksSave=v=>{try{localStorage.setItem(POMO_SECTION_LS,JSON.stringify(v));}catch(e){bhLog('pomo.section',e,'the section chosen for the timer is not remembered');}};
 const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],project=null,lastTaskId=null,projects=[],lastTaskByProject=null})=>{
   const isProjectSession=session.targetType==='project';
   // A project session always becomes a note under one of the project's tasks
   // (or a task created right here, '__new__'), so its default title names the
   // day rather than the project the task already belongs to.
   const taskTitleDefault='Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-  const galleryTitleDefault=bhSessionPostTitle(session.date||localDateISO(),session.targetLabel);
+  const galleryTitleDefault=bhSessionPostTitle(session.date||localDateISO(),session.sectionLabel||session.targetLabel);
   const liveFolders=useMemo(()=>{
     return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
   },[galleryFolders]);
@@ -7575,6 +7589,17 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     const id=targetKey.slice(4);
     return categories.find(c=>String(c.id)===id)||null;
   },[categories,targetKey]);
+  // The section inside the chosen category (a Gallery folder), picked before the
+  // session starts. It is remembered per folder.
+  const catSections = useMemo(()=>{
+    if(!selectedCategoryAny)return [];
+    const f=(galleryFolders||[]).find(x=>x&&String(x.id)===String(selectedCategoryAny.id));
+    return f?normalizeGallerySections(f.sections):[];
+  },[galleryFolders,selectedCategoryAny]);
+  const [sectionPicks,setSectionPicks]=useState(pomoSectionPicksLoad);
+  const pickedSection = selectedCategoryAny?(catSections.find(s=>s.id===sectionPicks[String(selectedCategoryAny.id)])||null):null;
+  const pickedSectionRef = useRef(null);
+  pickedSectionRef.current = pickedSection;
   const selectedTargetLabel =
     targetKey==='none' ? 'Sem categoria' :
     selectedProjectAny?.title || selectedCategoryAny?.name || 'Sem categoria';
@@ -7584,6 +7609,10 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   // Once a focus session has started, its destination must remain stable even
   // while paused. Otherwise one session can silently be filed under two targets.
   const targetLocked = isActive || !!sessionMetaRef.current;
+  const changeSection = id => {
+    if(targetLocked||!selectedCategoryAny)return;
+    setSectionPicks(prev=>{const next={...prev,[String(selectedCategoryAny.id)]:id||''};pomoSectionPicksSave(next);return next;});
+  };
 
   const persist = (active, tLeft, m, fMins) => {
     const fm = fMins ?? focusMinsRef.current;
@@ -7777,6 +7806,8 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
             startedAt:meta?.startedAt||new Date(endedAt.getTime()-durationSeconds*1000).toISOString(),
             endedAt:endedAt.toISOString(),date:localDateISO(endedAt),durationSeconds,
             targetKey:tk,targetLabel:selectedTargetLabel,targetType:tk.startsWith('project:')?'project':tk.startsWith('cat:')?'category':'other',
+            // The section picked inside the category: the post lands there and its title follows it.
+            sectionId:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.id:null,sectionLabel:tk.startsWith('cat:')&&pickedSectionRef.current?pickedSectionRef.current.label:'',
             pointsAwarded,victoryProgressSeconds:scoreAfter.cycleSeconds,
             status:'pending',images:[],galleryPostId:null
           });
@@ -8206,6 +8237,12 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                     {pomoFmtSecs(selectedTargetTotal)}
                   </span>}
               </div>
+              {catSections.length>0&&<select value={pickedSection?pickedSection.id:''} onChange={e=>changeSection(e.target.value)} disabled={targetLocked}
+                aria-label="Seção dentro da categoria" title={targetLocked?'Conclua ou reinicie a sessão para trocar a seção':'Seção do post desta sessão'}
+                style={{width:'100%',minWidth:0,height:28,border:'1px solid var(--border)',borderRadius:8,background:'var(--bg)',color:'var(--text)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.7rem',fontWeight:500,padding:'0 6px',outline:'none',cursor:targetLocked?'not-allowed':'pointer',opacity:targetLocked?.65:1}}>
+                <option value="">Sem seção</option>
+                {catSections.map(sec=><option key={sec.id} value={sec.id}>{sec.label}</option>)}
+              </select>}
               <div style={{fontSize:'.67rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:4}}>
                 <Icon name="clock" size={10}/> Hoje: <strong style={{color:'var(--text)'}}>{pomoFmtSecs(todayDisplay)}</strong> em foco
               </div>
@@ -16656,7 +16693,7 @@ const App=()=>{
         projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
     }
     const postId=existing?.id||('focus-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6));
-    const target=session.targetLabel||'Sem categoria';
+    const target=session.sectionLabel||session.targetLabel||'Sem categoria';
     const folderId=destination==='gallery'?String(session.folderId||existing?.folder||''):null;
     // Only what the user wrote: the elapsed time is never stamped into the text
     // (it is read from the session where it is shown).
@@ -16667,6 +16704,17 @@ const App=()=>{
       images:Array.isArray(session.images)?session.images:[],bannerImage:(Array.isArray(session.images)?session.images:[])[0]||'',deleted:false,sourceSessionId:session.id,
       sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:taskId?[taskId]:[]
     };
+    // A new post from a session that had a section picked in its category goes
+    // to the top of that section.
+    if(destination==='gallery'&&!existing&&session.sectionId&&String(session.targetKey)===pomoCategoryKey(folderId)){
+      setGalleryFolders(prev=>(prev||[]).map(f=>{
+        if(!f||String(f.id)!==folderId)return f;
+        const nf=normalizeGalleryFolder(f);
+        if(!nf.sections.some(sec=>sec.id===session.sectionId))return f;
+        const order=bhPlaceInSection(galleryMaterializeOrder(nf,[]),postId,session.sectionId);
+        return{...nf,manualOrder:order};
+      }));
+    }
     setGalleryPosts(prev=>{
       const list=Array.isArray(prev)?prev:[];
       if(!existing)return[newPost,...list.filter(p=>String(p.sourceSessionId)!==String(session.id)&&!(Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[]).map(String).includes(String(session.id)))];
