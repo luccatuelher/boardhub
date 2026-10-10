@@ -7132,10 +7132,6 @@ const pomoSectionPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO
 const pomoSectionPicksSave=v=>{try{localStorage.setItem(POMO_SECTION_LS,JSON.stringify(v));}catch(e){bhLog('pomo.section',e,'the section chosen for the timer is not remembered');}};
 const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,galleryFolders=[],galleryPosts=[],project=null,lastTaskId=null,projects=[],lastTaskByProject=null})=>{
   const isProjectSession=session.targetType==='project';
-  // A project session always becomes a note under one of the project's tasks
-  // (or a task created right here, '__new__'), so its default title names the
-  // day rather than the project the task already belongs to.
-  const taskTitleDefault='Sessão de '+new Date((session.date||localDateISO())+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
   const liveFolders=useMemo(()=>{
     return (galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived);
   },[galleryFolders]);
@@ -7170,7 +7166,6 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const linkedProjects=useMemo(()=>projectsOfFolder(folderId),[projects,folderId,isProjectSession]);//eslint-disable-line react-hooks/exhaustive-deps
   const taskProject=isProjectSession?project:(linkedProjects.find(p=>String(p.id)===String(linkProjectId))||null);
   const asTask=isProjectSession||!!taskProject;
-  const defaultTitle=asTask?taskTitleDefault:galleryTitleDefault;
   const projectTasks=taskProject?.projectTasks||[];
   const taskOptions=useMemo(()=>{
     const list=(projectTasks||[]).filter(t=>t&&t.id!=null);
@@ -7192,6 +7187,13 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const linkablePosts=useMemo(()=>projectFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(projectFolder.id)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,projectFolder]);
   const [showInGallery,setShowInGallery]=useState(true);
   const [galleryLink,setGalleryLink]=useState('');
+  // A session filed under a task is titled like the Gallery posts: the day, then
+  // the task's name ("10/10 - Roteiro"); it follows the task chosen below. With no
+  // task yet it carries the project's (or category's) name.
+  const chosenTaskName=taskChoice==='__new__'?newTaskName.trim()
+    :taskChoice?String((projectTasks.find(t=>t&&String(t.id)===String(taskChoice))?.text)||chosenMini?.title||'').trim():'';
+  const taskTitleDefault=bhSessionPostTitle(session.date||localDateISO(),chosenTaskName||(isProjectSession?(project?.title||session.targetLabel):(taskProject?.title||session.targetLabel)));
+  const defaultTitle=asTask?taskTitleDefault:galleryTitleDefault;
   const [files,setFiles]=useState([]),[title,setTitle]=useState(session.title||defaultTitle),[note,setNote]=useState(''),[saving,setSaving]=useState(false),[progress,setProgress]=useState(null),[error,setError]=useState('');
   const savingRef=useRef(false);
   // With "registro obrigatório" on, skipping is offered again only after a save failed, so a
