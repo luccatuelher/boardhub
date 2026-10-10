@@ -9165,6 +9165,8 @@ const ProjectsTimeline=({projects,onOpen,onUpdateTask,isMobile})=>{
   const rows=useMemo(()=>{
     const out=[];
     projects.forEach(p=>{
+      // A paused project is not on the timeline: its tasks are not being worked on.
+      if(p.status==='Pausado')return;
       const pStart=p.startDate||'',pEnd=p.deadline||'';
       const tasks=projectTaskNamed(applyAutoLate(Array.isArray(p.projectTasks)?p.projectTasks:[]),p.miniProjects).filter(t=>t&&t.status!=='Concluído');
       if(!tasks.length&&!pStart&&!pEnd)return;
