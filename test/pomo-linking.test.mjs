@@ -7,7 +7,7 @@ const stubs = {
   pomoProjectKey: id => 'project:' + String(id),
   pomoCategoryKey: id => 'cat:' + String(id),
 };
-const { pomoLinkedExtra, bhProjectGalleryScope, bhLinkedPostCount, pomoSectionSeconds } = load(['gallinks'], { stubs });
+const { pomoLinkedExtra, bhProjectGalleryScope, bhLinkedPostCount, pomoSectionSeconds, pomoSectionProjectSeconds } = load(['gallinks'], { stubs });
 
 const folders = [{ id: 'F', label: 'Storyboards', sections: [{ id: 's1', label: 'Brink' }, { id: 's2', label: 'Other' }], manualOrder: ['p1', 'p2', 'sec:s1', 'p3', 'p4', 'sec:s2', 'p5'] }];
 const posts = ['p1', 'p2', 'p3', 'p4', 'p5'].map(id => ({ id, folder: 'F', title: id, date: '2026-10-01', images: [] }));
@@ -92,4 +92,26 @@ test('section time: filed into its posts, or unfiled with that section picked; o
   assert.equal(pomoSectionSeconds(sessions, ids, 's1', 'cat:F'), 1000);
   assert.equal(pomoSectionSeconds(sessions, null, 's1', 'cat:F'), 300); // no posts known: only the unfiled one
   assert.equal(pomoSectionSeconds(null, ids, 's1', 'cat:F'), 0);
+});
+
+test('section time includes the projects linked to that section (their time belongs to it)', () => {
+  const alloc = { 'project:1': 4000, 'project:2': 900, 'project:3': 70, 'project:4': 5 };
+  const ids = new Set(['p3', 'p4']);
+  const projects = [
+    { id: 1, galleryFolder: 'F', gallerySection: 's1' },        // linked to the section
+    { id: 2, galleryFolder: 'F', galleryPost: 'p3' },            // linked to a post inside it
+    { id: 3, galleryFolder: 'F', gallerySection: 's2' },         // another section
+    { id: 4, galleryFolder: 'G', gallerySection: 's1' },         // same section id, other folder
+    { id: 5, deleted: true, galleryFolder: 'F', gallerySection: 's1' },
+  ];
+  assert.equal(pomoSectionProjectSeconds(projects, alloc, 'F', 's1', ids), 4900);
+  assert.equal(pomoSectionProjectSeconds(projects, alloc, 'F', 's1', null), 4000);
+  assert.equal(pomoSectionProjectSeconds(null, alloc, 'F', 's1', ids), 0);
+});
+
+test('a project and its section chip: project time + category sessions in the section, once', () => {
+  const sessions = [sess({ id: 'a', targetKey: 'cat:F', galleryPostId: 'p3', durationSeconds: 600 }), sess({ id: 'b', targetKey: 'project:1', galleryPostId: null, durationSeconds: 4000 })];
+  const ids = new Set(['p3', 'p4']);
+  const total = pomoSectionSeconds(sessions, ids, 's1', 'cat:F') + pomoSectionProjectSeconds([{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], { 'project:1': 4000 }, 'F', 's1', ids);
+  assert.equal(total, 4600);
 });

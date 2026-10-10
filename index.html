@@ -7801,8 +7801,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   const sectionTotal = useMemo(()=>{
     if(!selectedCategoryAny||!pickedSection)return null;
     const scope=bhProjectGalleryScope({galleryFolder:selectedCategoryAny.id,gallerySection:pickedSection.id},galleryFolders,galleryPosts);
-    return pomoSectionSeconds(pomoData?.rank?.sessions,scope?scope.postIds:null,pickedSection.id,targetKey);
-  },[selectedCategoryAny,pickedSection,galleryFolders,galleryPosts,pomoData?.rank?.sessions,targetKey]);
+    const postIds=scope?scope.postIds:null;
+    // Category sessions in the section, plus the time of the projects linked to it.
+    return pomoSectionSeconds(pomoData?.rank?.sessions,postIds,pickedSection.id,targetKey)
+      +pomoSectionProjectSeconds(projects,pomoData?.allocations,selectedCategoryAny.id,pickedSection.id,postIds);
+  },[selectedCategoryAny,pickedSection,galleryFolders,galleryPosts,projects,pomoData?.allocations,pomoData?.rank?.sessions,targetKey]);
   const selectedTargetTotal = targetKey==='none'?0:(((pomoData?.allocations||{})[targetKey]||0)+(linkedExtra[targetKey]||0)+selectedTargetLiveExtra);
   // Once a focus session has started, its destination must remain stable even
   // while paused. Otherwise one session can silently be filed under two targets.
@@ -11675,6 +11678,16 @@ const pomoSectionSeconds=(sessions,postIds,sectionId,catKey)=>(Array.isArray(ses
   const inPost=x.galleryPostId!=null&&!!postIds&&postIds.has(String(x.galleryPostId));
   const unfiledHere=x.galleryPostId==null&&x.sectionId!=null&&String(x.sectionId)===String(sectionId)&&x.targetKey===catKey;
   return inPost||unfiledHere?sum+Math.max(0,Number(x.durationSeconds)||0):sum;
+},0);
+// Time of the projects linked to a section (project.gallerySection, or a
+// project.galleryPost inside it): their own focus time belongs to that section too,
+// as it belongs to the category for a project linked to the whole folder.
+// Category sessions are counted by pomoSectionSeconds; project sessions have a
+// project key, so nothing is counted twice.
+const pomoSectionProjectSeconds=(projects,alloc,folderId,sectionId,postIds)=>(Array.isArray(projects)?projects:[]).reduce((sum,p)=>{
+  if(!p||p.deleted||String(p.galleryFolder||'')!==String(folderId))return sum;
+  const inSection=(p.gallerySection!=null&&String(p.gallerySection)===String(sectionId))||(!p.gallerySection&&p.galleryPost!=null&&!!postIds&&postIds.has(String(p.galleryPost)));
+  return inSection?sum+Math.max(0,Number(alloc&&alloc[pomoProjectKey(p.id)])||0):sum;
 },0);
 // @bh-test-end gallinks
 // Index just past the last post of the block that starts at `start` (the
