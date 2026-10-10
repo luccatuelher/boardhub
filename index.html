@@ -7797,6 +7797,12 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
     selectedProjectAny?.title || selectedCategoryAny?.name || 'Sem categoria';
   const selectedTargetLiveExtra = targetKey==='none'?0:(displayUnsaved+pendingSecsRef.current);
   const linkedExtra = useMemo(()=>pomoLinkedExtra(pomoData,projects,galleryFolders,galleryPosts),[pomoData?.allocations,pomoData?.rank?.sessions,projects,galleryFolders,galleryPosts]);
+  // With a section picked, the chip shows that section's time instead of the whole category's.
+  const sectionTotal = useMemo(()=>{
+    if(!selectedCategoryAny||!pickedSection)return null;
+    const scope=bhProjectGalleryScope({galleryFolder:selectedCategoryAny.id,gallerySection:pickedSection.id},galleryFolders,galleryPosts);
+    return pomoSectionSeconds(pomoData?.rank?.sessions,scope?scope.postIds:null,pickedSection.id,targetKey);
+  },[selectedCategoryAny,pickedSection,galleryFolders,galleryPosts,pomoData?.rank?.sessions,targetKey]);
   const selectedTargetTotal = targetKey==='none'?0:(((pomoData?.allocations||{})[targetKey]||0)+(linkedExtra[targetKey]||0)+selectedTargetLiveExtra);
   // Once a focus session has started, its destination must remain stable even
   // while paused. Otherwise one session can silently be filed under two targets.
@@ -8480,9 +8486,13 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
                   )}
                 </div>
                 {targetKey!=='none'&&
-                  <span title="Tempo total nesta categoria"
-                    style={{display:'inline-flex',alignItems:'center',height:28,padding:'0 8px',borderRadius:8,background:'var(--bg)',border:'1px solid var(--border)',fontSize:'.65rem',fontWeight:600,color:'var(--muted)',whiteSpace:'nowrap',flexShrink:0}}>
-                    {pomoFmtSecs(selectedTargetTotal)}
+                  <span title={sectionTotal!=null?'Tempo nesta seção ('+pickedSection.label+')':'Tempo total nesta categoria'}
+                    style={{display:'inline-flex',alignItems:'center',height:28,padding:'0 8px',borderRadius:8,
+                      // A section's time is not the category's total: lighter text and a clearer edge say so.
+                      background:sectionTotal!=null?'color-mix(in srgb,var(--text) 9%,var(--bg))':'var(--bg)',
+                      border:'1px solid '+(sectionTotal!=null?'color-mix(in srgb,var(--text) 38%,var(--border))':'var(--border)'),
+                      fontSize:'.65rem',fontWeight:600,color:sectionTotal!=null?'var(--text)':'var(--muted)',whiteSpace:'nowrap',flexShrink:0,transition:'color .15s,background .15s,border-color .15s'}}>
+                    {pomoFmtSecs(sectionTotal!=null?sectionTotal+selectedTargetLiveExtra:selectedTargetTotal)}
                   </span>}
               </div>
               {projectTaskOptions.length>0&&<select value={pickedTask?pickedTask.id:''} onChange={e=>changeTask(e.target.value)} disabled={targetLocked}
@@ -11657,6 +11667,15 @@ const pomoLinkedExtra=(pomoData,projects,folders,posts,dayKey=null)=>{
   });
   return extra;
 };
+// Seconds of the category sessions that belong to one SECTION: filed into one of
+// its posts (`postIds`, trashed ones included), or not filed yet but run with that
+// section picked in the timer. Each session counts once.
+const pomoSectionSeconds=(sessions,postIds,sectionId,catKey)=>(Array.isArray(sessions)?sessions:[]).reduce((sum,x)=>{
+  if(!x||typeof x.targetKey!=='string'||!x.targetKey.startsWith('cat:'))return sum;
+  const inPost=x.galleryPostId!=null&&!!postIds&&postIds.has(String(x.galleryPostId));
+  const unfiledHere=x.galleryPostId==null&&x.sectionId!=null&&String(x.sectionId)===String(sectionId)&&x.targetKey===catKey;
+  return inPost||unfiledHere?sum+Math.max(0,Number(x.durationSeconds)||0):sum;
+},0);
 // @bh-test-end gallinks
 // Index just past the last post of the block that starts at `start` (the
 // position of the next section marker, or the end).

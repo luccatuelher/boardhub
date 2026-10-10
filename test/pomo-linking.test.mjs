@@ -7,7 +7,7 @@ const stubs = {
   pomoProjectKey: id => 'project:' + String(id),
   pomoCategoryKey: id => 'cat:' + String(id),
 };
-const { pomoLinkedExtra, bhProjectGalleryScope, bhLinkedPostCount } = load(['gallinks'], { stubs });
+const { pomoLinkedExtra, bhProjectGalleryScope, bhLinkedPostCount, pomoSectionSeconds } = load(['gallinks'], { stubs });
 
 const folders = [{ id: 'F', label: 'Storyboards', sections: [{ id: 's1', label: 'Brink' }, { id: 's2', label: 'Other' }], manualOrder: ['p1', 'p2', 'sec:s1', 'p3', 'p4', 'sec:s2', 'p5'] }];
 const posts = ['p1', 'p2', 'p3', 'p4', 'p5'].map(id => ({ id, folder: 'F', title: id, date: '2026-10-01', images: [] }));
@@ -77,4 +77,19 @@ test('today: the same rules, for one day only', () => {
   const sectionLink = pomoLinkedExtra(data, [{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], folders, posts, '2026-10-10');
   assert.equal(sectionLink['project:1'], 600); // only today's session
   assert.equal(pomoLinkedExtra(data, [{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], folders, posts)['project:1'], 1200); // totals unchanged
+});
+
+test('section time: filed into its posts, or unfiled with that section picked; once each, category sessions only', () => {
+  const ids = new Set(['p3', 'p4']);
+  const sessions = [
+    sess({ id: 'a', targetKey: 'cat:F', galleryPostId: 'p3', durationSeconds: 600 }),            // filed in the section
+    sess({ id: 'b', targetKey: 'cat:F', galleryPostId: null, sectionId: 's1', durationSeconds: 300 }), // not filed yet, section picked
+    sess({ id: 'c', targetKey: 'cat:F', galleryPostId: 'p3', sectionId: 's1', durationSeconds: 100 }), // filed AND tagged: one count
+    sess({ id: 'd', targetKey: 'cat:F', galleryPostId: 'p5', durationSeconds: 900 }),            // another section
+    sess({ id: 'e', targetKey: 'cat:F', galleryPostId: null, sectionId: 's2', durationSeconds: 50 }), // other section, unfiled
+    sess({ id: 'f', targetKey: 'project:1', galleryPostId: 'p3', durationSeconds: 70 }),         // project session
+  ];
+  assert.equal(pomoSectionSeconds(sessions, ids, 's1', 'cat:F'), 1000);
+  assert.equal(pomoSectionSeconds(sessions, null, 's1', 'cat:F'), 300); // no posts known: only the unfiled one
+  assert.equal(pomoSectionSeconds(null, ids, 's1', 'cat:F'), 0);
 });
