@@ -350,6 +350,12 @@ body:has(.overlay.note-peek) .lightbox{left:0!important}
 .gallery-arrow{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .gallery-arrow:focus-visible{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}
 @media (hover:none){.gallery-arrow{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto}}
+.post-sel{position:absolute;top:8px;right:8px;z-index:3;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.7);color:transparent;cursor:pointer;opacity:0;transition:opacity .12s,background .12s;padding:0}
+.card:hover .post-sel,.post-sel:focus-visible,.post-sel.on{opacity:1}
+.post-sel.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+@media (hover:none){.post-sel{opacity:.85}}
+.merge-bar{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:10px;padding:8px 10px 8px 18px;border-radius:999px;background:var(--surface);border:1px solid var(--border-2);box-shadow:0 12px 40px rgba(0,0,0,.55);font-size:.8rem;font-weight:600}
+.merge-bar .btn{padding:6px 14px;font-size:.78rem}
 .gallery-deck-btn{margin-right:auto;background:none;border:1px solid transparent;cursor:pointer;color:var(--muted);padding:4px 6px;border-radius:7px;line-height:0;opacity:.75;transition:opacity .12s,color .12s,border-color .12s}
 .gallery-deck-btn:hover,.gallery-deck-btn:focus-visible{opacity:1;color:var(--text);border-color:var(--border-2)}
 .deck-nav{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:transparent;border:none;color:#fff;cursor:pointer}
@@ -6254,7 +6260,8 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   // Restore ledgers without moving current cumulative counters backwards or
   // adding the same session twice. Totals remain the current authority because
   // old exports may have already counted sessions later truncated from history.
-  const current=pomoNormalize(currentValue),incoming=pomoNormalize(incomingValue);
+  const current0=pomoNormalize(currentValue),incoming0=pomoNormalize(incomingValue);
+  const current=pomoApplyRetargets(current0,incoming0),incoming=pomoApplyRetargets(incoming0,current0);
   const has=Object.keys(current.days).length||current.rank.sessions.length||current.rank.points||current.rank.history.length||current.rank.notices.length||Object.keys(current.rank.decayApplied).length;
   if(!has)return pomoRankMaintain(incoming);
   const maxMap=(a,b)=>{
@@ -6299,6 +6306,59 @@ const pomoMergeProgress=(currentValue,incomingValue)=>{
   }
   rank={...rank,history:[...historyBySeason.values()].sort((a,b)=>String(a.seasonId).localeCompare(String(b.seasonId))).slice(-24)};
   return pomoRankMaintain({...current,days,allocations,dailyAllocations,rank});
+};
+// A session registered under another category than the one it ran on: its
+// seconds move between the two categories' totals (all-time and per day).
+// Only category → category moves; 'none' and project sessions are left alone.
+// `parts` are [{dayKey|dateKey, secs}] (the session's chunks).
+const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
+  const isCat=k=>typeof k==='string'&&k.startsWith('cat:');
+  if(!base||fromKey===toKey||!isCat(fromKey)||!isCat(toKey))return base;
+  const list=(Array.isArray(parts)?parts:[]).map(p=>({dayKey:p&&(p.dayKey||p.dateKey),secs:Math.max(0,Number(p&&p.secs)||0)})).filter(p=>p.dayKey&&p.secs>0);
+  if(!list.length)return base;
+  const allocations={...(base.allocations||{})},daily={...(base.dailyAllocations||{})};
+  for(const {dayKey,secs} of list){
+    allocations[fromKey]=Math.max(0,(allocations[fromKey]||0)-secs);
+    if(!allocations[fromKey])delete allocations[fromKey];
+    allocations[toKey]=(allocations[toKey]||0)+secs;
+    const dm={...(daily[dayKey]||{})};
+    dm[fromKey]=Math.max(0,(dm[fromKey]||0)-secs);
+    if(!dm[fromKey])delete dm[fromKey];
+    dm[toKey]=(dm[toKey]||0)+secs;
+    daily[dayKey]=dm;
+  }
+  return {...base,allocations,dailyAllocations:daily};
+};
+// The per-day seconds a session credited to `fromKey` (its chunks; older
+// sessions without chunks count their whole duration on the day they ended).
+const pomoSessionParts=(session,fromKey)=>{
+  const chunks=Array.isArray(session&&session.chunks)?session.chunks.filter(c=>c&&(c.targetKey==null||String(c.targetKey)===String(fromKey))):[];
+  return chunks.length?chunks.map(c=>({dayKey:c.dateKey||session.date,secs:c.secs})):[{dayKey:session&&session.date,secs:Number(session&&session.durationSeconds)||0}];
+};
+// What registering `session` moves, read from the session's ROW in `base` (not
+// from the dialog): only a still-pending row whose stored key differs from the
+// one chosen. A retry after a partial failure finds the row already saved and
+// moves nothing. Returns {from,to,parts} or null.
+const pomoRetargetPlan=(base,session)=>{
+  const row=((base&&base.rank&&base.rank.sessions)||[]).find(r=>r&&String(r.id)===String(session&&session.id));
+  const to=session&&session.targetKey;
+  if(!row||row.status!=='pending'||!to||!row.targetKey||row.targetKey===to||row.retarget)return null;
+  return{from:String(row.targetKey),to:String(to),parts:pomoSessionParts(row,row.targetKey)};
+};
+// Applies, to one side of a restore/boot merge, the category moves the OTHER
+// side already made (a session row carrying `retarget`) and this side has not:
+// the max-per-key merge below would otherwise bring the old seconds back and
+// count the session under both categories.
+const pomoApplyRetargets=(side,other)=>{
+  const mine=new Map(((side&&side.rank&&side.rank.sessions)||[]).filter(Boolean).map(r=>[String(r.id),r]));
+  let out=side;
+  (((other&&other.rank&&other.rank.sessions)||[])).forEach(o=>{
+    if(!o||!o.retarget||!o.retarget.from||!o.retarget.to)return;
+    const m=mine.get(String(o.id));
+    if(!m||m.retarget)return; // not on this side, or already counted there
+    out=pomoRetargetSession(out,o.retarget.from,o.retarget.to,o.retarget.parts);
+  });
+  return out;
 };
 // @bh-test-end rank
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -7019,34 +7079,6 @@ const bhSessionPostTitle=(date,label)=>{
   const name=String(label||'').trim()||'Sem categoria';
   return m?m[3]+'/'+m[2]+' - '+name:name;
 };
-// A session registered under another category than the one it ran on: its
-// seconds move between the two categories' totals (all-time and per day).
-// Only category → category moves; 'none' and project sessions are left alone.
-// `parts` are [{dayKey|dateKey, secs}] (the session's chunks).
-const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
-  const isCat=k=>typeof k==='string'&&k.startsWith('cat:');
-  if(!base||fromKey===toKey||!isCat(fromKey)||!isCat(toKey))return base;
-  const list=(Array.isArray(parts)?parts:[]).map(p=>({dayKey:p&&(p.dayKey||p.dateKey),secs:Math.max(0,Number(p&&p.secs)||0)})).filter(p=>p.dayKey&&p.secs>0);
-  if(!list.length)return base;
-  const allocations={...(base.allocations||{})},daily={...(base.dailyAllocations||{})};
-  for(const {dayKey,secs} of list){
-    allocations[fromKey]=Math.max(0,(allocations[fromKey]||0)-secs);
-    if(!allocations[fromKey])delete allocations[fromKey];
-    allocations[toKey]=(allocations[toKey]||0)+secs;
-    const dm={...(daily[dayKey]||{})};
-    dm[fromKey]=Math.max(0,(dm[fromKey]||0)-secs);
-    if(!dm[fromKey])delete dm[fromKey];
-    dm[toKey]=(dm[toKey]||0)+secs;
-    daily[dayKey]=dm;
-  }
-  return {...base,allocations,dailyAllocations:daily};
-};
-// The per-day seconds a session credited to `fromKey` (its chunks; older
-// sessions without chunks count their whole duration on the day they ended).
-const pomoSessionParts=(session,fromKey)=>{
-  const chunks=Array.isArray(session&&session.chunks)?session.chunks.filter(c=>c&&(c.targetKey==null||String(c.targetKey)===String(fromKey))):[];
-  return chunks.length?chunks.map(c=>({dayKey:c.dateKey||session.date,secs:c.secs})):[{dayKey:session&&session.date,secs:Number(session&&session.durationSeconds)||0}];
-};
 // A new post made from a focus session goes to the TOP of the chosen section
 // (right after its marker in the folder's manualOrder), like any new post.
 // Returns the same array when the section marker is missing.
@@ -7059,6 +7091,38 @@ const bhPlaceInSection=(order,postId,sectionId)=>{
   return next;
 };
 // @bh-test-end sesstitle
+// @bh-test-begin postmerge
+// "08/10 - Back from the brink" -> "Back from the brink" (a leading day/month
+// [/year] and a dash, colon or en/em dash are dropped).
+const bhStripPostDate=title=>String(title||'').replace(/^\s*\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*[-–—:]\s*/,'').trim();
+// Several Gallery posts into one. `visualIds` is the order the cards are shown
+// in (top of the screen first). New posts land on top, so the LOWEST card is the
+// oldest: frames go bottom to top, oldest first, newest last. The post that
+// survives (`keepId`, else the highest card) gets every frame; the others are
+// returned in `removedIds`. Posts are plain objects with images/content/date.
+const bhMergePosts=(posts,visualIds,keepId,sep='\n\n')=>{
+  const list=(Array.isArray(posts)?posts:[]).filter(Boolean);
+  const pos=new Map((Array.isArray(visualIds)?visualIds:[]).map((id,i)=>[String(id),i]));
+  const at=p=>pos.has(String(p.id))?pos.get(String(p.id)):Infinity;
+  const ordered=[...list].sort((a,b)=>at(b)-at(a)||String(a.date||'').localeCompare(String(b.date||'')));
+  const keep=list.find(p=>String(p.id)===String(keepId))||[...list].sort((a,b)=>at(a)-at(b))[0]||null;
+  if(!keep)return null;
+  const images=ordered.flatMap(p=>Array.isArray(p.images)?p.images:[]);
+  const content=ordered.map(p=>String(p.content||'').trim()).filter(Boolean).join(sep);
+  const dates=ordered.map(p=>String(p.date||'').slice(0,10)).filter(Boolean).sort();
+  const sessionIds=[...new Set(ordered.flatMap(p=>[p.sourceSessionId,...(Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[])]).filter(Boolean).map(String))];
+  return{
+    keepId:String(keep.id),
+    removedIds:list.filter(p=>p!==keep).map(p=>String(p.id)),
+    images,content,
+    date:keep.date||dates[0]||'',
+    bannerImage:keep.bannerImage&&images.includes(keep.bannerImage)?keep.bannerImage:(images[0]||''),
+    sourceSessionIds:sessionIds,
+    sourceTargetKeys:[...new Set(ordered.flatMap(p=>[p.sourceTargetKey,...(Array.isArray(p.sourceTargetKeys)?p.sourceTargetKeys:[])]).filter(Boolean).map(String))],
+    defaultName:bhStripPostDate(keep.title)
+  };
+};
+// @bh-test-end postmerge
 const POMO_SECTION_LS='boardhub_pomo_section';
 const pomoSectionPicksLoad=()=>{try{const v=JSON.parse(localStorage.getItem(POMO_SECTION_LS)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch{return {};}};
 const pomoSectionPicksSave=v=>{try{localStorage.setItem(POMO_SECTION_LS,JSON.stringify(v));}catch(e){bhLog('pomo.section',e,'the section chosen for the timer is not remembered');}};
@@ -11512,7 +11576,7 @@ const DeckNav=({index,count,onPrev,onNext,caption})=>(
 );
 // Click on the left / right half of a viewer's picture: dir -1 / +1.
 const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
-const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,folders,setFolders,navTick,isMobile,projects})=>{
+const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,onPostsMerged,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -11971,26 +12035,30 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     const src=post.images.length>0?(post.bannerImage||post.images[0]):null;
     const dragProps=manual?{
       draggable:true,
-      onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;e.currentTarget.style.opacity='.45';},
-      onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;postDragEndRef.current=Date.now();clearGalleryDragMarks();},
+      onDragStart:e=>{e.stopPropagation();e.dataTransfer.effectAllowed='move';postDragRef.current=post.id;multiDragRef.current=selIds.size>=2&&selIds.has(String(post.id));e.currentTarget.style.opacity='.45';},
+      onDragEnd:e=>{e.currentTarget.style.opacity='1';postDragRef.current=null;multiDragRef.current=false;postDragEndRef.current=Date.now();clearGalleryDragMarks();},
       // The pointer decides: left half = before this card, right half = after it
       // (a bar on that edge shows where the post will land).
       onDragOver:e=>{
         if(postDragRef.current==null||String(postDragRef.current)===String(post.id))return;
         e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';
-        const side=cardDropSide(e),c=e.currentTarget.classList;
+        const c=e.currentTarget.classList;
+        // A ticked group dropped on a card merges into it: the whole card lights up.
+        if(multiDragRef.current){c.add('drag-over');return;}
+        const side=cardDropSide(e);
         c.toggle('drag-before',side==='before');c.toggle('drag-after',side==='after');
       },
-      onDragLeave:e=>e.currentTarget.classList.remove('drag-before','drag-after'),
+      onDragLeave:e=>e.currentTarget.classList.remove('drag-before','drag-after','drag-over'),
       onDrop:e=>{
         // A dragged SECTION falls through to the block under the card.
         if(postDragRef.current==null)return;
         e.preventDefault();e.stopPropagation();
         const side=cardDropSide(e);
-        e.currentTarget.classList.remove('drag-before','drag-after');
+        e.currentTarget.classList.remove('drag-before','drag-after','drag-over');
         const from=postDragRef.current;
-        if(String(from)!==String(post.id))reorderGalleryPosts(from,post.id,side);
-        postDragRef.current=null;postDragEndRef.current=Date.now();
+        if(multiDragRef.current){if(mergeable(post))startMerge([...selIds],post.id);}
+        else if(String(from)!==String(post.id))reorderGalleryPosts(from,post.id,side);
+        postDragRef.current=null;multiDragRef.current=false;postDragEndRef.current=Date.now();
       },
     }:(!trash&&folderSections.length?{
       draggable:true,
@@ -12001,10 +12069,18 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     return(
       <div key={post.id} className={`card${manual?' drag-item':''}`} {...dragProps}
         style={{overflow:'hidden',cursor:trash?'default':manual?'grab':'pointer',position:'relative'}}
-        onClick={()=>{if(trash)return;if(manual&&Date.now()-postDragEndRef.current<=180)return;setSelected(post);}}
+        onClick={e=>{
+          if(trash)return;
+          if(manual&&Date.now()-postDragEndRef.current<=180)return;
+          // Ctrl/Shift-click, or any click while some cards are ticked, ticks the card.
+          if(mergeable(post)&&(e.ctrlKey||e.metaKey||e.shiftKey||selIds.size>0)){e.preventDefault();toggleSel(post.id);return;}
+          setSelected(post);
+        }}
         onPointerEnter={()=>{if(!trash)warmSources(post.images,24);}}
         {...keyActivate(()=>setSelected(post),'Abrir post '+(post.title||''),!trash)}>
         {manual&&<div className="gallery-grip" title="Arraste para mover"><Icon name="grip-vertical" size={12}/></div>}
+        {!trash&&mergeable(post)&&<button type="button" className={'post-sel'+(selIds.has(String(post.id))?' on':'')} aria-pressed={selIds.has(String(post.id))} aria-label={(selIds.has(String(post.id))?'Desmarcar':'Marcar')+' post para juntar'} title="Marcar para juntar posts"
+          onClick={e=>{e.stopPropagation();toggleSel(post.id);}}><Icon name="check" size={12}/></button>}
         <div className="cover-wrap" style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
           {src==null
             ?<Icon name="image" size={28} style={{opacity:.2}}/>
@@ -12052,6 +12128,44 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   },[lightboxOpen,lightboxIsTop]);
 
 
+  // MERGE POSTS: tick several cards (or Ctrl/Shift-click), then "Juntar" or drag
+  // one of the ticked cards onto a post. The frames go bottom to top (the lowest
+  // card is the oldest), the date prefix is dropped from the title and the new
+  // name is asked first. The other posts go to the trash (recoverable).
+  const [selIds,setSelIds]=useState(()=>new Set());
+  const [mergeDraft,setMergeDraft]=useState(null); // {ids:[],keepId,name}
+  const multiDragRef=useRef(false);
+  const mergeable=p=>!!p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p);
+  const toggleSel=id=>setSelIds(prev=>{const next=new Set(prev),k=String(id);if(next.has(k))next.delete(k);else next.add(k);return next;});
+  useEffect(()=>{setSelIds(new Set());setMergeDraft(null);},[activeFolder,trash]);
+  const visualIds=useMemo(()=>{
+    if(sortMode==='manual'&&manualLayout)return manualLayout.flatMap(g=>g.posts.map(p=>String(p.id)));
+    if(grouped)return grouped.flatMap(([,ps])=>ps.map(p=>String(p.id)));
+    return shown.map(p=>String(p.id));
+  },[sortMode,manualLayout,grouped,shown]);
+  const startMerge=(ids,keepId)=>{
+    const live=new Set(galleryOnlyPosts.filter(mergeable).map(p=>String(p.id)));
+    const picked=[...new Set([...(ids||[]).map(String),...(keepId!=null?[String(keepId)]:[])])].filter(id=>live.has(id));
+    if(picked.length<2)return;
+    const preview=bhMergePosts(galleryOnlyPosts.filter(p=>picked.includes(String(p.id))),visualIds,keepId);
+    if(!preview)return;
+    setMergeDraft({ids:picked,keepId:preview.keepId,name:preview.defaultName});
+  };
+  const confirmMerge=()=>{
+    const d=mergeDraft;if(!d)return;
+    const r=bhMergePosts(galleryOnlyPosts.filter(p=>d.ids.includes(String(p.id))&&mergeable(p)),visualIds,d.keepId,BH_SESSION_SEP);
+    if(!r||!r.removedIds.length){setMergeDraft(null);return;}
+    const name=d.name.trim()||r.defaultName||'Sem título';
+    const removed=new Set(r.removedIds),stamp=new Date().toISOString();
+    setPosts(prev=>prev.map(p=>{
+      const id=String(p.id);
+      if(id===r.keepId)return{...p,title:name,images:r.images,content:r.content,date:r.date,bannerImage:r.bannerImage,...(r.sourceSessionIds.length?{sourceSessionIds:r.sourceSessionIds}:null),...(r.sourceTargetKeys.length?{sourceTargetKeys:r.sourceTargetKeys}:null)};
+      if(removed.has(id))return{...p,deleted:true,deletedAt:stamp,mergedInto:r.keepId};
+      return p;
+    }));
+    onPostsMerged?.({keepId:r.keepId,removedIds:r.removedIds});
+    setSelIds(new Set());setMergeDraft(null);
+  };
   // SECTION DECK: every image of a section's posts, from the one at the bottom of the section (oldest) to the top (newest), one at a
   // time like a slide deck (Speaker Deck): arrows together at the bottom, and a
   // click on the left / right half of the picture goes back / forward.
@@ -12218,6 +12332,24 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
 
   return(<>
     {deckPortal}
+    {!trash&&selIds.size>0&&<div className="merge-bar" role="region" aria-label="Posts marcados">
+      <span>{selIds.size} {selIds.size===1?'post marcado':'posts marcados'}</span>
+      <button type="button" className="btn btn-dark" disabled={selIds.size<2} onClick={()=>startMerge([...selIds],null)} title="Une as imagens dos posts marcados num só">Juntar</button>
+      <button type="button" className="btn btn-ghost" onClick={()=>setSelIds(new Set())}>Limpar</button>
+    </div>}
+    {mergeDraft&&<Modal title={'Juntar '+mergeDraft.ids.length+' posts'} onClose={()=>setMergeDraft(null)} width={460}>
+      <form onSubmit={e=>{e.preventDefault();confirmMerge();}} style={{display:'flex',flexDirection:'column',gap:12}}>
+        <label style={{display:'flex',flexDirection:'column',gap:6,fontSize:'.78rem',color:'var(--muted)'}}>Nome do post unido
+          <input autoFocus className="input-box" value={mergeDraft.name} maxLength={160} onChange={e=>setMergeDraft(d=>({...d,name:e.target.value}))}
+            onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} placeholder="Sem data, só o nome"/>
+        </label>
+        <div style={{fontSize:'.74rem',color:'var(--muted)',lineHeight:1.5}}>As imagens ficam do mais antigo (o post de baixo) ao mais novo (o de cima). Os outros posts vão para a lixeira e podem ser restaurados.</div>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+          <button type="button" className="btn btn-ghost" onClick={()=>setMergeDraft(null)}>Cancelar</button>
+          <button type="submit" className="btn btn-dark" disabled={!mergeDraft.name.trim()}>Juntar posts</button>
+        </div>
+      </form>
+    </Modal>}
     <div ref={galleryBrowseRef} className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',display:'flex',flexDirection:'column',overflowY:isMobile?'visible':'auto',paddingBottom:isMobile?0:24}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{flex:1,minWidth:0}}><h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="e15"/>Galeria</h1>
@@ -16730,10 +16862,11 @@ const App=()=>{
       if(moved.length)setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===linkId?{...p,images:(p.images||[]).filter(s=>!moved.includes(s))}:p));
       setPomoData(prev=>{
         const base0=pomoNormalize(prev);
-        const base=session.retargetFrom?pomoRetargetSession(base0,session.retargetFrom,session.targetKey,pomoSessionParts(session,session.retargetFrom)):base0;
+        const mv=pomoRetargetPlan(base0,session);
+        const base=mv?pomoRetargetSession(base0,mv.from,mv.to,mv.parts):base0;
         const rank=rankNormalize(base.rank);
         const status=session.storageStatus==='local'?'saved-local':'saved';
-        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(session.retargetFrom?{targetKey:session.targetKey,targetLabel:session.targetLabel}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:filedPostId,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
+        const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(mv?{targetKey:session.targetKey,targetLabel:session.targetLabel,retarget:mv}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:note.title,status,images:[],imageCount:images.length,postDestination:'task',taskId,taskNoteId:noteId,taskProjectId:projectId,galleryPostId:filedPostId,projectPostId:null,galleryFolderId:null,gallerySaveMode:null,note:session.note||'',storageStatus:session.storageStatus||'cloud'}:s);
         return{...base,rank:{...rank,sessions}};
       });
       return;
@@ -16800,10 +16933,11 @@ const App=()=>{
     setPomoData(prev=>{
       const base0=pomoNormalize(prev);
       // Registered under another category than it ran on: its time follows.
-      const base=session.retargetFrom?pomoRetargetSession(base0,session.retargetFrom,session.targetKey,pomoSessionParts(session,session.retargetFrom)):base0;
+      const mv=pomoRetargetPlan(base0,session);
+      const base=mv?pomoRetargetSession(base0,mv.from,mv.to,mv.parts):base0;
       const rank=rankNormalize(base.rank);
       const status=session.storageStatus==='local'?'saved-local':'saved';
-      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(session.retargetFrom?{targetKey:session.targetKey,targetLabel:session.targetLabel}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:session.title||existing?.title||bhSessionPostTitle(session.date||localDateISO(),target),status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
+      const sessions=(rank.sessions||[]).map(s=>String(s.id)===String(session.id)?{...s,...(mv?{targetKey:session.targetKey,targetLabel:session.targetLabel,retarget:mv}:null),sectionId:session.sectionId||null,sectionLabel:session.sectionLabel||'',title:session.title||existing?.title||bhSessionPostTitle(session.date||localDateISO(),target),status,images:[],imageCount:(session.images||[]).length,galleryPostId:destination==='gallery'?postId:null,projectPostId:destination==='project'?postId:null,postDestination:destination,galleryFolderId:folderId,gallerySaveMode:wantsAppend?'append':'new',note:session.note||'',storageStatus:session.storageStatus||'cloud',taskId}:s);
       return{...base,rank:{...rank,sessions}};
     });
   },[galleryPosts,projects,taskPostLinks]);
@@ -17672,6 +17806,25 @@ const App=()=>{
       return{...p,galleryFolder:to,...(hitSection?{gallerySection:newId}:{})};
     }));
   },[]);
+  // Gallery posts merged into one: sessions and projects that pointed at a
+  // removed post now point at the surviving one.
+  const handlePostsMerged=useCallback(({keepId,removedIds})=>{
+    const gone=new Set((removedIds||[]).map(String));
+    if(!gone.size)return;
+    setPomoData(prev=>{
+      const base=pomoNormalize(prev),rank=rankNormalize(base.rank);
+      let changed=false;
+      const sessions=(rank.sessions||[]).map(row=>{
+        if(!row)return row;
+        const g=row.galleryPostId!=null&&gone.has(String(row.galleryPostId)),pp=row.projectPostId!=null&&gone.has(String(row.projectPostId));
+        if(!g&&!pp)return row;
+        changed=true;
+        return{...row,...(g?{galleryPostId:keepId}:null),...(pp?{projectPostId:keepId}:null)};
+      });
+      return changed?{...base,rank:{...rank,sessions}}:prev;
+    });
+    setProjects(prev=>prev.map(p=>p&&p.galleryPost!=null&&gone.has(String(p.galleryPost))?{...p,galleryPost:keepId}:p));
+  },[]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
   const handleOpenSessionPost=useCallback((session,post)=>{
     // A project session saved as a task note opens that note on the project page.
@@ -17944,7 +18097,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
