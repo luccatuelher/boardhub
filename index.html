@@ -7225,7 +7225,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   });
   const [newTaskName,setNewTaskName]=useState('');
   // The chosen task's Gallery post, if it has one; if not, the posts of the
-  // project's Gallery folder that no task feeds yet, to link one on the spot.
+  // project's Gallery folder that no task is linked to yet, to link one on the spot.
   const chosenMini=taskChoice&&taskChoice!=='__new__'?(taskProject?.miniProjects||[]).find(m=>m&&String(m.id)===taskChoice)||null:null;
   const linkedPost=chosenMini?.galleryPostId!=null?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(chosenMini.galleryPostId))||null:null;
   const projectFolder=asTask&&taskProject?.galleryFolder?liveFolders.find(f=>String(f.id)===String(taskProject.galleryFolder))||null:null;
@@ -9476,7 +9476,7 @@ const bhDuplicateProject=p0=>{
     // fromNote (a task raised from a note) stays with the original: a copy would list twice on the note.
     projectTasks:sourceTasks.map(({fromNote,...t})=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
-    // content, and a Gallery post is fed by one task only: neither is copied.
+    // content, and a Gallery post is linked to one task only: neither is copied.
     miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
 };
 // @bh-test-end dup
@@ -9823,16 +9823,16 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const scrollRef=useRef(null);
   const [setScrollNode,viewW]=useTlWidth();
   const scrollSetter=useCallback(node=>{scrollRef.current=node;setScrollNode(node);},[setScrollNode]);
-  // The new task is appended at the END, and the collapsed timeline shows 4 rows: with more tasks
-  // the Enter/Adicionar looked like it did nothing (the row sat below the fold, scrollTop 0).
-  // Scrolls the timeline's own area to its end once the row is in the list (a no-op expanded).
+  // The new task is added at the TOP, and the collapsed timeline shows 4 rows: scrolled down,
+  // the Enter/Adicionar looked like it did nothing (the row sat above the fold).
+  // Scrolls the timeline's own area back to its top once the row is in the list (a no-op expanded).
   const [justAdded,setJustAdded]=useState(null);
   useEffect(()=>{
     if(justAdded==null)return;
     if(!tasks.some(t=>String(t.id)===String(justAdded)))return;
     setJustAdded(null);
     const el=scrollRef.current;
-    if(el&&el.scrollHeight>el.clientHeight)el.scrollTo({top:el.scrollHeight,behavior:bhScrollBehavior()});
+    if(el&&el.scrollTop>0)el.scrollTo({top:0,behavior:bhScrollBehavior()});
   },[justAdded,tasks]);
   const dragJustMovedRef=useRef(false);
   const dragRowRef=useRef(null);
@@ -11201,7 +11201,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   /* The task's Gallery post: linked, or the ways to link one. */
                   const post=linkedPostOf(activeMini);
                   if(activeMini.galleryPostId!=null&&activeMini.galleryPostId!==''){
-                    const live=post&&!post.deleted,shown=live?post.images.length:0;
+                    const live=post&&!post.deleted,shown=live?(post.images||[]).length:0;
                     const folder=live?(galleryFolders||[]).find(f=>f&&String(f.id)===String(post.folder)):null;
                     return <div className="task-gallery-box">
                       <div className="task-gallery-box-row"><Icon name="images" size={13} style={{flexShrink:0}}/>
@@ -11275,7 +11275,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       <Icon name="trash-2" size={16}/>
                     </button>
                   </div>
-                  {sum&&<div className="task-focus-line"><Icon name="timer" size={13}/>{sum.count>1?sum.count+' sessões de foco':'Sessão de foco'} · <strong>{pomoFmtSecs(sum.secs)}</strong>{noteDateLabel(note)?' · '+noteDateLabel(note):''}</div>}
+                  {sum&&<div className="task-focus-line"><Icon name="timer" size={13}/>{sum.count>1?sum.count+' sessões de foco':'Sessão de foco'} · <strong>{pomoFmtSecs(sum.secs)}</strong></div>}
                   <div className="task-gallery-box">
                     <div className="task-gallery-box-row"><Icon name="folder" size={13} style={{flexShrink:0}}/><span>Tarefa</span>
                       <select value={String(activeMini.id)} onChange={e=>moveNoteToTask(note.id,activeMini.id,e.target.value)} aria-label="Tarefa desta nota">
@@ -11486,7 +11486,7 @@ const useFileDrop=(onFiles,enabled=true)=>{
   const props=enabled?{
     onDragOver:e=>{if(!bhIsFileDrag(e))return;e.preventDefault();e.dataTransfer.dropEffect='copy';if(!over)setOver(true);},
     onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))setOver(false);},
-    onDrop:e=>{if(!bhIsFileDrag(e))return;e.preventDefault();setOver(false);onFiles(Array.from(e.dataTransfer.files||[]));},
+    onDrop:e=>{if(!bhIsFileDrag(e))return;setOver(false);if(e.defaultPrevented)return;e.preventDefault();onFiles(Array.from(e.dataTransfer.files||[]));},
   }:{};
   return {over:enabled&&over,props};
 };
@@ -17043,12 +17043,12 @@ const App=()=>{
       // A category session keeps its category as target, so the time it took
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the
-      // post its task feeds.
+      // post its task is linked to.
       const filedPostId=session.targetType==='project'?null:(linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
       setProjects(prev=>prev.map(p=>{
         if(!p||String(p.id)!==projectId)return p;
         let projectTasks=p.projectTasks||[];const miniProjects=[...(p.miniProjects||[])];
-        if(task){projectTasks=[...projectTasks,task];miniProjects.push(projectTaskToMini(task));}
+        if(task){projectTasks=[task,...projectTasks];miniProjects.unshift(projectTaskToMini(task));}
         let at=miniProjects.findIndex(m=>m&&String(m.id)===taskId);
         if(at<0){const t=projectTasks.find(t=>t&&String(t.id)===taskId);if(!t)return p;miniProjects.push(projectTaskToMini(t));at=miniProjects.length-1;}
         const m=miniProjects[at],link=linkId&&(m.galleryPostId==null||m.galleryPostId==='');
@@ -17970,7 +17970,7 @@ const App=()=>{
     rememberCurrentScroll();rememberProjectsMode('list',null);setView('projects');
     if(window.location.hash!=='#projects')window.history.pushState(null,'','#projects');
   },[rememberCurrentScroll,rememberProjectsMode]);
-  // From a linked Gallery post: the task that feeds it.
+  // From a linked Gallery post: the task it is linked to.
   // Opens a project on a tab and, there, a task, a task note or a research
   // entry (from a session, a linked Gallery post, the command palette). The
   // UI key serves a project page that mounts; `projectFocus` reaches one
