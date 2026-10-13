@@ -731,11 +731,8 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .session-capture-modal textarea{width:100%;min-height:66px;margin-top:12px;padding:10px 12px;box-sizing:border-box;resize:vertical;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:400 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-capture-modal textarea:focus{border-color:var(--text)}
 .session-post-destination{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.session-post-field{display:flex;flex-direction:column;gap:5px;min-width:0}.session-post-field>span{font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.session-post-field select,.session-post-field input{width:100%;box-sizing:border-box;min-width:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font:500 .82rem 'Alegreya Sans',sans-serif;outline:none}.session-post-field select:focus,.session-post-field input:focus{border-color:var(--text)}
 .session-post-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;margin-top:12px;border:1px solid var(--border);border-radius:11px;background:var(--bg)}.session-post-mode button{min-height:36px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:600 .78rem 'Alegreya Sans',sans-serif;cursor:pointer}.session-post-mode button.active{background:var(--surface);color:var(--text);box-shadow:0 1px 5px rgba(0,0,0,.09)}
-.session-gallery-line{margin:0 0 12px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--bg)}.session-gallery-line .bh-switch-row{display:flex;width:100%;justify-content:space-between;gap:10px;font-size:.8rem;color:var(--text);text-align:left}.session-gallery-line .bh-switch-row>span:first-child{display:flex;align-items:center;gap:6px;min-width:0}
 .task-gallery-box{display:flex;flex-direction:column;gap:8px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font-size:.78rem;color:var(--muted)}.task-gallery-box-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}.task-gallery-box-row strong{color:var(--text);font-weight:600}.task-gallery-box select{flex:1;min-width:160px;max-width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:500 .78rem 'Alegreya Sans',sans-serif;outline:none}.task-gallery-box .btn{padding:4px 9px;font-size:.72rem}
 .task-sessions{display:flex;flex-direction:column;gap:6px;margin:0 0 16px}.task-sessions>span{font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.task-session-row{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;background:var(--bg);min-width:0}.task-session-open{display:flex;align-items:center;gap:9px;flex:1;min-width:0;padding:0;border:0;background:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}.task-session-open>span{display:flex;flex-direction:column;gap:1px;min-width:0}.task-session-open strong{font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-session-open small{font-size:.68rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-session-thumb{width:44px;height:30px;flex-shrink:0;border-radius:5px;overflow:hidden;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--muted)}.task-session-thumb img,.task-session-thumb video{width:100%;height:100%;object-fit:cover;display:block}.task-session-row>.btn{padding:4px;flex-shrink:0}
-.task-note-eye{display:flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}.task-note-eye.off{opacity:.6}.task-note-eye:hover{color:var(--text);background:var(--surface)}
-.img-gallery-toggle{position:absolute;bottom:5px;left:5px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:50%;background:rgba(20,18,16,.72);color:white;cursor:pointer;z-index:2}.img-gallery-toggle.off{background:var(--danger-strong)}.img-hidden-mark{position:absolute;inset:0;background:rgba(0,0,0,.5);pointer-events:none}
 .gallery-linked-note{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 20px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font-size:.78rem;color:var(--muted)}.gallery-linked-note strong{color:var(--text);font-weight:600}
 .task-focus-line{display:flex;align-items:center;gap:6px;margin:-4px 0 12px;font-size:.78rem;color:var(--muted)}.task-focus-line strong{color:var(--text);font-weight:600}
 .task-trash-list{display:flex;flex-direction:column;gap:7px;overflow:auto;min-height:0}.task-trash-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}.task-trash-row>div{display:flex;flex-direction:column;min-width:0;flex:1}.task-trash-row strong{font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-trash-row span{font-size:.66rem;color:var(--muted)}
@@ -1352,18 +1349,26 @@ const normalizeFocusPostCopy=post=>{
     .replace(/\n{3,}/g,'\n\n').trim();
   return content===before?post:{...post,content};
 };
+// @bh-test-begin tasklinks
+// The media a rich-text field shows inline, in order.
+const bhHtmlMediaSrcs=html=>{
+  const out=[],re=/<(?:img|video)\b[^>]*?\ssrc\s*=\s*["']([^"']+)["']/gi;
+  let m;const t=String(html||'');
+  while((m=re.exec(t)))out.push(m[1].replace(/&amp;/g,'&'));
+  return out;
+};
 // - PROJECT TASKS AND GALLERY POSTS -
 // A project's focus sessions are notes under the project's tasks, one note per
 // session (innerNote.sessionIds). A task can be linked to one post of the
-// Gallery (miniProject.galleryPostId). The post then keeps only the link: its
-// images are READ from the task (the task's frames, then every note not
-// hidden from the Gallery, in task order) and never copied, so a file sits in
-// one list. Two post fields shape how they show there: `imageOrder`, a custom
-// order set from the Gallery (images missing from it follow in task order),
-// and `hiddenImages`, hidden from the post only. Images still in the post's
-// own `images` (an older build, a write that was not routed) are shown after
-// the task's, so nothing becomes invisible.
+// Gallery (miniProject.galleryPostId). The link is for TIME only: work logged
+// on the task counts for the post's category/section and the post carries
+// `linkedTask` (a badge and a way to open the task). It shares NO images: a
+// post shows only its own `images`, a task only its own frames and notes
+// (2026-10-13; before that a linked post read its images from the task).
 const bhUniqStrings=list=>{const seen=new Set();return (Array.isArray(list)?list:[]).filter(x=>typeof x==='string'&&x!==''&&!seen.has(x)&&!!seen.add(x));};
+// Everything a task note shows: the images stored beside the text (session
+// captures) and the ones sitting inside the text (pasted into the editor).
+const bhNoteMedia=note=>bhUniqStrings([...(Array.isArray(note?.images)?note.images:[]),...bhHtmlMediaSrcs(note?.content)]);
 // Rich-text fields (task notes, the project's notes, research notes) hold
 // HTML since they use the Anotações editor. Older values are plain text:
 // shown as-is, line breaks kept.
@@ -1373,29 +1378,16 @@ const bhTextToHTML=value=>{
   if(/<\/?(p|div|br|img|video|h[1-6]|ul|ol|li|blockquote|b|i|u|s|strong|em|span|strike)\b/i.test(t))return t;
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 };
-// The media a rich-text field shows inline, in order.
-const bhHtmlMediaSrcs=html=>{
-  const out=[],re=/<(?:img|video)\b[^>]*?\ssrc\s*=\s*["']([^"']+)["']/gi;
-  let m;const t=String(html||'');
-  while((m=re.exec(t)))out.push(m[1].replace(/&amp;/g,'&'));
-  return out;
-};
-const bhTaskGalleryImages=mini=>bhUniqStrings([
-  ...(Array.isArray(mini?.frames)?mini.frames:[]),
-  // Images pasted into the task's own notes (they sit in the text now).
-  ...bhHtmlMediaSrcs(mini?.notes),
-  ...(Array.isArray(mini?.innerNotes)?mini.innerNotes:[]).filter(n=>n&&!n.hideInGallery).flatMap(n=>Array.isArray(n.images)?n.images:[]),
-]);
-// postId -> the task that feeds it. A live task wins over one in the task
-// trash, which still feeds its post (so restoring it changes nothing), and a
-// project in the trash still feeds its posts until it is purged.
+// postId -> the task linked to it. A live task wins over one in the task
+// trash, which stays linked (so restoring it changes nothing), and a project
+// in the trash stays linked until it is purged.
 const bhTaskPostLinks=projects=>{
   const links=new Map();
   const add=(project,mini,archived)=>{
     if(!mini||mini.galleryPostId==null||String(mini.galleryPostId)==='')return;
     const key=String(mini.galleryPostId),prev=links.get(key);
     if(prev&&(!prev.archived||archived))return;
-    links.set(key,{projectId:String(project.id),taskId:String(mini.id),taskTitle:mini.title||'Sem título',projectTitle:project.title||'Projeto',images:bhTaskGalleryImages(mini),archived,projectDeleted:!!project.deleted});
+    links.set(key,{projectId:String(project.id),taskId:String(mini.id),taskTitle:mini.title||'Sem título',projectTitle:project.title||'Projeto',archived,projectDeleted:!!project.deleted});
   };
   (Array.isArray(projects)?projects:[]).forEach(p=>{
     if(!p||typeof p!=='object')return;
@@ -1404,24 +1396,10 @@ const bhTaskPostLinks=projects=>{
   });
   return links;
 };
-const bhLinkedPostImages=(post,link)=>{
-  const all=bhUniqStrings([...(link?link.images:[]),...(Array.isArray(post?.images)?post.images:[])]);
-  const order=Array.isArray(post?.imageOrder)?post.imageOrder:[];
-  const rank=new Map(order.map((src,i)=>[src,i]));
-  const sorted=rank.size?[...all.filter(s=>rank.has(s)).sort((a,b)=>rank.get(a)-rank.get(b)),...all.filter(s=>!rank.has(s))]:all;
-  const hidden=new Set(Array.isArray(post?.hiddenImages)?post.hiddenImages:[]);
-  return{all:sorted,visible:sorted.filter(s=>!hidden.has(s))};
-};
-// What every view reads for a linked post: the resolved images plus who feeds it.
-const bhLinkedPostView=(post,link)=>({...post,images:bhLinkedPostImages(post,link).visible,
+// What every view reads for a linked post: the post itself plus which task it is linked to.
+const bhLinkedPostView=(post,link)=>({...post,
   linkedTask:{projectId:link.projectId,taskId:link.taskId,taskTitle:link.taskTitle,projectTitle:link.projectTitle,archived:link.archived}});
-// Unlinking (or purging the task) hands the post a copy of what it showed, so
-// it keeps its content as an ordinary post.
-const bhMaterializeLinkedPost=(post,link)=>{
-  const {visible}=bhLinkedPostImages(post,link);
-  const {imageOrder,hiddenImages,...rest}=post;
-  return{...rest,images:visible,bannerImage:visible.includes(post.bannerImage)?post.bannerImage:(visible.find(s=>!isVideoSrc(s))||'')};
-};
+// @bh-test-end tasklinks
 // Where a task note is now (it may have been moved to another task): live
 // projects only.
 const bhFindTaskNote=(projects,noteId)=>{
@@ -7045,7 +7023,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
           <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&decayShown(group.key)>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{decayShown(group.key).toLocaleString('pt-BR')} pts</span>}</div>
           {group.rows.length===0&&<div className="rank-session-decay-empty">Nenhuma sessão neste dia.</div>}
-          {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?(Array.isArray(taskNote.note.images)?taskNote.note.images:[]):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
+          {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?bhNoteMedia(taskNote.note):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
             <div className="rank-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={opens?'image':'minus'} size={14} style={{opacity:.28}}/>}</div>
             <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{[row.targetLabel||'Sem categoria',row.sectionLabel].filter(Boolean).join(' › ')} · {pomoFmtSecs(row.durationSeconds||0)} de foco{taskNote&&<> · {taskNote.mini.title||'Tarefa'}</>}{showPoints&&<> · +{Number(row.pointsAwarded||0)} pts</>}</span></div>
@@ -7252,7 +7230,6 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const linkedPost=chosenMini?.galleryPostId!=null?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(chosenMini.galleryPostId))||null:null;
   const projectFolder=asTask&&taskProject?.galleryFolder?liveFolders.find(f=>String(f.id)===String(taskProject.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>projectFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(projectFolder.id)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,projectFolder]);
-  const [showInGallery,setShowInGallery]=useState(true);
   const [galleryLink,setGalleryLink]=useState('');
   // A session filed under a task is titled like the Gallery posts: the day, then
   // the task's name ("10/10 - Roteiro"); it follows the task chosen below. With no
@@ -7277,7 +7254,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
     const last=p&&lastTaskByProject?lastTaskByProject.get(String(p.id)):null;
     const tasks=p?(p.projectTasks||[]):[];
     setTaskChoice(p?(last!=null&&tasks.some(t=>t&&String(t.id)===String(last))?String(last):(tasks.some(t=>t&&t.id!=null)?'':'__new__')):'');
-    setNewTaskName('');setGalleryLink('');setShowInGallery(true);setError('');
+    setNewTaskName('');setGalleryLink('');setError('');
   };
   // The default title follows the mode, the category and the section; a title
   // the user typed is left alone (only a title equal to the previous default moves).
@@ -7358,7 +7335,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       const localOnly=images.some(src=>String(src||'').startsWith('idb://'));
       if(asTask)await onSave({...session,...routing,title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,
         taskId:taskChoice!=='__new__'?taskChoice:null,newTaskName:taskChoice==='__new__'?newTaskName.trim():'',
-        hideInGallery:!!linkedPost&&!showInGallery,galleryLink:linkedPost?'':galleryLink,
+        galleryLink:linkedPost?'':galleryLink,
         // A category session filed into a linked project's task: which project.
         ...(isProjectSession?{}:{linkProjectId:String(taskProject.id)})});
       else await onSave({...session,...routing,title:saveMode==='append'?existingPost.title:title.trim(),images,note:note.trim(),storageStatus:localOnly?'local':'cloud',destination,saveMode,folderId,existingPostId:saveMode==='append'?existingPost.id:null});
@@ -7400,7 +7377,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       </>}
       {asTask&&<div className="session-post-destination">
         <label className="session-post-field"><span>Tarefa</span>
-          <select value={taskChoice} onChange={e=>{setTaskChoice(e.target.value);setGalleryLink('');setShowInGallery(true);setError('');}} disabled={saving} aria-label="Tarefa do projeto trabalhada na sessão">
+          <select value={taskChoice} onChange={e=>{setTaskChoice(e.target.value);setGalleryLink('');setError('');}} disabled={saving} aria-label="Tarefa do projeto trabalhada na sessão">
             {taskChoice===''&&<option value="" disabled>Escolha a tarefa…</option>}
             {taskOptions.open.map(t=><option key={t.id} value={String(t.id)}>{t.text||'Sem título'}</option>)}
             {taskOptions.done.length>0&&<optgroup label="Concluídas">{taskOptions.done.map(t=><option key={t.id} value={String(t.id)}>{t.text||'Sem título'}</option>)}</optgroup>}
@@ -7410,11 +7387,6 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         {taskChoice==='__new__'&&<label className="session-post-field"><span>Nome da nova tarefa</span><input value={newTaskName} onChange={e=>setNewTaskName(e.target.value)} maxLength={120} autoFocus disabled={saving} placeholder="Ex: Storyboard da cena 3"/></label>}
       </div>}
       {asTask&&<label className="session-title-field"><span>Título da sessão</span><input value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} disabled={saving}/></label>}
-      {asTask&&linkedPost&&<div className="session-gallery-line">
-        <BhSwitch checked={showInGallery} onChange={setShowInGallery} label={'Mostrar no post da Galeria: '+(linkedPost.title||'Sem título')}>
-          <span><Icon name="images" size={13}/>Mostrar no post <strong>{linkedPost.title||'Sem título'}</strong> da Galeria</span>
-        </BhSwitch>
-      </div>}
       {asTask&&!linkedPost&&projectFolder&&taskChoice!==''&&<div className="session-post-destination" style={{gridTemplateColumns:'1fr'}}>
         <label className="session-post-field"><span>Galeria</span>
           <select value={galleryLink} onChange={e=>setGalleryLink(e.target.value)} disabled={saving} aria-label="Publicar a tarefa na Galeria">
@@ -7433,7 +7405,7 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
       <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Uma nota rápida sobre a sessão (opcional)" disabled={saving}/>
       {progress&&<div className="session-upload-progress"><span>{progress.compact!=null&&progress.compact<100?'Compactando vídeo… '+progress.compact+'%':'Salvando mídias…'}</span><b>{Math.floor(progress.done)}/{progress.total}</b><i><em style={{width:(progress.done/progress.total*100)+'%'}}/></i></div>}
       {error&&<div className="session-capture-error" role="alert">{error}</div>}
-      <div className="session-capture-actions"><span>{asTask?(linkedPost?(showInGallery?'A sessão vira uma nota na tarefa e aparece no post da Galeria.':'A sessão vira uma nota na tarefa, fora do post da Galeria.'):galleryLink?'A sessão vira uma nota na tarefa, e a tarefa passa a alimentar um post da Galeria.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}{requireRegister&&!saveFailed?' Registro obrigatório (Sincronizar).':''}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{(!requireRegister||saveFailed)&&<button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button>}<button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
+      <div className="session-capture-actions"><span>{asTask?(linkedPost?'A sessão vira uma nota na tarefa. As imagens ficam na tarefa, não no post da Galeria.':galleryLink?'A sessão vira uma nota na tarefa, e a tarefa fica ligada a um post da Galeria só pelo tempo.':'A sessão vira uma nota dentro da tarefa.'):'O registro ficará somente na categoria escolhida da Galeria.'}{requireRegister&&!saveFailed?' Registro obrigatório (Sincronizar).':''}</span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{(!requireRegister||saveFailed)&&<button className="btn btn-outline" onClick={()=>onDefer?.(session)} disabled={saving} title="A sessão fica no histórico sem registro; clique nela depois para registrar">Não registrar</button>}<button className="btn btn-dark" onClick={save} disabled={saving||(!files.length&&!note.trim())||(asTask?(!taskChoice||(taskChoice==='__new__'&&!newTaskName.trim())||!title.trim()):(!folderId||(saveMode==='new'?!title.trim():!existingPost)))}>{saving?'Salvando…':asTask?'Salvar na tarefa':saveMode==='append'?(files.length?'Adicionar imagens':'Adicionar ao post'):'Criar post na Galeria'} <Icon name="arrow-right" size={13}/></button></div></div>
     </div>
   </div>,document.body);
 };
@@ -9066,9 +9038,13 @@ const useTlWidth=()=>{
 // Today's column lands in the middle of the CALENDAR you can see, i.e. of the
 // width right of the sticky names column (which covers the first LEFT_W px).
 const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W/2+todayX+DAY_W/2-el.clientWidth/2);
+// The "Hoje" button makes the very assignment the timelines make when they
+// open. It used to animate (scrollTo smooth), and an animated scroll stops
+// wherever it is when the user's own scrolling (trackpad momentum, wheel)
+// takes over, so it could end off-centre; this assignment cannot be cut short.
 const tlCenterToday=(el,todayX,DAY_W,LEFT_W)=>{
   if(!el)return;
-  el.scrollTo({left:tlTodayLeft(el,todayX,DAY_W,LEFT_W),behavior:bhScrollBehavior()});
+  el.scrollLeft=tlTodayLeft(el,todayX,DAY_W,LEFT_W);
 };
 // Header strip shared by both timelines: sticky month bands over one cell per
 // day (weekday initial + number, hairline between days, today in red).
@@ -9559,11 +9535,6 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
       return;
     }
     if(await bhConfirm({message:'Excluir permanentemente? Esta ação não pode ser desfeita.',danger:true,confirmLabel:'Excluir'})){
-      // Gallery posts fed by this project's tasks keep a copy of what they
-      // showed, as ordinary posts, before the tasks go.
-      const project=projects.find(x=>x.id===id);
-      const links=[...bhTaskPostLinks(project?[project]:[]).entries()];
-      if(links.length&&setGalleryPosts)setGalleryPosts(prev=>prev.map(post=>{const hit=post&&links.find(([pid])=>pid===String(post.id));return hit?bhMaterializeLinkedPost(post,hit[1]):post;}));
       setProjects(p=>p.filter(x=>x.id!==id));
     }
   };
@@ -9950,7 +9921,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
     const s=thisWeek?today:(projectStart||today);
     const e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
     const newTask={id,text:newTaskName.trim(),status:'Pendente',startDate:s,dueDate:e,notes:''};
-    onUpdateTasks(ts=>[...ts,newTask]);
+    onUpdateTasks(ts=>[newTask,...ts]);
     if(onSyncAdd)onSyncAdd(newTask);
     setNewTaskName('');
     setJustAdded(id);
@@ -10146,7 +10117,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onLinkedPostImages,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -10228,8 +10199,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     setGalleryPopupUploading(true);
     try{
       const urls=await uploadImages(files,undefined,(i,pct)=>setGalleryPopupCompact(pct));
-      // A post fed by a task: the files go to the task, which the post shows.
-      if(galleryPopup?.linkedTask){onLinkedPostImages?.(postId,{type:'add',urls});return;}
       setGalleryPosts(prev=>(prev||[]).map(post=>{
         if(String(post.id)!==postId)return post;
         const images=[...(post.images||[]),...urls];
@@ -10238,13 +10207,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     }catch(err){bhLog('project.focusPost.upload',err);await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));}
     finally{setGalleryPopupUploading(false);setGalleryPopupCompact(null);}
   };
-  // A post fed by a task has its own order and hides (never deletes) an image.
-  const moveGalleryPopupImage=(from,to)=>galleryPopup?.linkedTask
-    ?onLinkedPostImages?.(galleryPopup.id,{type:'order',order:bhMoveItem(galleryPopup.images,from,to)})
-    :mapPopupPost(post=>({...post,images:bhMoveItem(post.images,from,to)}));
-  const removeGalleryPopupImage=index=>galleryPopup?.linkedTask
-    ?(galleryPopup.images[index]!=null&&onLinkedPostImages?.(galleryPopup.id,{type:'hide',src:galleryPopup.images[index]}))
-    :mapPopupPost(post=>{
+  const moveGalleryPopupImage=(from,to)=>mapPopupPost(post=>({...post,images:bhMoveItem(post.images,from,to)}));
+  const removeGalleryPopupImage=index=>mapPopupPost(post=>{
     const images=[...(Array.isArray(post.images)?post.images:[])];const[removed]=images.splice(index,1);
     return{...post,images,...(post.bannerImage===removed?{bannerImage:images[0]||''}:{})};
   });
@@ -10391,7 +10355,19 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(i<0||rn[i].content===html)return prev;
     return{...prev,researchNotes:rn.map((n,k)=>k===i?{...n,content:html}:n)};
   }),[]);
-  const overviewEditorApi=useRef(null),taskEditorApi=useRef(null),researchEditorApi=useRef(null);
+  // A task note is found by id in any task: moving it to another task while an
+  // edit is pending must not write to the old one.
+  const saveInnerNoteContent=useCallback((html,noteId)=>editRef.current(prev=>{
+    let hit=false;
+    const ms=(prev.miniProjects||[]).map(m=>{
+      const ns=m.innerNotes||[],i=ns.findIndex(n=>n&&String(n.id)===String(noteId));
+      if(i<0||ns[i].content===html)return m;
+      hit=true;
+      return{...m,innerNotes:ns.map((n,k)=>k===i?{...n,content:html}:n)};
+    });
+    return hit?{...prev,miniProjects:ms}:prev;
+  }),[]);
+  const overviewEditorApi=useRef(null),taskEditorApi=useRef(null),researchEditorApi=useRef(null),innerNoteEditorApi=useRef(null);
   // While the app is leaving the page (bhFlushPendingEdits) the parent has to
   // get the edit inside that same synchronous commit, not from the passive effect below.
   React.useLayoutEffect(()=>{
@@ -10483,7 +10459,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const id=bhNewId();
     const n={id,title:'Nova Tarefa',status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};
     const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:local.startDate||todayISO(),dueDate:local.deadline||addDays(todayISO(),7),notes:''};
-    edit(prev=>({...prev,miniProjects:[...(prev.miniProjects||[]),n],projectTasks:[...(prev.projectTasks||[]),pt]}));
+    edit(prev=>({...prev,miniProjects:[n,...(prev.miniProjects||[])],projectTasks:[pt,...(prev.projectTasks||[])]}));
     setActiveMiniId(id);
   };
   // Task helpers name the task (and note) they act on and apply to `prev`.
@@ -10540,15 +10516,12 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const purgeTask=async entry=>{
     if(!entry)return;
     if(!await bhConfirm({message:'Excluir esta tarefa permanentemente? Esta ação não pode ser desfeita.',danger:true,confirmLabel:'Excluir'}))return;
-    // A Gallery post this task fed keeps a copy of what it showed.
-    const postId=entry.mini?.galleryPostId;
-    if(postId!=null&&postId!=='')setGalleryPosts(prev=>(prev||[]).map(p=>p&&String(p.id)===String(postId)?bhMaterializeLinkedPost(p,{images:bhTaskGalleryImages(entry.mini)}):p));
     edit(prev=>({...prev,taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)}));
   };
   // - Task and Gallery post -
-  // A task can feed one post of the project's Gallery folder (see
-  // bhTaskPostLinks). galleryPosts here is App's resolved list, so a linked
-  // post already carries `linkedTask` and the images it shows.
+  // A task can be linked to one post of the project's Gallery folder (see
+  // bhTaskPostLinks), for time only. galleryPosts here is App's resolved list,
+  // so a linked post already carries `linkedTask`.
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
   const projectGalleryFolder=local.galleryFolder?(galleryFolders||[]).find(f=>f&&String(f.id)===String(local.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder]);
@@ -10559,31 +10532,19 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     setGalleryPosts(prev=>[post,...(prev||[])]);
     mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:post.id});
   };
-  // An existing post's own images move into the task's frames: from then on
-  // the task holds everything the post shows.
+  // Linking shares time, never images: the post and the task keep their own.
   const linkTaskToPost=(miniId,postId)=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     const post=(galleryPosts||[]).find(p=>p&&String(p.id)===String(postId));
     if(!mini||!post||post.linkedTask||(mini.galleryPostId!=null&&mini.galleryPostId!==''))return;
-    const moved=bhUniqStrings(post.images);
-    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id),frames:bhUniqStrings([...(m.frames||[]),...moved])});
-    if(moved.length)setGalleryPosts(prev=>(prev||[]).map(p=>p&&String(p.id)===String(post.id)?{...p,images:(Array.isArray(p.images)?p.images:[]).filter(s=>!moved.includes(s))}:p));
+    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id)});
   };
   const unlinkTaskPost=async miniId=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     if(!mini||mini.galleryPostId==null||mini.galleryPostId==='')return;
     const post=linkedPostOf(mini);
-    if(post&&!await bhConfirm({message:'Desvincular a tarefa do post “'+(post.title||'Sem título')+'”? O post fica com uma cópia das imagens que mostra agora e deixa de acompanhar a tarefa.',confirmLabel:'Desvincular'}))return;
-    const postId=String(mini.galleryPostId);
-    if(post)setGalleryPosts(prev=>(prev||[]).map(p=>p&&String(p.id)===postId?bhMaterializeLinkedPost(p,{images:bhTaskGalleryImages(mini)}):p));
+    if(post&&!await bhConfirm({message:'Desvincular a tarefa do post “'+(post.title||'Sem título')+'”? As imagens de cada um continuam onde estão.',confirmLabel:'Desvincular'}))return;
     mapMini(miniId,({galleryPostId,...m})=>m);
-  };
-  const toggleNoteInGallery=(miniId,noteId)=>mapInnerNotes(miniId,ns=>ns.map(n=>String(n.id)===String(noteId)?{...n,hideInGallery:!n.hideInGallery}:n));
-  // One image, hidden from (or shown again in) the linked post only.
-  const toggleImageInGallery=(post,src)=>{
-    if(!post)return;
-    const hidden=(Array.isArray(post.hiddenImages)?post.hiddenImages:[]).includes(src);
-    onLinkedPostImages?.(post.id,{type:hidden?'show':'hide',src});
   };
   // Which task a note (a session) is filed under, and the order of notes and
   // tasks, can all be changed later. Moving a note moves its sessions.
@@ -10633,7 +10594,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const mapInnerNotes=(miniId,fn)=>mapMini(miniId,m=>({...m,innerNotes:fn(m.innerNotes||[])}));
   const addInnerNote=(miniId=activeMiniId)=>{
     if(miniId==null)return;
-    const n={id:bhNewId(),title:'Nova nota',content:'',createdAt:new Date().toLocaleDateString('pt-BR')};
+    const n={id:bhNewId(),title:'Nova nota',content:'',url:'',images:[],createdAt:new Date().toLocaleDateString('pt-BR')};
     mapInnerNotes(miniId,ns=>[...ns,n]);
     setActiveMiniId(miniId);setActiveInnerNoteId(n.id);
   };
@@ -10642,7 +10603,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const deleteInnerNote=async id=>{
     // A session note is the only record of that session's images and text.
     const note=((local.miniProjects||[]).find(m=>String(m.id)===String(activeMiniId))?.innerNotes||[]).find(n=>String(n.id)===String(id));
-    if(note&&Array.isArray(note.sessionIds)&&note.sessionIds.length&&!await bhConfirm({message:'Excluir a nota desta sessão? As imagens e o texto dela saem da tarefa (e do post da Galeria). A sessão continua no histórico de foco.',danger:true,confirmLabel:'Excluir nota'}))return;
+    if(note&&Array.isArray(note.sessionIds)&&note.sessionIds.length&&!await bhConfirm({message:'Excluir a nota desta sessão? As imagens e o texto dela saem da tarefa. A sessão continua no histórico de foco.',danger:true,confirmLabel:'Excluir nota'}))return;
     mapInnerNotes(activeMiniId,ns=>ns.filter(n=>String(n.id)!==String(id)));
     if(String(activeInnerNoteId)===String(id))setActiveInnerNoteId(null);
   };
@@ -10686,7 +10647,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     return{...prev,projectTasks:tasks,miniProjects};
   });
   const addTimelineTaskCard=pt=>edit(prev=>(prev.miniProjects||[]).some(m=>String(m.id)===String(pt.id))?prev
-    :{...prev,miniProjects:[...(prev.miniProjects||[]),{id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')}]});
+    :{...prev,miniProjects:[{id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')},...(prev.miniProjects||[])]});
   const miniImgRef=useRef();
   const handleMiniImgs=e=>intoTask(inputFiles(e));
   const addMiniFrames=(miniId,rawFiles)=>miniId==null?undefined:addUploadedImages(rawFiles,
@@ -10700,13 +10661,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // Anotações (the frames / image lists stay for what they already hold).
   const intoTask=files=>taskEditorApi.current?taskEditorApi.current.insertFiles(files):addMiniFrames(activeMiniId,files);
   const intoResearch=files=>researchEditorApi.current?researchEditorApi.current.insertFiles(files):addResearchImages(activeResearchId,files);
-  const miniDrop=useFileDrop(intoTask,tab==='Tarefas'&&!!activeMini&&!activeInnerNoteId);
+  const intoInnerNote=files=>innerNoteEditorApi.current?innerNoteEditorApi.current.insertFiles(files):addInnerNoteImages(activeMiniId,activeInnerNoteId,files);
+  const miniDrop=useFileDrop(activeInnerNoteId?intoInnerNote:intoTask,tab==='Tarefas'&&!!activeMini);
   const researchDrop=useFileDrop(intoResearch,tab==='Pesquisa'&&!!activeResearch);
   const popupDrop=useFileDrop(addGalleryPopupFiles,!!galleryPopup&&galleryPopupEditing);
   const pasteTargetRef=useRef(null);
   pasteTargetRef.current=galleryPopup
     ?(galleryPopupEditing?addGalleryPopupFiles:null)
-    :tab==='Tarefas'&&activeMini&&!activeInnerNoteId?intoTask
+    :tab==='Tarefas'&&activeMini?(activeInnerNoteId?intoInnerNote:intoTask)
     :tab==='Pesquisa'&&activeResearch?intoResearch
     :tab==='Visão Geral'?(files=>overviewEditorApi.current?.insertFiles(files))
     :null;
@@ -11184,7 +11146,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                             <span style={{cursor:'grab',color:'var(--border)',display:'flex',flexShrink:0}}><Icon name="grip-vertical" size={10}/></span>
                             <Icon name={Array.isArray(n.sessionIds)&&n.sessionIds.length?'timer':'file-text'} size={11} style={{flexShrink:0,color:'var(--muted)'}}/>
                             <span style={{fontSize:'.78rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,color:isNoteActive?'var(--text)':'var(--muted)'}}>{n.title||'Sem título'}</span>
-                            {m.galleryPostId!=null&&m.galleryPostId!==''&&<button type="button" className={'task-note-eye'+(n.hideInGallery?' off':'')} onClick={e=>{e.stopPropagation();toggleNoteInGallery(m.id,n.id);}} title={n.hideInGallery?'Fora do post da Galeria: clique para mostrar':'No post da Galeria: clique para tirar'} aria-label={(n.hideInGallery?'Mostrar no post da Galeria: ':'Tirar do post da Galeria: ')+(n.title||'nota')} aria-pressed={!n.hideInGallery}><Icon name={n.hideInGallery?'eye-off':'eye'} size={12}/></button>}
                           </div>
                         );
                       })}
@@ -11251,8 +11212,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         {live&&<button className="btn btn-outline" onClick={()=>setGalleryPopup(post)}><Icon name="external-link" size={11}/> Ver post</button>}
                         <button className="btn btn-ghost" onClick={()=>unlinkTaskPost(activeMini.id)}><Icon name="unlink" size={11}/> Desvincular</button>
                       </div>
-                      {live&&Array.isArray(post.imageOrder)&&post.imageOrder.length>0&&<div className="task-gallery-box-row"><span>O post tem uma ordem própria, definida na Galeria.</span><button className="btn btn-ghost" onClick={()=>onLinkedPostImages?.(post.id,{type:'reset-order'})}>Seguir a ordem da tarefa</button></div>}
-                      {live&&<span style={{fontSize:'.72rem',lineHeight:1.45}}>O post mostra os frames e as notas marcadas com o olho. O que você adicionar aqui ou no post entra nos dois.</span>}
+                      {live&&<span style={{fontSize:'.72rem',lineHeight:1.45}}>A ligação é só para o tempo: as imagens do post e as da tarefa são separadas.</span>}
                     </div>;
                   }
                   if(!projectGalleryFolder)return <div className="task-gallery-box"><div className="task-gallery-box-row"><Icon name="images" size={13} style={{flexShrink:0}}/><span>Para publicar esta tarefa na Galeria, vincule uma pasta ao projeto na Visão Geral.</span></div></div>;
@@ -11269,31 +11229,25 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 </div>
                 {(activeMini.innerNotes||[]).length>0&&(()=>{
                   /* Sessions and notes: open, order, and whether each shows in the post. */
-                  const linked=activeMini.galleryPostId!=null&&activeMini.galleryPostId!=='';
                   const list=activeMini.innerNotes||[];
                   return <div className="task-sessions">
                     <span>Sessões e notas ({list.length})</span>
-                    {list.map((n,i)=>{const sum=sessionSummary(n),imgs=Array.isArray(n.images)?n.images:[],thumb=imgs.find(x=>!isVideoSrc(x))||imgs[0];return <div key={n.id} className="task-session-row">
+                    {list.map((n,i)=>{const sum=sessionSummary(n),imgs=bhNoteMedia(n),thumb=imgs.find(x=>!isVideoSrc(x))||imgs[0];return <div key={n.id} className="task-session-row">
                       <button type="button" className="task-session-open" onClick={()=>setActiveInnerNoteId(n.id)} aria-label={'Abrir '+(n.title||'nota')}>
                         <span className="task-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={sum?'timer':'file-text'} size={13}/>}</span>
                         <span><strong>{n.title||'Sem título'}</strong><small>{[noteDateLabel(n),sum?pomoFmtSecs(sum.secs)+' de foco':null,imgs.length?imgs.length+(imgs.length===1?' mídia':' mídias'):null].filter(Boolean).join(' · ')}</small></span>
                       </button>
-                      {linked&&<button type="button" className={'task-note-eye'+(n.hideInGallery?' off':'')} onClick={()=>toggleNoteInGallery(activeMini.id,n.id)} title={n.hideInGallery?'Fora do post da Galeria: clique para mostrar':'No post da Galeria: clique para tirar'} aria-label={(n.hideInGallery?'Mostrar no post da Galeria: ':'Tirar do post da Galeria: ')+(n.title||'nota')} aria-pressed={!n.hideInGallery}><Icon name={n.hideInGallery?'eye-off':'eye'} size={13}/></button>}
                       <button type="button" className="btn btn-ghost" disabled={i===0} onClick={()=>nudgeInnerNote(activeMini.id,n.id,-1)} title="Subir" aria-label={'Subir '+(n.title||'nota')}><Icon name="arrow-up" size={12}/></button>
                       <button type="button" className="btn btn-ghost" disabled={i===list.length-1} onClick={()=>nudgeInnerNote(activeMini.id,n.id,1)} title="Descer" aria-label={'Descer '+(n.title||'nota')}><Icon name="arrow-down" size={12}/></button>
                     </div>;})}
                   </div>;
                 })()}
                 {(activeMini.frames||[]).length>0&&(()=>{
-                  const post=linkedPostOf(activeMini),live=post&&!post.deleted?post:null;
-                  const hidden=new Set(live&&Array.isArray(live.hiddenImages)?live.hiddenImages:[]);
                   return <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(auto-fill,minmax(160px,1fr))',gap:isMobile?8:10,marginBottom:14}}>
                     {(activeMini.frames||[]).map((img,i,list)=>(
                       <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('frames',i,moveMiniFrame)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                         {isVideoSrc(img)?<Vid src={img} controls playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>:<Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>}
-                        {hidden.has(img)&&<span className="img-hidden-mark" aria-hidden="true"/>}
                         <ImgMoveTools index={i} count={list.length} onMove={moveMiniFrame}/>
-                        {live&&<button type="button" className={'img-gallery-toggle'+(hidden.has(img)?' off':'')} onClick={e=>{e.stopPropagation();toggleImageInGallery(live,img);}} title={hidden.has(img)?'Fora do post da Galeria: clique para mostrar':'No post da Galeria: clique para tirar'} aria-label={(hidden.has(img)?'Mostrar no post da Galeria: frame ':'Tirar do post da Galeria: frame ')+(i+1)} aria-pressed={!hidden.has(img)}><Icon name={hidden.has(img)?'eye-off':'eye'} size={12}/></button>}
                         <button onClick={()=>{updateMini('frames',fr=>{const f=[...(fr||[])];f.splice(i,1);return f;});}} aria-label={'Remover frame '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                       </div>
                     ))}
@@ -11308,8 +11262,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               const innerNotes=activeMini.innerNotes||[];
               const note=innerNotes.find(n=>n.id===activeInnerNoteId)||null;
               if(!note)return null;
-              const post=linkedPostOf(activeMini),livePost=post&&!post.deleted?post:null;
-              const hidden=new Set(livePost&&!note.hideInGallery&&Array.isArray(livePost.hiddenImages)?livePost.hiddenImages:[]);
               const sum=sessionSummary(note);
               return(
                 <>
@@ -11318,6 +11270,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <input value={note.title} onChange={e=>updateInnerNote('title',e.target.value)}
                       style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.6rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:1,minWidth:0}}
                       placeholder="Título da nota"/>
+                    {noteDateLabel(note)&&<span style={{fontSize:'.72rem',color:'var(--muted)',flexShrink:0,margin:'0 6px'}}>{noteDateLabel(note)}</span>}
                     <button onClick={()=>deleteInnerNote(note.id)} className="btn btn-ghost text-link-danger" style={{padding:6,flexShrink:0}} title="Excluir nota" aria-label="Excluir nota">
                       <Icon name="trash-2" size={16}/>
                     </button>
@@ -11329,10 +11282,6 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         {(local.miniProjects||[]).map(m=><option key={m.id} value={String(m.id)}>{m.title||'Sem título'}</option>)}
                       </select>
                     </div>
-                    {livePost&&<BhSwitch checked={!note.hideInGallery} onChange={()=>toggleNoteInGallery(activeMini.id,note.id)} label="Mostrar no post da Galeria"
-                      style={{display:'flex',width:'100%',justifyContent:'space-between',gap:10,fontSize:'.78rem',color:'var(--text)',textAlign:'left'}}>
-                      <span style={{display:'flex',alignItems:'center',gap:6,minWidth:0}}><Icon name="images" size={13} style={{flexShrink:0}}/><span>Mostrar no post <strong>{livePost.title||'Sem título'}</strong> da Galeria</span></span>
-                    </BhSwitch>}
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 12px'}}>
                     <Icon name="link" size={13} style={{color:'var(--muted)',flexShrink:0}}/>
@@ -11341,17 +11290,17 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       style={{flex:1,background:'transparent',border:'none',outline:'none',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.83rem',color:'var(--text)'}}/>
                     {safeHref(note.url)&&<a href={safeHref(note.url)} target="_blank" rel="noopener noreferrer" title="Abrir link" aria-label="Abrir link de referência" style={{flexShrink:0,color:'var(--muted)'}} className="text-link"><Icon name="external-link" size={13}/></a>}
                   </div>
-                  <textarea value={note.content||''} onChange={e=>updateInnerNote('content',e.target.value)}
-                    placeholder="Notas, análises, referências..."
-                    style={{resize:'vertical',background:'transparent',border:'none',outline:'none',fontSize:'.9rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',minHeight:120,marginBottom:16}}/>
+                  {/* Same editor as Anotações: formatting, images pasted or dropped into the text. */}
+                  <div className="pd-rich" style={{display:'flex',flexDirection:'column',minHeight:140,marginBottom:16}}>
+                    <RichEditor key={'tasknote-'+note.id} noteId={'tasknote-'+note.id} initialHTML={bhTextToHTML(note.content)} onSave={saveInnerNoteContent} saveTarget={note.id} apiRef={innerNoteEditorApi}
+                      placeholder="Notas, análises, referências... Cole imagens aqui."/>
+                  </div>
                   {(note.images||[]).length>0&&(
                     <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(auto-fill,minmax(160px,1fr))',gap:isMobile?8:10,marginBottom:14}}>
                       {(note.images||[]).map((img,i,list)=>(
                         <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('note',i,moveInnerNoteImage)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                           {isVideoSrc(img)?<Vid src={img} controls playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>:<Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>}
-                          {hidden.has(img)&&<span className="img-hidden-mark" aria-hidden="true"/>}
                           <ImgMoveTools index={i} count={list.length} onMove={moveInnerNoteImage}/>
-                          {livePost&&!note.hideInGallery&&<button type="button" className={'img-gallery-toggle'+(hidden.has(img)?' off':'')} onClick={e=>{e.stopPropagation();toggleImageInGallery(livePost,img);}} title={hidden.has(img)?'Fora do post da Galeria: clique para mostrar':'No post da Galeria: clique para tirar'} aria-label={(hidden.has(img)?'Mostrar no post da Galeria: mídia ':'Tirar do post da Galeria: mídia ')+(i+1)} aria-pressed={!hidden.has(img)}><Icon name={hidden.has(img)?'eye-off':'eye'} size={12}/></button>}
                           <button onClick={()=>{updateInnerNote('images',im=>{const imgs=[...(im||[])];imgs.splice(i,1);return imgs;});}} aria-label={'Remover mídia '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                         </div>
                       ))}
@@ -11361,7 +11310,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <button className="btn btn-outline" style={{padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>document.getElementById('inner-note-img-'+activeInnerNoteId)?.click()}>
                       <Icon name="image-plus" size={13}/> Adicionar imagens
                     </button>
-                    <input id={'inner-note-img-'+activeInnerNoteId} type="file" accept="image/*,video/*,.gif" multiple style={{display:'none'}} onChange={e=>addInnerNoteImages(activeMiniId,activeInnerNoteId,inputFiles(e))}/>
+                    <input id={'inner-note-img-'+activeInnerNoteId} type="file" accept="image/*,video/*,.gif" multiple style={{display:'none'}} onChange={e=>intoInnerNote(inputFiles(e))}/>
                   </label>
                 </>
               );
@@ -11473,7 +11422,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               </div>
             </div>
             <div style={{padding:isMobile?'14px 18px 20px':'18px 28px 26px'}}>
-              {galleryPopup.linkedTask&&<div className="gallery-linked-note"><Icon name="list-checks" size={13} style={{flexShrink:0}}/><span>As mídias vêm da tarefa <strong>{galleryPopup.linkedTask.taskTitle}</strong>. O que você adicionar aqui entra na tarefa também; remover tira só deste post.</span></div>}
+              {galleryPopup.linkedTask&&<div className="gallery-linked-note"><Icon name="list-checks" size={13} style={{flexShrink:0}}/><span>Ligado à tarefa <strong>{galleryPopup.linkedTask.taskTitle}</strong> pelo tempo. As imagens deste post são só dele.</span></div>}
               {galleryPopupEditing
                 ?<textarea value={galleryPopup.content||''} onChange={e=>updateGalleryPopup('content',e.target.value)} placeholder="Notas da sessão (opcional)" style={{width:'100%',boxSizing:'border-box',minHeight:84,resize:'vertical',border:'1px solid var(--field-border)',borderRadius:9,padding:'11px 13px',background:'var(--bg)',color:'var(--text)',font:'400 .88rem Alegreya Sans,sans-serif',lineHeight:1.6,outline:'none',margin:'0 0 16px'}}/>
                 :galleryPopup.content&&<p style={{fontSize:'.9rem',lineHeight:1.7,color:'var(--text)',margin:'0 0 16px',whiteSpace:'pre-wrap'}}>{galleryPopup.content}</p>}
@@ -11788,7 +11737,7 @@ const DeckNav=({index,count,onPrev,onNext,caption})=>(
 );
 // Click on the left / right half of a viewer's picture: dir -1 / +1.
 const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
-const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
+const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -12131,10 +12080,10 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     if(!files.length)return;
     // A big batch of frames (an exported animatic): offer one frame per hold.
     if(!target){const picked=await bhPickHoldFrames(files);if(!picked||!picked.length)return;files=picked;}
-    const postId=target?target.postId:selected?.id,linked=target?target.linked:!!selected?.linkedTask;
+    const postId=target?target.postId:selected?.id;
     const run=uploadRunRef.current;
     if(uploading){
-      uploadQueueRef.current.push({files,postId,linked});
+      uploadQueueRef.current.push({files,postId});
       run.total+=files.length;
       setUploadProgress(p=>p?{...p,total:run.total}:p);
       return;
@@ -12145,9 +12094,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     setUploadProgress({done:base,total:run.total});
     try{
       const urls=await uploadImages(files,(done)=>setUploadProgress({done:base+done,total:run.total}),(i,pct)=>setUploadProgress(p=>({done:p?.done??base+i,total:run.total,compact:pct})));
-      // A post fed by a task: the files go to the task (its frames) and the
-      // post shows them from there.
-      if(linked){onLinkedPostImages?.(postId,{type:'add',urls});return;}
       setPosts(prev=>prev.map(post=>String(post.id)===String(postId)?{...post,images:[...(Array.isArray(post.images)?post.images:[]),...urls]}:post));
       setSelected(prev=>prev&&String(prev.id)===String(postId)?{...prev,images:[...(Array.isArray(prev.images)?prev.images:[]),...urls]}:prev);
     }catch(err){
@@ -12194,14 +12140,6 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
     const img=selected.images[idx];
     if(img==null)return;
     const postId=selected.id,wasBanner=selected.bannerImage===img;
-    // A post fed by a task only hides the image: the task keeps it.
-    if(selected.linkedTask){
-      onLinkedPostImages?.(postId,{type:'hide',src:img});
-      clearTimeout(removedTimerRef.current);
-      setRemovedImg({postId,img,index:idx,wasBanner,linked:true});
-      removedTimerRef.current=setTimeout(()=>setRemovedImg(null),8000);
-      return;
-    }
     updPost(postId,p=>{const images=[...p.images];const at=images.indexOf(img);if(at>=0)images.splice(at,1);return {...p,images,bannerImage:p.bannerImage===img?'':p.bannerImage};});
     clearTimeout(removedTimerRef.current);
     setRemovedImg({postId,img,index:idx,wasBanner});
@@ -12209,14 +12147,12 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
   };
   const undoRemoveImg=()=>{
     const r=removedImg;if(!r)return;
-    if(r.linked){onLinkedPostImages?.(r.postId,{type:'show',src:r.img,wasBanner:r.wasBanner});clearTimeout(removedTimerRef.current);setRemovedImg(null);return;}
     updPost(r.postId,p=>{const images=[...p.images];images.splice(Math.min(r.index,images.length),0,r.img);return {...p,images,bannerImage:r.wasBanner?r.img:p.bannerImage};});
     clearTimeout(removedTimerRef.current);setRemovedImg(null);
   };
   const moveImg=(from,to)=>{
     if(from===to||to<0||to>=selected.images.length)return;
     const img=selected.images[from];
-    if(selected.linkedTask){onLinkedPostImages?.(selected.id,{type:'order',order:bhMoveItem(selected.images,from,to)});return;}
     updPost(selected.id,p=>{const images=[...p.images];const at=images.indexOf(img);if(at<0)return p;images.splice(at,1);images.splice(Math.max(0,Math.min(to,images.length)),0,img);return {...p,images};});
   };
   const lightboxImages=useMemo(()=>((selected?.images)||[]).filter(img=>!isVideoSrc(img)),[selected?.images]);
@@ -12572,7 +12508,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
         </div>
         {selected.linkedTask&&<div className="gallery-linked-note">
           <Icon name="list-checks" size={13} style={{flexShrink:0}}/>
-          <span style={{flex:'1 1 220px'}}>As mídias vêm da tarefa <strong>{selected.linkedTask.taskTitle}</strong> ({selected.linkedTask.projectTitle}). O que você adicionar aqui entra na tarefa também; o × tira a imagem só deste post.</span>
+          <span style={{flex:'1 1 220px'}}>Ligado à tarefa <strong>{selected.linkedTask.taskTitle}</strong> ({selected.linkedTask.projectTitle}) pelo tempo. As imagens deste post são só dele.</span>
           {onOpenTask&&<button type="button" className="gallery-chip" onClick={()=>onOpenTask(selected.linkedTask.projectId,selected.linkedTask.taskId)}><Icon name="external-link" size={11}/> Abrir tarefa</button>}
         </div>}
         <textarea value={selected.content} onChange={e=>upd('content',e.target.value)} placeholder="Análise, insights, observações..."
@@ -12587,7 +12523,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
               }
               {/* No ← n/N → pill here: the owner does not want it over gallery
                   images (2026-09-23). Reordering stays available by dragging. */}
-              <button onClick={e=>{e.stopPropagation();removeImg(i);}} title={selected.linkedTask?'Tirar deste post (continua na tarefa)':'Remover imagem'} aria-label={(selected.linkedTask?'Tirar deste post: imagem ':'Remover imagem ')+(i+1)} style={{position:'absolute',top:6,right:6,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',zIndex:2}}><Icon name="x" size={11}/></button>
+              <button onClick={e=>{e.stopPropagation();removeImg(i);}} title="Remover imagem" aria-label={'Remover imagem '+(i+1)} style={{position:'absolute',top:6,right:6,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',zIndex:2}}><Icon name="x" size={11}/></button>
               {!isVideoSrc(img)&&<button onClick={e=>{e.stopPropagation();upd('bannerImage',img);}} title="Usar como banner"
                 style={{position:'absolute',top:6,left:6,background:selected.bannerImage===img?'rgba(251,191,36,.9)':'rgba(28,25,23,.55)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',transition:'background .2s',zIndex:2}}>
                 <Icon name="star" size={11} style={{fill:selected.bannerImage===img?'white':'none'}}/></button>}
@@ -12598,7 +12534,7 @@ const Gallery=React.memo(({posts,setPosts,onLinkedPostImages,onOpenTask,onSectio
           </div>
           {removedImg&&String(removedImg.postId)===String(selected.id)&&(
             <div className="post-img-undo" role="status">
-              <span>{removedImg.linked?'Imagem tirada do post.':'Imagem removida.'}</span>
+              <span>Imagem removida.</span>
               <button type="button" onClick={undoRemoveImg}>Desfazer</button>
             </div>
           )}
@@ -14402,7 +14338,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     const today=localDateISO();
     const task=bhNewNoteTask(selected,text,today,addDays(today,7),bhNewId());
     setProjects(prev=>prev.map(p=>String(p.id)!==String(project.id)?p:{...p,
-      projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
+      projectTasks:[task,...(p.projectTasks||[])],miniProjects:[projectTaskToMini(task),...(p.miniProjects||[])]}));
     setTaskDraft(null);
   };
   const isCategory=n=>n?.type==='category';
@@ -16982,10 +16918,10 @@ const App=()=>{
     if(pendingSession?.targetType!=='project')return null;
     return lastTaskByProject.get(String(pendingSession.targetKey||'').replace(/^project:/,''))??null;
   },[pendingSession,lastTaskByProject]);
-  // Gallery posts linked to a task read their images from it (bhTaskPostLinks).
-  // Every view gets the resolved list; only the stored list is ever written.
-  // A resolved post is reused while its post and its task's images are the
-  // same, so typing in a task does not re-render the Gallery's cards.
+  // Gallery posts linked to a task carry `linkedTask` (bhTaskPostLinks); only
+  // the stored post is ever written. A resolved post is reused while its post
+  // and its task's name are the same, so typing in a task does not re-render
+  // the Gallery's cards.
   const taskPostLinks=useMemo(()=>bhTaskPostLinks(projects),[projects]);
   const _linkedViewCache=useRef(new Map());
   const galleryPostsView=useMemo(()=>{
@@ -16994,7 +16930,7 @@ const App=()=>{
     const out=galleryPosts.map(post=>{
       const link=post&&taskPostLinks.get(String(post.id));
       if(!link)return post;
-      const sig=link.projectId+'\u0001'+link.taskId+'\u0001'+link.taskTitle+'\u0001'+link.projectTitle+'\u0001'+(link.archived?1:0)+'\u0001'+link.images.join('\u0001');
+      const sig=link.projectId+'\u0001'+link.taskId+'\u0001'+link.taskTitle+'\u0001'+link.projectTitle+'\u0001'+(link.archived?1:0);
       const hit=_linkedViewCache.current.get(String(post.id));
       const view=hit&&hit.post===post&&hit.sig===sig?hit.view:bhLinkedPostView(post,link);
       cache.set(String(post.id),{post,sig,view});
@@ -17003,45 +16939,6 @@ const App=()=>{
     _linkedViewCache.current=cache;
     return out;
   },[galleryPosts,taskPostLinks]);
-  // Image edits made on a linked post, from the Gallery or the project page.
-  // Adding puts the files in the task (its frames), so they are in both
-  // places at once; removing hides the image from this post only (the task
-  // keeps it); reordering is the post's own order.
-  const handleLinkedPostImages=useCallback((postId,op)=>{
-    const id=String(postId);
-    if(op.type==='add'){
-      const urls=bhUniqStrings(op.urls);
-      if(!urls.length)return;
-      // No task feeds it any more (unlinked meanwhile): the post keeps them.
-      if(!bhTaskPostLinks(projectsRef.current).has(id)){
-        setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===id?{...p,images:bhUniqStrings([...(Array.isArray(p.images)?p.images:[]),...urls])}:p));
-        return;
-      }
-      setProjects(prev=>{
-        let done=false;
-        const next=prev.map(p=>{
-          if(done||!p)return p;
-          const at=(p.miniProjects||[]).findIndex(m=>m&&String(m.galleryPostId)===id);
-          if(at>=0){done=true;return{...p,miniProjects:p.miniProjects.map((m,i)=>i!==at?m:{...m,frames:bhUniqStrings([...(m.frames||[]),...urls])})};}
-          const tAt=(p.taskTrash||[]).findIndex(e=>e?.mini&&String(e.mini.galleryPostId)===id);
-          if(tAt<0)return p;
-          done=true;
-          return{...p,taskTrash:p.taskTrash.map((e,i)=>i!==tAt?e:{...e,mini:{...e.mini,frames:bhUniqStrings([...(e.mini.frames||[]),...urls])}})};
-        });
-        return done?next:prev;
-      });
-      return;
-    }
-    setGalleryPosts(prev=>prev.map(p=>{
-      if(!p||String(p.id)!==id)return p;
-      const hidden=Array.isArray(p.hiddenImages)?p.hiddenImages:[];
-      if(op.type==='hide')return{...p,hiddenImages:bhUniqStrings([...hidden,op.src]),...(p.bannerImage===op.src?{bannerImage:''}:{})};
-      if(op.type==='show')return{...p,hiddenImages:hidden.filter(s=>s!==op.src),...(op.wasBanner?{bannerImage:op.src}:{})};
-      if(op.type==='order'){const order=bhUniqStrings(op.order);return{...p,imageOrder:[...order,...(Array.isArray(p.imageOrder)?p.imageOrder:[]).filter(s=>!order.includes(s))]};}
-      if(op.type==='reset-order'){const{imageOrder,...rest}=p;return rest;}
-      return p;
-    }));
-  },[]);
   const rankReceiptScope=fbUser?.uid||(()=>{try{return localStorage.getItem(LOCAL_OWNER_UID_KEY)||'local';}catch(e){return 'local';}})();
   const [rankReceiptRevision,setRankReceiptRevision]=useState(0);
   useEffect(()=>{
@@ -17129,10 +17026,10 @@ const App=()=>{
       const noteId='session-note-'+session.id;
       const images=Array.isArray(session.images)?session.images:[];
       const note={id:noteId,title:session.title||'Sessão',content:session.note||'',
-        images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)],...(session.hideInGallery?{hideInGallery:true}:{})};
-      // Linking the task to a Gallery post from the modal: a new post in the
-      // project's folder, or a post of that folder no task feeds yet, whose
-      // own images move into the task's frames.
+        images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)]};
+      // Linking the task to a Gallery post from the modal (for time only, no
+      // images change hands): a new post in the project's folder, or a post of
+      // that folder no task is linked to yet.
       const folderId=project.galleryFolder?String(project.galleryFolder):'';
       let newPost=null,linkPost=null;
       const currentMini=task?null:(project.miniProjects||[]).find(m=>m&&String(m.id)===taskId);
@@ -17143,7 +17040,6 @@ const App=()=>{
         }else if(!taskPostLinks.has(String(session.galleryLink)))linkPost=galleryPosts.find(p=>p&&!p.deleted&&String(p.id)===String(session.galleryLink))||null;
       }
       const linkId=newPost?newPost.id:linkPost?String(linkPost.id):null;
-      const moved=linkPost?bhUniqStrings(linkPost.images):[];
       // A category session keeps its category as target, so the time it took
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the
@@ -17157,7 +17053,7 @@ const App=()=>{
         if(at<0){const t=projectTasks.find(t=>t&&String(t.id)===taskId);if(!t)return p;miniProjects.push(projectTaskToMini(t));at=miniProjects.length-1;}
         const m=miniProjects[at],link=linkId&&(m.galleryPostId==null||m.galleryPostId==='');
         miniProjects[at]={...m,innerNotes:[...(m.innerNotes||[]).filter(n=>String(n?.id)!==noteId),note],
-          ...(link?{galleryPostId:linkId,frames:bhUniqStrings([...(m.frames||[]),...moved])}:{})};
+          ...(link?{galleryPostId:linkId}:{})};
         return{...p,projectTasks,miniProjects};
       }));
       if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
@@ -17166,7 +17062,6 @@ const App=()=>{
       // scope the project counts time for.
       const sectionForNew=project.gallerySection?String(project.gallerySection):(session.sectionId?String(session.sectionId):'');
       if(newPost&&folderId&&sectionForNew)placePostInSection(folderId,newPost.id,sectionForNew);
-      if(moved.length)setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===linkId?{...p,images:(p.images||[]).filter(s=>!moved.includes(s))}:p));
       setPomoData(prev=>{
         const base0=pomoNormalize(prev);
         const mv=pomoRetargetPlan(base0,session);
@@ -17200,7 +17095,7 @@ const App=()=>{
       const task={id:bhNewId(),text:session.newTaskName,status:'Fazendo',startDate:today,dueDate:addDays(today,7),notes:''};
       taskId=String(task.id);
       setProjects(prev=>prev.map(p=>String(p.id)!==sessionProjectId?p:{...p,
-        projectTasks:[...(p.projectTasks||[]),task],miniProjects:[...(p.miniProjects||[]),projectTaskToMini(task)]}));
+        projectTasks:[task,...(p.projectTasks||[])],miniProjects:[projectTaskToMini(task),...(p.miniProjects||[])]}));
     }
     const postId=existing?.id||('focus-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6));
     const target=session.sectionLabel||session.targetLabel||'Sem categoria';
@@ -18429,8 +18324,8 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onLinkedPostImages={handleLinkedPostImages} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
