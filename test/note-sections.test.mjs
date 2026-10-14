@@ -28,7 +28,7 @@ test('an item dropped on a section header becomes its first member', () => {
   const notes = [{ id: 'n1', type: 'note' }, { id: 's', type: 'section', parentId: 'cat' }, { id: 'n2', type: 'note', parentId: 'cat' }];
   const out = bhMoveIntoSection(notes, 'n1', 's');
   assert.deepEqual(out.map(x => x.id), ['s', 'n1', 'n2']);
-  assert.equal(out[1].parentId, 'cat');
+  assert.equal(out[1].parentId, null, 'sections are root-level, so is what joins them');
   assert.equal(bhMoveIntoSection(notes, 's', 's'), notes);
 });
 
@@ -47,4 +47,21 @@ test('an item moved to a level goes to its loose group, not into a section', () 
   assert.equal(bhPlaceLoose(none, 'x'), none, 'no sections: nothing to do');
   const nested = [{ id: 's', type: 'section', parentId: 'cat' }, { id: 'y', parentId: 'other' }];
   assert.equal(bhPlaceLoose(nested, 'y'), nested, 'sections of another level do not count');
+});
+
+test('a section is always created at the root, above the top-level container of the open note', () => {
+  const notes = [{ id: 'x', type: 'note', parentId: null }, { id: 'cat', type: 'category', parentId: null }, { id: 'sub', type: 'category', parentId: 'cat' }, { id: 'n', type: 'note', parentId: 'sub' }];
+  const out = bhNoteCreateAt(notes, { kind: 'note', id: 'n' }, 'section', { id: 's', type: 'section' });
+  assert.deepEqual(out.notes.map(x => x.id), ['x', 's', 'cat', 'sub', 'n']);
+  assert.equal(out.notes[1].parentId, null);
+  const inFolder = [{ id: 'f', type: 'project', parentId: 'cat', entries: [{ id: 'e' }] }, { id: 'cat', type: 'category', parentId: null }];
+  const out2 = bhNoteCreateAt(inFolder, { kind: 'entry', id: 'e', folderId: 'f' }, 'section', { id: 's', type: 'section' });
+  assert.equal(out2.notes.find(x => x.id === 's').parentId, null);
+});
+
+test('a section left with a parent by older data still counts as root-level', () => {
+  const notes = [{ id: 'a' }, { id: 's', type: 'section', parentId: 'cat' }, { id: 'x', parentId: 'cat' }];
+  assert.deepEqual(bhPlaceLoose([{ id: 'a' }, { id: 's', type: 'section', parentId: 'cat' }, { id: 'y', parentId: null }], 'y').map(n => n.id), ['a', 'y', 's']);
+  const out = bhMoveIntoSection(notes, 'a', 's');
+  assert.equal(out.find(n => n.id === 'a').parentId, null);
 });

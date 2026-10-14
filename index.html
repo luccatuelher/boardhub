@@ -9662,6 +9662,7 @@ const bhNotesSectionItems=(notes,sectionId)=>{
 //    above it when the note is loose, or right after its own category.
 //  - a note inside a folder (entry): a new note is a new entry of that folder,
 //    right below it; a folder / category go right after the folder / its category.
+// A section always goes to the root, above the top-level container of the open note.
 // Nothing open: appended at the end of the root, as before.
 // Returns {notes, expand:[ids to open], entryOf:folderId|null (new note is an entry)}.
 const bhNoteCreateAt=(notes,selected,kind,item)=>{
@@ -9677,6 +9678,12 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
   };
   const sel=selected?byId.get(String(selected.kind==='entry'?selected.folderId:selected.id)):null;
   if(!sel||sel.deleted)return put(null,'after',null);
+  // A section is always at the root: above the top-level container of what is open.
+  if(kind==='section'){
+    let top=sel;
+    for(let guard=0;guard<40&&parentOf(top)!=null;guard++)top=byId.get(String(parentOf(top)));
+    return put(top.id,'before',null);
+  }
   if(selected.kind==='entry'){
     const folder=sel,fp=parentOf(folder);
     if(kind==='note'){
@@ -9739,7 +9746,7 @@ const bhMoveIntoSection=(notes,itemId,sectionId)=>{
   const moving=list.find(n=>n&&String(n.id)===String(itemId)),section=list.find(n=>n&&String(n.id)===String(sectionId));
   if(!moving||!section||moving===section||section.type!=='section')return list;
   const rest=list.filter(n=>n!==moving),at=rest.indexOf(section);
-  return[...rest.slice(0,at+1),{...moving,parentId:section.parentId==null?null:section.parentId},...rest.slice(at+1)];
+  return[...rest.slice(0,at+1),{...moving,parentId:null},...rest.slice(at+1)];
 };
 // The array with `itemId` moved ahead of the first section of its level, so it stays
 // in the loose group at the top (always visible) instead of falling into whichever
@@ -9749,7 +9756,7 @@ const bhPlaceLoose=(notes,itemId)=>{
   const list=Array.isArray(notes)?notes:[];
   const item=list.find(n=>n&&String(n.id)===String(itemId));
   if(!item)return list;
-  const key=n=>n.parentId==null?'':String(n.parentId);
+  const key=n=>n.type==='section'||n.parentId==null?'':String(n.parentId); // sections are root-level
   const isSec=n=>n&&!n.deleted&&n.type==='section'&&key(n)===key(item);
   const firstSec=list.findIndex(isSec);
   if(firstSec<0||list.indexOf(item)<firstSec)return list;
@@ -14974,7 +14981,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
   // while this note was filed under it) left the note in no branch: it showed
   // only in search. Such notes read as root; moving one writes a real parent.
   // A parent that exists in the trash still hides its children, as before.
-  const parentOf=n=>n?.parentId==null||!notesById.has(String(n.parentId))?null:n.parentId;
+  const parentOf=n=>n?.type==='section'||n?.parentId==null||!notesById.has(String(n.parentId))?null:n.parentId; // sections are always at the root
   const childrenByParent=useMemo(()=>{
     const grouped=new Map();
     activeItems.forEach(n=>{
