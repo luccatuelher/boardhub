@@ -45,3 +45,66 @@ test('older plain-text note content still renders: escaped, line breaks kept', (
   assert.equal(bhTextToHTML('<p>rich</p>'), '<p>rich</p>');
   assert.equal(bhTextToHTML(''), '');
 });
+
+const { bhNoteImages, bhNotePostLinks, bhMaterializeNotes, bhRelinkNotes } = load(['tasklinks']);
+
+const linkedProject = () => ({
+  id: 'p1', title: 'Comercial',
+  miniProjects: [{ id: 't1', title: 'Storyboard', innerNotes: [
+    { id: 'n1', galleryPostId: 'post1', images: [], content: '' },
+    { id: 'n2', images: ['own.png'], content: '<img src="inline.png">' },
+  ] }],
+  taskTrash: [{ id: 'old', mini: { id: 't9', title: 'Velha', innerNotes: [{ id: 'n9', galleryPostId: 'post9' }] } }],
+});
+
+test('a linked note shows its post images (then its own); an unlinked one only its own', () => {
+  const [linked, plain] = linkedProject().miniProjects[0].innerNotes;
+  const post = { id: 'post1', images: ['a.png', 'b.png'] };
+  assert.deepEqual(bhNoteImages(linked, post), ['a.png', 'b.png']);
+  assert.deepEqual(bhNoteImages({ ...linked, images: ['b.png', 'c.png'] }, post), ['a.png', 'b.png', 'c.png']);
+  assert.deepEqual(bhNoteImages(linked, null), []);
+  assert.deepEqual(bhNoteImages(plain, post), ['own.png']);
+  assert.deepEqual(bhNoteMedia(plain, post), ['own.png', 'inline.png']);
+});
+
+test('notes are found by the post they are linked to, including notes of trashed tasks', () => {
+  const links = bhNotePostLinks([linkedProject()]);
+  assert.equal(links.get('post1')[0].noteId, 'n1');
+  assert.equal(links.get('post1')[0].taskTitle, 'Storyboard');
+  assert.equal(links.get('post9')[0].archived, true);
+  assert.equal(links.has('post2'), false);
+});
+
+test('merging or purging a post leaves its notes individual, each keeping the post images', () => {
+  const projects = [linkedProject()];
+  const out = bhMaterializeNotes(projects, new Map([['post1', ['a.png', 'b.png']]]));
+  const n1 = out[0].miniProjects[0].innerNotes[0];
+  assert.equal(n1.galleryPostId, undefined);
+  assert.deepEqual(n1.images, ['a.png', 'b.png']);
+  assert.equal(n1.mergedFromPost, 'post1');
+  assert.equal(out[0].miniProjects[0].innerNotes[1].images[0], 'own.png', 'other notes are untouched');
+  assert.equal(bhMaterializeNotes(projects, new Map([['nope', ['x.png']]])), projects, 'nothing linked: same array');
+});
+
+test('undoing a merge links a note back only while its images are what the merge wrote', () => {
+  const imgs = new Map([['post1', ['a.png', 'b.png']]]);
+  const merged = bhMaterializeNotes([linkedProject()], imgs);
+  const back = bhRelinkNotes(merged, imgs);
+  const n1 = back[0].miniProjects[0].innerNotes[0];
+  assert.equal(n1.galleryPostId, 'post1');
+  assert.deepEqual(n1.images, []);
+  assert.equal(n1.mergedFromPost, undefined);
+  // the note was edited after the merge: it stays individual, nothing is lost
+  const edited = JSON.parse(JSON.stringify(merged));
+  edited[0].miniProjects[0].innerNotes[0].images.push('new.png');
+  const kept = bhRelinkNotes(edited, imgs)[0].miniProjects[0].innerNotes[0];
+  assert.equal(kept.galleryPostId, undefined);
+  assert.deepEqual(kept.images, ['a.png', 'b.png', 'new.png']);
+});
+
+test('repeated frames are kept (storyboard holds); only pasted ones already there are skipped', () => {
+  const post = { id: 'post1', images: ['a.png', 'a.png', 'b.png'] };
+  assert.deepEqual(bhNoteImages({ galleryPostId: 'post1', images: ['a.png', 'c.png'] }, post), ['a.png', 'a.png', 'b.png', 'c.png']);
+  const out = bhMaterializeNotes([linkedProject()], new Map([['post1', ['a.png', 'a.png']]]));
+  assert.deepEqual(out[0].miniProjects[0].innerNotes[0].images, ['a.png', 'a.png']);
+});

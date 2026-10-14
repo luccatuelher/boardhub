@@ -1386,7 +1386,98 @@ const bhHtmlMediaSrcs=html=>{
 const bhUniqStrings=list=>{const seen=new Set();return (Array.isArray(list)?list:[]).filter(x=>typeof x==='string'&&x!==''&&!seen.has(x)&&!!seen.add(x));};
 // Everything a task note shows: the images stored beside the text (session
 // captures) and the ones sitting inside the text (pasted into the editor).
-const bhNoteMedia=note=>bhUniqStrings([...(Array.isArray(note?.images)?note.images:[]),...bhHtmlMediaSrcs(note?.content)]);
+// A session note is linked to the Gallery post of its session (note.galleryPostId):
+// while linked, the post's images ARE the note's images (one list, read through,
+// never copied), and anything left on the note itself follows. A note without
+// the link, or whose post is gone, shows its own.
+// Storyboards repeat frames on purpose (holds): a list is never de-duplicated as
+// a whole; only what is added is skipped when it is already there.
+const bhAppendImages=(base,extra)=>[...base,...(Array.isArray(extra)?extra:[]).filter((s,i,a)=>typeof s==='string'&&s!==''&&!base.includes(s)&&a.indexOf(s)===i)];
+const bhNoteImages=(note,post)=>{
+  const own=Array.isArray(note?.images)?note.images:[];
+  const linked=note&&note.galleryPostId!=null&&note.galleryPostId!=='';
+  return linked&&post?bhAppendImages(Array.isArray(post.images)?post.images:[],own):own.slice();
+};
+const bhNoteMedia=(note,post)=>bhAppendImages(bhNoteImages(note,post),bhHtmlMediaSrcs(note?.content));
+// postId -> the notes linked to it ({projectId,taskId,noteId,taskTitle,projectTitle,archived}),
+// from live tasks and from tasks in the task trash.
+const bhNotePostLinks=projects=>{
+  const links=new Map();
+  const add=(project,mini,archived)=>{
+    (Array.isArray(mini?.innerNotes)?mini.innerNotes:[]).forEach(n=>{
+      if(!n||n.galleryPostId==null||String(n.galleryPostId)==='')return;
+      const key=String(n.galleryPostId),list=links.get(key)||[];
+      list.push({projectId:String(project.id),taskId:String(mini.id),noteId:String(n.id),taskTitle:mini.title||'Sem título',projectTitle:project.title||'Projeto',archived});
+      links.set(key,list);
+    });
+  };
+  (Array.isArray(projects)?projects:[]).forEach(p=>{
+    if(!p||typeof p!=='object')return;
+    (Array.isArray(p.miniProjects)?p.miniProjects:[]).forEach(m=>add(p,m,false));
+    (Array.isArray(p.taskTrash)?p.taskTrash:[]).forEach(e=>add(p,e?.mini,true));
+  });
+  return links;
+};
+// Posts leaving the Gallery for good, or being merged into another: the notes
+// linked to them become individual notes that keep the images the post had
+// (`imagesByPost`: postId -> images as they were). The note remembers where it
+// came from (mergedFromPost, mergedOwn) so an undo can link it back.
+const bhMaterializeNotes=(projects,imagesByPost)=>{
+  let changed=false;
+  const next=(Array.isArray(projects)?projects:[]).map(p=>{
+    if(!p||!Array.isArray(p.miniProjects))return p;
+    let hitP=false;
+    const minis=p.miniProjects.map(m=>{
+      if(!m||!Array.isArray(m.innerNotes))return m;
+      let hit=false;
+      const ns=m.innerNotes.map(n=>{
+        const pid=n&&n.galleryPostId!=null?String(n.galleryPostId):'';
+        if(!pid||!imagesByPost.has(pid))return n;
+        hit=true;
+        const own=Array.isArray(n.images)?n.images:[];
+        const {galleryPostId,...rest}=n;
+        return{...rest,images:bhAppendImages(imagesByPost.get(pid),own),mergedFromPost:pid,mergedOwn:own};
+      });
+      if(!hit)return m;
+      hitP=true;
+      return{...m,innerNotes:ns};
+    });
+    if(!hitP)return p;
+    changed=true;
+    return{...p,miniProjects:minis};
+  });
+  return changed?next:projects;
+};
+// Undo of a merge: a note goes back to the post only while its images are still
+// exactly what the merge wrote (otherwise it keeps what it has: nothing is lost).
+const bhRelinkNotes=(projects,imagesByPost)=>{
+  let changed=false;
+  const next=(Array.isArray(projects)?projects:[]).map(p=>{
+    if(!p||!Array.isArray(p.miniProjects))return p;
+    let hitP=false;
+    const minis=p.miniProjects.map(m=>{
+      if(!m||!Array.isArray(m.innerNotes))return m;
+      let hit=false;
+      const ns=m.innerNotes.map(n=>{
+        const pid=n&&n.mergedFromPost!=null?String(n.mergedFromPost):'';
+        if(!pid||!imagesByPost.has(pid))return n;
+        hit=true;
+        const own=Array.isArray(n.mergedOwn)?n.mergedOwn:[];
+        const {mergedFromPost,mergedOwn,...rest}=n;
+        const wrote=bhAppendImages(imagesByPost.get(pid),own);
+        const same=JSON.stringify(rest.images||[])===JSON.stringify(wrote);
+        return same?{...rest,images:own,galleryPostId:pid}:rest;
+      });
+      if(!hit)return m;
+      hitP=true;
+      return{...m,innerNotes:ns};
+    });
+    if(!hitP)return p;
+    changed=true;
+    return{...p,miniProjects:minis};
+  });
+  return changed?next:projects;
+};
 // Rich-text fields (task notes, the project's notes, research notes) hold
 // HTML since they use the Anotações editor. Older values are plain text:
 // shown as-is, line breaks kept.
@@ -7041,7 +7132,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
           <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&decayShown(group.key)>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{decayShown(group.key).toLocaleString('pt-BR')} pts</span>}</div>
           {group.rows.length===0&&<div className="rank-session-decay-empty">Nenhuma sessão neste dia.</div>}
-          {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?bhNoteMedia(taskNote.note):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
+          {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?bhNoteMedia(taskNote.note,(galleryPosts||[]).find(p=>p&&taskNote.note.galleryPostId!=null&&String(p.id)===String(taskNote.note.galleryPostId))):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
             <div className="rank-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={opens?'image':'minus'} size={14} style={{opacity:.28}}/>}</div>
             <div><strong>{row.title||row.targetLabel||'Sem categoria'}</strong><span>{[row.targetLabel||'Sem categoria',row.sectionLabel].filter(Boolean).join(' › ')} · {pomoFmtSecs(row.durationSeconds||0)} de foco{taskNote&&<> · {taskNote.mini.title||'Tarefa'}</>}{showPoints&&<> · +{Number(row.pointsAwarded||0)} pts</>}</span></div>
@@ -10540,6 +10631,18 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // A task can be linked to one post of the project's Gallery folder (see
   // bhTaskPostLinks), for time only. galleryPosts here is App's resolved list,
   // so a linked post already carries `linkedTask`.
+  // A session note's Gallery post (see bhNoteImages): its images are the note's.
+  const linkedNotePost=n=>n&&n.galleryPostId!=null&&n.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(n.galleryPostId))||null:null;
+  // Edits the list of images a note shows. Linked: the post's list is the one
+  // written (and whatever the note still holds itself folds into it).
+  const editNoteImages=(note,fn)=>{
+    if(!note)return;
+    const post=linkedNotePost(note);
+    if(!post){updateInnerNote('images',im=>fn(Array.isArray(im)?im:[]),activeMiniId,note.id);return;}
+    const next=fn(bhNoteImages(note,post));
+    setGalleryPosts(prev=>(prev||[]).map(p=>p&&String(p.id)===String(post.id)?{...p,images:next,bannerImage:next.includes(p.bannerImage)?p.bannerImage:(next.find(x=>!isVideoSrc(x))||'')}:p));
+    if((note.images||[]).length)updateInnerNote('images',[],activeMiniId,note.id);
+  };
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
   const projectGalleryFolder=local.galleryFolder?(galleryFolders||[]).find(f=>f&&String(f.id)===String(local.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder]);
@@ -10621,7 +10724,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const deleteInnerNote=async id=>{
     // A session note is the only record of that session's images and text.
     const note=((local.miniProjects||[]).find(m=>String(m.id)===String(activeMiniId))?.innerNotes||[]).find(n=>String(n.id)===String(id));
-    if(note&&Array.isArray(note.sessionIds)&&note.sessionIds.length&&!await bhConfirm({message:'Excluir a nota desta sessão? As imagens e o texto dela saem da tarefa. A sessão continua no histórico de foco.',danger:true,confirmLabel:'Excluir nota'}))return;
+    if(note&&Array.isArray(note.sessionIds)&&note.sessionIds.length&&!await bhConfirm({message:note.galleryPostId!=null&&note.galleryPostId!==''?'Excluir a nota desta sessão? O texto dela sai da tarefa; o post da Galeria continua com as imagens. A sessão continua no histórico de foco.':'Excluir a nota desta sessão? As imagens e o texto dela saem da tarefa. A sessão continua no histórico de foco.',danger:true,confirmLabel:'Excluir nota'}))return;
     mapInnerNotes(activeMiniId,ns=>ns.filter(n=>String(n.id)!==String(id)));
     if(String(activeInnerNoteId)===String(id))setActiveInnerNoteId(null);
   };
@@ -10630,7 +10733,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       {...m,innerNotes:(m.innerNotes||[]).map(n=>String(n.id)===String(noteId)?{...n,images:[...(n.images||[]),...urls]}:n)})}),
     'task.note.upload','Não foi possível adicionar as imagens. Tente novamente.',true);
   // Session notes hold videos too (from the capture dialog).
-  const moveInnerNoteImage=(from,to)=>updateInnerNote('images',im=>bhMoveItem(im||[],from,to));
+  const moveInnerNoteImage=(from,to)=>editNoteImages(((local.miniProjects||[]).find(m=>String(m.id)===String(activeMiniId))?.innerNotes||[]).find(n=>String(n.id)===String(activeInnerNoteId)),l=>bhMoveItem(l,from,to));
   const dragNoteRef=useRef(null);
   const dragOverNoteRef=useRef(null);
   const reorderInnerNotes=(miniId,fromIdx,toIdx)=>{
@@ -11250,7 +11353,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   const list=activeMini.innerNotes||[];
                   return <div className="task-sessions">
                     <span>Sessões e notas ({list.length})</span>
-                    {list.map((n,i)=>{const sum=sessionSummary(n),imgs=bhNoteMedia(n),thumb=imgs.find(x=>!isVideoSrc(x))||imgs[0];return <div key={n.id} className="task-session-row">
+                    {list.map((n,i)=>{const sum=sessionSummary(n),imgs=bhNoteMedia(n,linkedNotePost(n)),thumb=imgs.find(x=>!isVideoSrc(x))||imgs[0];return <div key={n.id} className="task-session-row">
                       <button type="button" className="task-session-open" onClick={()=>setActiveInnerNoteId(n.id)} aria-label={'Abrir '+(n.title||'nota')}>
                         <span className="task-session-thumb">{thumb?(isVideoSrc(thumb)?<Vid src={thumb} muted playsInline preload="metadata"/>:<Img src={thumb}/>):<Icon name={sum?'timer':'file-text'} size={13}/>}</span>
                         <span><strong>{n.title||'Sem título'}</strong><small>{[noteDateLabel(n),sum?pomoFmtSecs(sum.secs)+' de foco':null,imgs.length?imgs.length+(imgs.length===1?' mídia':' mídias'):null].filter(Boolean).join(' · ')}</small></span>
@@ -11272,7 +11375,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     ))}
                   </div>;
                 })()}
-                <ImgClipBar onPaste={srcs=>updateMini('frames',fr=>bhUniqStrings([...(fr||[]),...srcs]))}/>
+                <ImgClipBar onPaste={srcs=>updateMini('frames',fr=>bhAppendImages(fr||[],srcs))}/>
                 <button className="btn btn-outline" style={{alignSelf:'flex-start',padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>miniImgRef.current.click()}>
                   <Icon name="image-plus" size={13}/> Adicionar imagens
                 </button>
@@ -11283,6 +11386,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               const note=innerNotes.find(n=>n.id===activeInnerNoteId)||null;
               if(!note)return null;
               const sum=sessionSummary(note);
+              const notePost=linkedNotePost(note),noteImgs=bhNoteImages(note,notePost);
               return(
                 <>
                   <button type="button" className="btn btn-ghost" onClick={()=>setActiveInnerNoteId(null)} style={{alignSelf:'flex-start',padding:'3px 6px',fontSize:'.74rem',marginBottom:6,maxWidth:'100%'}}><Icon name="arrow-left" size={12}/> <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeMini.title||'Tarefa'}</span></button>
@@ -11315,19 +11419,22 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <RichEditor key={'tasknote-'+note.id} noteId={'tasknote-'+note.id} initialHTML={bhTextToHTML(note.content)} onSave={saveInnerNoteContent} saveTarget={note.id} apiRef={innerNoteEditorApi}
                       placeholder="Notas, análises, referências... Cole imagens aqui."/>
                   </div>
-                  {(note.images||[]).length>0&&(
+                  {note.galleryPostId!=null&&note.galleryPostId!==''&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/><span>{notePost
+                    ?(notePost.deleted?<>O post <strong>{notePost.title||'Sem título'}</strong> desta sessão está na lixeira da Galeria; as imagens abaixo vêm dele.</>:<>As imagens abaixo são as do post <strong>{notePost.title||'Sem título'}</strong> da Galeria: mudar aqui muda lá.</>)
+                    :'O post da Galeria desta sessão não está mais disponível.'}</span></div>}
+                  {noteImgs.length>0&&(
                     <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(auto-fill,minmax(160px,1fr))',gap:isMobile?8:10,marginBottom:14}}>
-                      {(note.images||[]).map((img,i,list)=>(
+                      {noteImgs.map((img,i,list)=>(
                         <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('note',i,moveInnerNoteImage)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                           {isVideoSrc(img)?<Vid src={img} controls playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>:<Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>}
                           <ImgMoveTools index={i} count={list.length} onMove={moveInnerNoteImage}/>
                           <ImgCopyBtn src={img}/>
-                          <button onClick={()=>{updateInnerNote('images',im=>{const imgs=[...(im||[])];imgs.splice(i,1);return imgs;});}} aria-label={'Remover mídia '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
+                          <button onClick={()=>editNoteImages(note,l=>l.filter((_,k)=>k!==i))} aria-label={'Remover mídia '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                         </div>
                       ))}
                     </div>
                   )}
-                  <ImgClipBar onPaste={srcs=>updateInnerNote('images',im=>bhUniqStrings([...(im||[]),...srcs]))}/>
+                  <ImgClipBar onPaste={srcs=>editNoteImages(note,l=>bhAppendImages(l,srcs))}/>
                   <label style={{alignSelf:'flex-start'}}>
                     <button className="btn btn-outline" style={{padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>document.getElementById('inner-note-img-'+activeInnerNoteId)?.click()}>
                       <Icon name="image-plus" size={13}/> Adicionar imagens
@@ -11408,7 +11515,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     ))}
                   </div>
                 )}
-                <ImgClipBar onPaste={srcs=>mapResearch(activeResearchId,n=>({...n,images:bhUniqStrings([...(n.images||[]),...srcs])}))}/>
+                <ImgClipBar onPaste={srcs=>mapResearch(activeResearchId,n=>({...n,images:bhAppendImages(n.images||[],srcs)}))}/>
                 <button className="btn btn-outline" style={{alignSelf:'flex-start',padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>researchImgRef.current.click()}>
                   <Icon name="image-plus" size={13}/> Adicionar imagens
                 </button>
@@ -11450,7 +11557,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               {galleryPopupEditing
                 ?<textarea value={galleryPopup.content||''} onChange={e=>updateGalleryPopup('content',e.target.value)} placeholder="Notas da sessão (opcional)" style={{width:'100%',boxSizing:'border-box',minHeight:84,resize:'vertical',border:'1px solid var(--field-border)',borderRadius:9,padding:'11px 13px',background:'var(--bg)',color:'var(--text)',font:'400 .88rem Alegreya Sans,sans-serif',lineHeight:1.6,outline:'none',margin:'0 0 16px'}}/>
                 :galleryPopup.content&&<p style={{fontSize:'.9rem',lineHeight:1.7,color:'var(--text)',margin:'0 0 16px',whiteSpace:'pre-wrap'}}>{galleryPopup.content}</p>}
-              {galleryPopupEditing&&<ImgClipBar onPaste={srcs=>mapPopupPost(post=>{const images=bhUniqStrings([...(Array.isArray(post.images)?post.images:[]),...srcs]);return{...post,images,bannerImage:post.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>}
+              {galleryPopupEditing&&<ImgClipBar onPaste={srcs=>mapPopupPost(post=>{const images=bhAppendImages(Array.isArray(post.images)?post.images:[],srcs);return{...post,images,bannerImage:post.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>}
               {(galleryPopup.images||[]).length>0&&(
                 <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:isMobile?8:12}}>
                   {(galleryPopup.images||[]).map((img,i,list)=>(
@@ -11782,7 +11889,7 @@ const DeckNav=({index,count,onPrev,onNext,caption})=>(
 );
 // Click on the left / right half of a viewer's picture: dir -1 / +1.
 const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
-const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
+const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -12221,7 +12328,11 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     setPosts(p=>p.map(x=>String(x.id)===String(id)?{...x,deleted:false,deletedAt:null,...(target?{folder:target.id}:{})}:x));
     if(target)bhAlert(`A pasta original deste post não está disponível (lixeira ou arquivo). Ele foi restaurado em “${target.label}”.`);
   };
-  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){setPosts(p=>p.filter(x=>String(x.id)!==String(id)));}};
+  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){
+    // Notes linked to this post keep the images it had (as individual notes).
+    const gone=(posts||[]).find(x=>x&&String(x.id)===String(id));
+    if(gone)onPostsPurged?.([gone]);
+    setPosts(p=>p.filter(x=>String(x.id)!==String(id)));}};
 
   const clearGalleryDragMarks=()=>document.querySelectorAll('.drag-over,.drag-over-left,.drag-before,.drag-after').forEach(el=>el.classList.remove('drag-over','drag-over-left','drag-before','drag-after'));
   const formatPostDate=date=>{try{const d=new Date(String(date||'').slice(0,10)+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace('.','');}catch{return date||'';}};
@@ -12382,12 +12493,12 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     const removed=new Set(r.removedIds),all=new Set([r.keepId,...r.removedIds]);
     // The posts as they are now, for Ctrl+Z.
     const before=[];
-    (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:p});});
+    (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:(({taskFolder,...rest})=>rest)(p)});}); // the stored post, without the view's task folder
     _galleryMergeUndo.push({keepId:r.keepId,removedIds:r.removedIds,before,after:{title:name,images:r.images,content:r.content}});
     if(_galleryMergeUndo.length>20)_galleryMergeUndo.shift();
     // United into the chosen post: the others are gone (no trash); Ctrl+Z restores them.
     setPosts(prev=>prev.filter(p=>!(p&&removed.has(String(p.id)))).map(p=>String(p.id)===r.keepId?{...p,title:name,images:r.images,content:r.content,date:r.date,bannerImage:r.bannerImage,...(r.sourceSessionIds.length?{sourceSessionIds:r.sourceSessionIds}:null),...(r.sourceTargetKeys.length?{sourceTargetKeys:r.sourceTargetKeys}:null)}:p));
-    onPostsMerged?.({keepId:r.keepId,removedIds:r.removedIds,undo:false});
+    onPostsMerged?.({keepId:r.keepId,removedIds:r.removedIds,undo:false,before:before.map(b=>b.post)});
     setSelIds(new Set());setMergeDraft(null);
     clearTimeout(undoToastTimerRef.current);setUndoToast(r.removedIds.length+1);
     undoToastTimerRef.current=setTimeout(()=>setUndoToast(null),10000);
@@ -12415,7 +12526,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         .forEach(b=>{next.splice(Math.min(b.index,next.length),0,b.post);});
       return next;
     });
-    onPostsMerged?.({keepId:e.keepId,removedIds:e.removedIds,undo:true});
+    onPostsMerged?.({keepId:e.keepId,removedIds:e.removedIds,undo:true,before:e.before.map(b=>b.post)});
     clearTimeout(undoToastTimerRef.current);setUndoToast(null);
     return true;
   };
@@ -12551,6 +12662,11 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
             style={{border:'1px solid var(--field-border)',borderRadius:8,padding:'6px 12px',fontSize:'.82rem',outline:'none',color:'var(--text)',backgroundColor:'var(--bg)',cursor:'pointer'}}/>
         </div>
         </div>
+        {selected.taskFolder&&!selected.linkedTask&&<div className="gallery-linked-note">
+          <Icon name="folder" size={13} style={{flexShrink:0}}/>
+          <span style={{flex:'1 1 220px'}}>Aponta para a pasta da tarefa <strong>{selected.taskFolder.taskTitle}</strong> ({selected.taskFolder.projectTitle}). As notas das sessões ficam lá.</span>
+          {onOpenTask&&<button type="button" className="gallery-chip" onClick={()=>onOpenTask(selected.taskFolder.projectId,selected.taskFolder.taskId)}><Icon name="external-link" size={11}/> Abrir tarefa</button>}
+        </div>}
         {selected.linkedTask&&<div className="gallery-linked-note">
           <Icon name="list-checks" size={13} style={{flexShrink:0}}/>
           <span style={{flex:'1 1 220px'}}>Ligado à tarefa <strong>{selected.linkedTask.taskTitle}</strong> ({selected.linkedTask.projectTitle}) pelo tempo. As imagens deste post são só dele.</span>
@@ -12558,7 +12674,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         </div>}
         <textarea value={selected.content} onChange={e=>upd('content',e.target.value)} placeholder="Análise, insights, observações..."
           style={{width:'100%',border:'1px solid var(--field-border)',borderRadius:10,padding:'16px 20px',fontSize:'.92rem',outline:'none',resize:'vertical',minHeight:160,fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',backgroundColor:'var(--bg)',marginBottom:24}}/>
-        <ImgClipBar onPaste={srcs=>updPost(selected.id,p=>{const images=bhUniqStrings([...p.images,...srcs]);return{...p,images,bannerImage:p.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>
+        <ImgClipBar onPaste={srcs=>updPost(selected.id,p=>{const images=bhAppendImages(p.images,srcs);return{...p,images,bannerImage:p.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>
         <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
           {selected.images.map((img,i,list)=>(
             <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('gallery',i,moveImg)}
@@ -13543,7 +13659,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const acceptRemote=()=>{
     if(!remoteConflict||!ref.current)return;
     clearTimeout(saveTimer.current);pendingSaveRef.current=false;
-    loadHTML(remoteConflict.html);
+    dropUndo();loadHTML(remoteConflict.html);
     lastEmittedRef.current=remoteConflict.html;dirtyRef.current=false;setRemoteConflict(null);
   };
   const keepLocal=()=>{
@@ -13876,6 +13992,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const deleteToolsImage=()=>{
     const el=toolsEl,ed=ref.current;if(!el||!ed||!el.isConnected||!ed.contains(el))return;
     const snapshot=serializedHTML();
+    const uploading=!!ed.querySelector('.note-image-loading'); // the snapshot cannot hold a running upload
     const cell=el.closest('.note-image-cell'),grid=el.closest('.note-image-grid');
     if(cell&&grid&&ed.contains(grid)){cell.remove();_normalizeNoteGrid(grid);}
     else{
@@ -13884,13 +14001,16 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       if(parent&&parent!==ed&&/^(?:DIV|P)$/.test(parent.tagName)&&!/note-all-\d/.test(parent.className)&&!parent.textContent.trim()&&!parent.querySelector('img,video,iframe,.note-image-grid,.note-embed'))parent.remove();
     }
     setToolsEl(null);setResizeEl(null);setCapImg(null);
-    undoSnapRef.current=snapshot;setUndoDel(true);
-    clearTimeout(undoTimerRef.current);undoTimerRef.current=setTimeout(dropUndo,8000);
+    if(uploading)dropUndo();
+    else{undoSnapRef.current=snapshot;setUndoDel(true);clearTimeout(undoTimerRef.current);undoTimerRef.current=setTimeout(dropUndo,8000);}
     emit();
   };
   const undoDelete=()=>{
     const snap=undoSnapRef.current;if(snap==null||!ref.current)return;
-    dropUndo();loadHTML(snap);emit();
+    const busy=!!ref.current.querySelector('.note-image-loading');
+    dropUndo();
+    if(busy)return; // an image is being added: putting the old note back would lose it
+    loadHTML(snap);emit();
   };
   // Pastes the copied images where the caret is (a caret inside a grid image's
   // text goes after that grid), each as its own image.
@@ -14152,7 +14272,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         if(t.closest('img,video,.note-image-grid')&&!t.closest('.note-cell-text'))sel.removeAllRanges();
         return;
       }
-      if(t.closest('.rich-toolbar-btn,.note-size-wrap,.note-cap-btn,.note-img-tools,.note-resize-frame,.note-drop-bar,[role=dialog],[role=menu]'))return;
+      if(t.closest('.rich-toolbar-btn,.note-size-wrap,.note-cap-btn,.note-img-tools,.note-clip-chip,.note-undo-bar,.note-resize-frame,.note-drop-bar,[role=dialog],[role=menu]'))return;
       sel.removeAllRanges();
     };
     document.addEventListener('pointerdown',onDown,true);
@@ -17102,22 +17222,36 @@ const App=()=>{
   // and its task's name are the same, so typing in a task does not re-render
   // the Gallery's cards.
   const taskPostLinks=useMemo(()=>bhTaskPostLinks(projects),[projects]);
+  const noteLinks=useMemo(()=>bhNotePostLinks(projects),[projects]);
   const _linkedViewCache=useRef(new Map());
   const galleryPostsView=useMemo(()=>{
-    if(!taskPostLinks.size){_linkedViewCache.current=new Map();return galleryPosts;}
+    if(!taskPostLinks.size&&!noteLinks.size&&!galleryPosts.some(p=>p&&p.taskRef)){_linkedViewCache.current=new Map();return galleryPosts;}
     const cache=new Map();
+    // The task folder a post points at: where a session note is linked to it, or
+    // the task it was merged under (post.taskRef).
+    const folderOf=post=>{
+      const ref=post.taskRef||(noteLinks.get(String(post.id))||[])[0];
+      if(!ref)return null;
+      const project=projects.find(p=>p&&String(p.id)===String(ref.projectId));
+      const mini=project&&(project.miniProjects||[]).find(m=>m&&String(m.id)===String(ref.taskId));
+      if(!project||!mini)return null;
+      return{projectId:String(project.id),taskId:String(mini.id),taskTitle:mini.title||'Sem título',projectTitle:project.title||'Projeto'};
+    };
     const out=galleryPosts.map(post=>{
-      const link=post&&taskPostLinks.get(String(post.id));
-      if(!link)return post;
-      const sig=link.projectId+'\u0001'+link.taskId+'\u0001'+link.taskTitle+'\u0001'+link.projectTitle+'\u0001'+(link.archived?1:0);
+      if(!post)return post;
+      const link=taskPostLinks.get(String(post.id)),folder=folderOf(post);
+      if(!link&&!folder)return post;
+      const sig=(link?link.projectId+'\u0001'+link.taskId+'\u0001'+link.taskTitle+'\u0001'+link.projectTitle+'\u0001'+(link.archived?1:0):'-')+'\u0002'+(folder?folder.projectId+'\u0001'+folder.taskId+'\u0001'+folder.taskTitle+'\u0001'+folder.projectTitle:'-');
       const hit=_linkedViewCache.current.get(String(post.id));
-      const view=hit&&hit.post===post&&hit.sig===sig?hit.view:bhLinkedPostView(post,link);
+      let view;
+      if(hit&&hit.post===post&&hit.sig===sig)view=hit.view;
+      else{view=link?bhLinkedPostView(post,link):post;if(folder)view={...view,taskFolder:folder};}
       cache.set(String(post.id),{post,sig,view});
       return view;
     });
     _linkedViewCache.current=cache;
     return out;
-  },[galleryPosts,taskPostLinks]);
+  },[galleryPosts,taskPostLinks,noteLinks,projects]);
   const rankReceiptScope=fbUser?.uid||(()=>{try{return localStorage.getItem(LOCAL_OWNER_UID_KEY)||'local';}catch(e){return 'local';}})();
   const [rankReceiptRevision,setRankReceiptRevision]=useState(0);
   useEffect(()=>{
@@ -17204,8 +17338,22 @@ const App=()=>{
       const taskId=String(task?task.id:session.taskId);
       const noteId='session-note-'+session.id;
       const images=Array.isArray(session.images)?session.images:[];
+      // The session also gets its own Gallery post in the project's folder (in its
+      // section, so the time keeps counting there). The note and the post are
+      // linked: the session's images live in the post and the note shows them
+      // (see bhNoteImages). The id is derived from the session, so a retry (or
+      // another device) finds the same post. A project with no Gallery folder
+      // keeps the images in the note.
+      const sessionFolder=project.galleryFolder?String(project.galleryFolder):'';
+      const sessionPostId=sessionFolder?'session-post-'+session.id:null;
       const note={id:noteId,title:session.title||'Sessão',content:session.note||'',
-        images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)]};
+        images:sessionPostId?[]:images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)],
+        ...(sessionPostId?{galleryPostId:sessionPostId}:{})};
+      const sessionPost=sessionPostId?{
+        id:sessionPostId,folder:sessionFolder,storageScope:'gallery',projectId:null,title:note.title,date:day,
+        content:session.note||'',images:[...images],bannerImage:images.find(x=>!isVideoSrc(x))||'',deleted:false,
+        sourceSessionId:session.id,sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],
+        sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:[taskId]}:null;
       // Linking the task to a Gallery post from the modal (for time only, no
       // images change hands): a new post in the project's folder, or a post of
       // that folder no task is linked to yet.
@@ -17223,7 +17371,7 @@ const App=()=>{
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the
       // post its task is linked to.
-      const filedPostId=session.targetType==='project'?null:(linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
+      const filedPostId=session.targetType==='project'?null:(sessionPostId||linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
       setProjects(prev=>prev.map(p=>{
         if(!p||String(p.id)!==projectId)return p;
         let projectTasks=p.projectTasks||[];const miniProjects=[...(p.miniProjects||[])];
@@ -17236,6 +17384,11 @@ const App=()=>{
         return{...p,projectTasks,miniProjects};
       }));
       if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
+      if(sessionPost){
+        setGalleryPosts(prev=>(prev||[]).some(x=>x&&String(x.id)===sessionPostId)?prev:[sessionPost,...(prev||[])]);
+        const sec=project.gallerySection?String(project.gallerySection):(session.sectionId?String(session.sectionId):'');
+        if(sec)placePostInSection(sessionFolder,sessionPostId,sec);
+      }
       // The task's new post lands in the project's linked section (or the one the
       // session was filed under), or it would sit above every section, outside the
       // scope the project counts time for.
@@ -18181,9 +18334,29 @@ const App=()=>{
   },[]);
   // Gallery posts merged into one: sessions and projects that pointed at a
   // removed post now point at the surviving one.
-  const handlePostsMerged=useCallback(({keepId,removedIds,undo})=>{
+  // Posts deleted for good: their linked notes keep the images as individual notes.
+  const handlePostsPurged=useCallback(posts=>{
+    const imagesByPost=new Map((posts||[]).filter(Boolean).map(post=>[String(post.id),Array.isArray(post.images)?post.images:[]]));
+    if(imagesByPost.size)setProjects(prev=>bhMaterializeNotes(prev,imagesByPost));
+  },[]);
+  const handlePostsMerged=useCallback(({keepId,removedIds,undo,before})=>{
     const gone=new Set((removedIds||[]).map(String));
     if(!gone.size)return;
+    // Session notes linked to these posts stay individual notes (each keeps the
+    // images its post had); the merged post points at the task's folder instead
+    // (post.taskRef). Undo links the notes back where nothing changed since.
+    const imagesByPost=new Map((Array.isArray(before)?before:[]).filter(Boolean).map(post=>[String(post.id),Array.isArray(post.images)?post.images:[]]));
+    if(imagesByPost.size){
+      if(undo){
+        setProjects(prev=>bhRelinkNotes(prev,imagesByPost));
+        setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===String(keepId)&&p.taskRef&&p.taskRef.viaMerge?(({taskRef,...rest})=>rest)(p):p));
+      }else{
+        const linked=bhNotePostLinks(_latestState.current.projects);
+        const hit=[keepId,...gone].map(id=>(linked.get(String(id))||[])[0]).find(Boolean);
+        setProjects(prev=>bhMaterializeNotes(prev,imagesByPost));
+        if(hit)setGalleryPosts(prev=>prev.map(p=>p&&String(p.id)===String(keepId)&&!p.taskRef?{...p,taskRef:{projectId:hit.projectId,taskId:hit.taskId,viaMerge:true}}:p));
+      }
+    }
     // Rows and projects that pointed at a removed post follow it to the surviving
     // one. Every move is kept as {from,into} in a list, so chained merges (A into
     // B, then B into C) can be undone one by one.
@@ -18504,7 +18677,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
