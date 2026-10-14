@@ -16933,7 +16933,6 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             {/* Once the account has it, every device follows it automatically: the
                 button only exists for an account that was never switched over. */}
             {!bhEntityModes.has(fbUser.uid)&&<button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>}
-            <AgendaExportCard uid={fbUser.uid}/>
             {syncStatus==='error'&&(
               <button className="btn btn-danger" style={{width:'100%',justifyContent:'center'}} onClick={handleDiscardLocal} disabled={loading}>
                 <Icon name="cloud-download" size={14}/> Descartar locais e puxar da nuvem
@@ -17111,6 +17110,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
           </div>
         </div>;
       })()}
+
+      {/* Agenda export: needs the signed-in account (it only sends what that account has synced). */}
+      {fbUser&&<div style={{marginBottom:10}}><AgendaExportCard uid={fbUser.uid}/></div>}
 
       {/* Danger zone */}
       <div style={{borderTop:'1px solid var(--border)',paddingTop:12}}>
