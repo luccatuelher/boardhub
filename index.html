@@ -1283,7 +1283,14 @@ const _purgeTrash=s=>{
   (Array.isArray(s.projects)?s.projects:[])
     .filter(p=>p&&(remains(p)||keepProjects.has(String(p.id))))
     .forEach(p=>(p.mentors||[]).forEach(id=>keepMentors.add(String(id))));
-  const protectedByKey={notes:keepNotes,galleryFolders:keepFolders,projects:keepProjects,mentors:keepMentors};
+  // A post a session note is linked to holds that note's images: it stays in the
+  // trash (restorable) instead of being purged with them.
+  const keepPosts=new Set();
+  (Array.isArray(s.projects)?s.projects:[]).forEach(p=>{
+    const minis=[...(Array.isArray(p?.miniProjects)?p.miniProjects:[]),...(Array.isArray(p?.taskTrash)?p.taskTrash.map(e=>e?.mini):[])];
+    minis.forEach(m=>(Array.isArray(m?.innerNotes)?m.innerNotes:[]).forEach(n=>{if(n&&n.galleryPostId!=null&&String(n.galleryPostId)!=='')keepPosts.add(String(n.galleryPostId));}));
+  });
+  const protectedByKey={notes:keepNotes,galleryFolders:keepFolders,projects:keepProjects,mentors:keepMentors,galleryPosts:keepPosts};
   const prune=(arr,key)=>Array.isArray(arr)?arr.map(x=>{
     if(x&&x.deleted&&!x.deletedAt)return{...x,deletedAt:new Date().toISOString()};
     return x;
@@ -1418,66 +1425,6 @@ const bhNotePostLinks=projects=>{
   });
   return links;
 };
-// Posts leaving the Gallery for good, or being merged into another: the notes
-// linked to them become individual notes that keep the images the post had
-// (`imagesByPost`: postId -> images as they were). The note remembers where it
-// came from (mergedFromPost, mergedOwn) so an undo can link it back.
-const bhMaterializeNotes=(projects,imagesByPost)=>{
-  let changed=false;
-  const next=(Array.isArray(projects)?projects:[]).map(p=>{
-    if(!p||!Array.isArray(p.miniProjects))return p;
-    let hitP=false;
-    const minis=p.miniProjects.map(m=>{
-      if(!m||!Array.isArray(m.innerNotes))return m;
-      let hit=false;
-      const ns=m.innerNotes.map(n=>{
-        const pid=n&&n.galleryPostId!=null?String(n.galleryPostId):'';
-        if(!pid||!imagesByPost.has(pid))return n;
-        hit=true;
-        const own=Array.isArray(n.images)?n.images:[];
-        const {galleryPostId,...rest}=n;
-        return{...rest,images:bhAppendImages(imagesByPost.get(pid),own),mergedFromPost:pid,mergedOwn:own};
-      });
-      if(!hit)return m;
-      hitP=true;
-      return{...m,innerNotes:ns};
-    });
-    if(!hitP)return p;
-    changed=true;
-    return{...p,miniProjects:minis};
-  });
-  return changed?next:projects;
-};
-// Undo of a merge: a note goes back to the post only while its images are still
-// exactly what the merge wrote (otherwise it keeps what it has: nothing is lost).
-const bhRelinkNotes=(projects,imagesByPost)=>{
-  let changed=false;
-  const next=(Array.isArray(projects)?projects:[]).map(p=>{
-    if(!p||!Array.isArray(p.miniProjects))return p;
-    let hitP=false;
-    const minis=p.miniProjects.map(m=>{
-      if(!m||!Array.isArray(m.innerNotes))return m;
-      let hit=false;
-      const ns=m.innerNotes.map(n=>{
-        const pid=n&&n.mergedFromPost!=null?String(n.mergedFromPost):'';
-        if(!pid||!imagesByPost.has(pid))return n;
-        hit=true;
-        const own=Array.isArray(n.mergedOwn)?n.mergedOwn:[];
-        const {mergedFromPost,mergedOwn,...rest}=n;
-        const wrote=bhAppendImages(imagesByPost.get(pid),own);
-        const same=JSON.stringify(rest.images||[])===JSON.stringify(wrote);
-        return same?{...rest,images:own,galleryPostId:pid}:rest;
-      });
-      if(!hit)return m;
-      hitP=true;
-      return{...m,innerNotes:ns};
-    });
-    if(!hitP)return p;
-    changed=true;
-    return{...p,miniProjects:minis};
-  });
-  return changed?next:projects;
-};
 // Rich-text fields (task notes, the project's notes, research notes) hold
 // HTML since they use the Anotações editor. Older values are plain text:
 // shown as-is, line breaks kept.
@@ -1508,6 +1455,53 @@ const bhTaskPostLinks=projects=>{
 // What every view reads for a linked post: the post itself plus which task it is linked to.
 const bhLinkedPostView=(post,link)=>({...post,
   linkedTask:{projectId:link.projectId,taskId:link.taskId,taskTitle:link.taskTitle,projectTitle:link.projectTitle,archived:link.archived}});
+// Applies `fn` (note -> note) to every task note, in live tasks and in tasks in
+// the task trash. Returns the same array when no note changed.
+const bhMapTaskNotes=(projects,fn)=>{
+  let changed=false;
+  const mapMini=m=>{
+    if(!m||!Array.isArray(m.innerNotes))return m;
+    let hit=false;
+    const ns=m.innerNotes.map(n=>{const out=fn(n);if(out!==n)hit=true;return out;});
+    return hit?{...m,innerNotes:ns}:m;
+  };
+  const next=(Array.isArray(projects)?projects:[]).map(p=>{
+    if(!p)return p;
+    let out=p;
+    if(Array.isArray(p.miniProjects)){
+      const minis=p.miniProjects.map(mapMini);
+      if(minis.some((m,i)=>m!==p.miniProjects[i]))out={...out,miniProjects:minis};
+    }
+    if(Array.isArray(p.taskTrash)){
+      const trash=p.taskTrash.map(e=>{const m=e&&e.mini?mapMini(e.mini):null;return m&&m!==e.mini?{...e,mini:m}:e;});
+      if(trash.some((e,i)=>e!==p.taskTrash[i]))out={...out,taskTrash:trash};
+    }
+    if(out!==p)changed=true;
+    return out;
+  });
+  return changed?next:projects;
+};
+// Posts leaving the Gallery for good, or being merged into another: the notes
+// linked to them become individual notes that keep the images the post had
+// (`imagesByPost`: postId -> images as they were). The note remembers where it
+// came from (mergedFromPost, mergedOwn) so an undo can link it back.
+const bhMaterializeNotes=(projects,imagesByPost)=>bhMapTaskNotes(projects,n=>{
+  const pid=n&&n.galleryPostId!=null?String(n.galleryPostId):'';
+  if(!pid||!imagesByPost.has(pid))return n;
+  const own=Array.isArray(n.images)?n.images:[];
+  const {galleryPostId,...rest}=n;
+  return{...rest,images:bhAppendImages(imagesByPost.get(pid),own),mergedFromPost:pid,mergedOwn:own};
+});
+// Undo of a merge: a note goes back to the post only while its images are still
+// exactly what the merge wrote (otherwise it keeps what it has: nothing is lost).
+const bhRelinkNotes=(projects,imagesByPost)=>bhMapTaskNotes(projects,n=>{
+  const pid=n&&n.mergedFromPost!=null?String(n.mergedFromPost):'';
+  if(!pid||!imagesByPost.has(pid))return n;
+  const own=Array.isArray(n.mergedOwn)?n.mergedOwn:[];
+  const {mergedFromPost,mergedOwn,...rest}=n;
+  const wrote=bhAppendImages(imagesByPost.get(pid),own);
+  return JSON.stringify(rest.images||[])===JSON.stringify(wrote)?{...rest,images:own,galleryPostId:pid}:rest;
+});
 // @bh-test-end tasklinks
 // Where a task note is now (it may have been moved to another task): live
 // projects only.
@@ -10226,7 +10220,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -10326,6 +10320,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const postId=galleryPopupId;
     const confirmed=await bhConfirm({message:'Excluir este post do projeto permanentemente? A sessão continuará no histórico.',danger:true,confirmLabel:'Excluir post'});
     if(!confirmed)return;
+    if(galleryPopup)onPostsPurged?.([galleryPopup]);
     setGalleryPosts(prev=>(prev||[]).filter(post=>String(post.id)!==postId));
     setGalleryPopup(null);
     setGalleryPopupEditing(false);
@@ -10639,8 +10634,12 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(!note)return;
     const post=linkedNotePost(note);
     if(!post){updateInnerNote('images',im=>fn(Array.isArray(im)?im:[]),activeMiniId,note.id);return;}
-    const next=fn(bhNoteImages(note,post));
-    setGalleryPosts(prev=>(prev||[]).map(p=>p&&String(p.id)===String(post.id)?{...p,images:next,bannerImage:next.includes(p.bannerImage)?p.bannerImage:(next.find(x=>!isVideoSrc(x))||'')}:p));
+    // Applied to the post as it is when the update runs, so an upload that finished meanwhile is not overwritten.
+    setGalleryPosts(prev=>(prev||[]).map(p=>{
+      if(!p||String(p.id)!==String(post.id))return p;
+      const next=fn(bhAppendImages(Array.isArray(p.images)?p.images:[],note.images));
+      return{...p,images:next,bannerImage:next.includes(p.bannerImage)?p.bannerImage:(next.find(x=>!isVideoSrc(x))||'')};
+    }));
     if((note.images||[]).length)updateInnerNote('images',[],activeMiniId,note.id);
   };
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
@@ -17352,8 +17351,10 @@ const App=()=>{
       const sessionPost=sessionPostId?{
         id:sessionPostId,folder:sessionFolder,storageScope:'gallery',projectId:null,title:note.title,date:day,
         content:session.note||'',images:[...images],bannerImage:images.find(x=>!isVideoSrc(x))||'',deleted:false,
-        sourceSessionId:session.id,sourceSessionIds:[session.id],sourceTargetKey:session.targetKey||'none',sourceTargetKeys:[session.targetKey||'none'],
-        sourceTargetType:session.targetType||'other',sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:[taskId]}:null;
+        sourceSessionId:session.id,sourceSessionIds:[session.id],
+        // never a project key: a post carrying one reads as a project post and is re-scoped away from the Gallery
+        sourceTargetKey:session.targetType==='project'?'none':(session.targetKey||'none'),sourceTargetKeys:[session.targetType==='project'?'none':(session.targetKey||'none')],
+        sourceTargetType:session.targetType==='project'?'other':(session.targetType||'other'),sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:[taskId]}:null;
       // Linking the task to a Gallery post from the modal (for time only, no
       // images change hands): a new post in the project's folder, or a post of
       // that folder no task is linked to yet.
@@ -17371,7 +17372,7 @@ const App=()=>{
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the
       // post its task is linked to.
-      const filedPostId=session.targetType==='project'?null:(sessionPostId||linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
+      const filedPostId=session.targetType==='project'?null:(linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null)||sessionPostId);
       setProjects(prev=>prev.map(p=>{
         if(!p||String(p.id)!==projectId)return p;
         let projectTasks=p.projectTasks||[];const miniProjects=[...(p.miniProjects||[])];
@@ -18676,7 +18677,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}

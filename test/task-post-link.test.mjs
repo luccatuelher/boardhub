@@ -108,3 +108,13 @@ test('repeated frames are kept (storyboard holds); only pasted ones already ther
   const out = bhMaterializeNotes([linkedProject()], new Map([['post1', ['a.png', 'a.png']]]));
   assert.deepEqual(out[0].miniProjects[0].innerNotes[0].images, ['a.png', 'a.png']);
 });
+
+test('notes in trashed tasks are materialized and relinked too', () => {
+  const projects = [linkedProject()];
+  const imgs = new Map([['post9', ['z.png']]]);
+  const out = bhMaterializeNotes(projects, imgs);
+  const n9 = out[0].taskTrash[0].mini.innerNotes[0];
+  assert.equal(n9.galleryPostId, undefined);
+  assert.deepEqual(n9.images, ['z.png']);
+  assert.equal(bhRelinkNotes(out, imgs)[0].taskTrash[0].mini.innerNotes[0].galleryPostId, 'post9');
+});
