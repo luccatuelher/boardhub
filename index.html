@@ -9627,7 +9627,7 @@ const bhDuplicateProject=p0=>{
     projectTasks:sourceTasks.map(({fromNote,...t})=>({...t,id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
     // content, and a Gallery post is linked to one task only: neither is copied.
-    miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
+    miniProjects:sourceMinis.map(({galleryPostId,...m})=>({...m,id:idMap.get(String(m.id)),status:'Pendente',...(Array.isArray(m.subTasks)?{subTasks:m.subTasks.map(x=>({...x,status:'Pendente'}))}:{}),innerNotes:(m.innerNotes||[]).filter(n=>!(Array.isArray(n?.sessionIds)&&n.sessionIds.length)).map(n=>({...n,id:bhNewId()}))}))};
 };
 // @bh-test-end dup
 const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,galleryPosts,setGalleryPosts,galleryFolders})=>{
@@ -10647,7 +10647,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       return{...prev,projectTasks:(prev.projectTasks||[]).filter(t=>String(t.id)!==String(taskId)),miniProjects:(prev.miniProjects||[]).filter(m=>String(m.id)!==String(taskId)),taskTrash:[entry,...(prev.taskTrash||[])]};
     });
     setActiveMiniId(current=>String(current)===String(taskId)?null:current);
-    setActiveInnerNoteId(null);
+    setActiveInnerNoteId(null);setActiveSubId(null);
   };
   const deleteMini=id=>{
     archiveTask(id);
@@ -10662,7 +10662,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       miniProjects:(prev.miniProjects||[]).some(m=>String(m.id)===String(task.id))?(prev.miniProjects||[]):[...(prev.miniProjects||[]),mini],
       taskTrash:(prev.taskTrash||[]).filter(t=>t!==entry&&t.id!==entry.id)
     }));
-    setShowTaskTrash(false);setActiveMiniId(task.id);setActiveInnerNoteId(null);
+    setShowTaskTrash(false);setActiveMiniId(task.id);setActiveInnerNoteId(null);setActiveSubId(null);
   };
   const purgeTask=async entry=>{
     if(!entry)return;
@@ -10765,7 +10765,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       const mini=(local.miniProjects||[]).find(m=>m&&String(m.id)===String(focus.taskId));
       if(mini){
         const note=focus.noteId!=null?(mini.innerNotes||[]).find(n=>n&&String(n.id)===String(focus.noteId)):null;
-        setShowTaskTrash(false);setActiveMiniId(mini.id);setActiveInnerNoteId(note?note.id:null);
+        setShowTaskTrash(false);setActiveMiniId(mini.id);setActiveSubId(note&&note.subTaskId?note.subTaskId:null);setActiveInnerNoteId(note?note.id:null);
         setExpandedMiniIds(s=>{if(s.has(mini.id))return s;const n=new Set(s);n.add(mini.id);return n;});
       }
     }
@@ -10801,7 +10801,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(miniId==null)return;
     const n={id:bhNewId(),title:'Nova nota',content:'',url:'',images:[],createdAt:new Date().toLocaleDateString('pt-BR'),...(subId?{subTaskId:String(subId)}:{})};
     mapInnerNotes(miniId,ns=>[...ns,n]);
-    setActiveMiniId(miniId);setActiveInnerNoteId(n.id);
+    setActiveMiniId(miniId);setActiveSubId(subId?String(subId):null);setActiveInnerNoteId(n.id);
   };
   const updateInnerNote=(field,val,miniId=activeMiniId,noteId=activeInnerNoteId)=>
     mapInnerNotes(miniId,ns=>ns.map(n=>String(n.id)===String(noteId)?{...n,[field]:typeof val==='function'?val(n[field]):val}:n));
@@ -10961,7 +10961,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               <GanttTimeline
                 tasks={autoLateTasks}
                 onUpdateTasks={updateTimelineTasks}
-                onTaskClick={(id)=>{setShowTimelineModal(false);setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);}}
+                onTaskClick={(id)=>{setShowTimelineModal(false);setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);setActiveSubId(null);}}
                 onSyncAdd={addTimelineTaskCard}
                 onSyncDelete={archiveTask}
                 projectStart={local.startDate}
@@ -11002,7 +11002,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           onUpdateTasks={updateTimelineTasks}
           projectStart={local.startDate}
           projectEnd={local.deadline}
-          onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);window.scrollTo({top:document.body.scrollHeight,behavior:bhScrollBehavior()});}}
+          onTaskClick={(id)=>{setTab('Tarefas');setActiveMiniId(id);setActiveInnerNoteId(null);setActiveSubId(null);window.scrollTo({top:document.body.scrollHeight,behavior:bhScrollBehavior()});}}
           onSyncAdd={addTimelineTaskCard}
           onSyncDelete={archiveTask}
           projectId={local.id}
@@ -11282,7 +11282,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           {(!isMobile||(isMobile&&!activeMiniId))&&(
           <div style={{width:isMobile?'100%':210,flexShrink:0,display:'flex',flexDirection:'column',gap:4}}>
             <button className="btn btn-dark" style={{width:'100%',justifyContent:'center',marginBottom:6}} onClick={addMini}><Icon name="plus" size={13}/> Nova Tarefa</button>
-            <button className={`btn ${showTaskTrash?'btn-danger':'btn-outline'}`} style={{width:'100%',justifyContent:'center',marginBottom:6,padding:'6px 10px',fontSize:'.76rem'}} onClick={()=>{setShowTaskTrash(v=>!v);setActiveMiniId(null);setActiveInnerNoteId(null);}}><Icon name="trash-2" size={12}/> {showTaskTrash?'Voltar às tarefas':'Lixeira'}{(local.taskTrash||[]).length>0&&` (${(local.taskTrash||[]).length})`}</button>
+            <button className={`btn ${showTaskTrash?'btn-danger':'btn-outline'}`} style={{width:'100%',justifyContent:'center',marginBottom:6,padding:'6px 10px',fontSize:'.76rem'}} onClick={()=>{setShowTaskTrash(v=>!v);setActiveMiniId(null);setActiveInnerNoteId(null);setActiveSubId(null);}}><Icon name="trash-2" size={12}/> {showTaskTrash?'Voltar às tarefas':'Lixeira'}{(local.taskTrash||[]).length>0&&` (${(local.taskTrash||[]).length})`}</button>
             {showTaskTrash
               ?<div className="task-trash-list">
                 {(local.taskTrash||[]).length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>A lixeira está vazia.</div>}
@@ -11301,7 +11301,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
             {(local.miniProjects||[]).length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'8px 4px',textAlign:'center'}}>Nenhuma tarefa.</div>}
             {(local.miniProjects||[]).map((m,mIdx)=>{
               const expanded=expandedMiniIds.has(m.id);
-              const isMiniActive=activeMiniId===m.id&&!activeInnerNoteId;
+              const isMiniActive=activeMiniId===m.id&&!activeInnerNoteId&&!showSub;
               const toggleExpand=e=>{e.stopPropagation();const s=new Set(expandedMiniIds);expanded?s.delete(m.id):s.add(m.id);setExpandedMiniIds(s);};
               return(
                 <div key={m.id}
@@ -11340,7 +11340,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                             draggable
                             onDragStart={e=>{dragNoteRef.current={miniId:m.id,idx:nIdx,noteId:n.id};e.dataTransfer.effectAllowed='move';e.stopPropagation();}}
                             onDragOver={e=>{e.preventDefault();e.stopPropagation();dragOverNoteRef.current=nIdx;}}
-                            onDrop={e=>{e.preventDefault();e.stopPropagation();const dn=dragNoteRef.current;if(dn&&dn.miniId===m.id)reorderInnerNotes(m.id,dn.idx,dragOverNoteRef.current);else if(dn)moveNoteToTask(dn.noteId,dn.miniId,m.id);dragNoteRef.current=null;dragOverNoteRef.current=null;}}
+                            onDrop={e=>{e.preventDefault();e.stopPropagation();const dn=dragNoteRef.current;const targetSub=n.subTaskId&&subs.some(x=>String(x.id)===String(n.subTaskId))?n.subTaskId:null;if(dn&&dn.miniId===m.id){reorderInnerNotes(m.id,dn.idx,dragOverNoteRef.current);setNoteSub(m.id,dn.noteId,targetSub);}else if(dn){moveNoteToTask(dn.noteId,dn.miniId,m.id);setNoteSub(m.id,dn.noteId,targetSub);}dragNoteRef.current=null;dragOverNoteRef.current=null;}}
                             onDragEnd={()=>{dragNoteRef.current=null;dragOverNoteRef.current=null;}}
                             onClick={()=>{setActiveMiniId(m.id);setActiveSubId(n.subTaskId||null);setActiveInnerNoteId(n.id);}}
                             style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',borderRadius:6,cursor:'pointer',
@@ -11367,8 +11367,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         const openSub=()=>{setActiveMiniId(m.id);setActiveSubId(sub.id);setActiveInnerNoteId(null);};
                         return <div key={sub.id}>
                           <div onClick={openSub} {...keyActivate(openSub,'Abrir subtarefa '+(sub.title||''))}
-                            onDragOver={e=>{if(dragNoteRef.current&&String(dragNoteRef.current.miniId)===String(m.id)){e.preventDefault();e.stopPropagation();}}}
-                            onDrop={e=>{const dn=dragNoteRef.current;if(!dn||String(dn.miniId)!==String(m.id))return;e.preventDefault();e.stopPropagation();dragNoteRef.current=null;dragOverNoteRef.current=null;setNoteSub(m.id,dn.noteId,sub.id);setExpandedSubIds(x=>{const n=new Set(x);n.add(sub.id);return n;});}}
+                            onDragOver={e=>{if(dragNoteRef.current){e.preventDefault();e.stopPropagation();}}}
+                            onDrop={e=>{const dn=dragNoteRef.current;if(!dn)return;e.preventDefault();e.stopPropagation();dragNoteRef.current=null;dragOverNoteRef.current=null;if(String(dn.miniId)!==String(m.id))moveNoteToTask(dn.noteId,dn.miniId,m.id);setNoteSub(m.id,dn.noteId,sub.id);setExpandedSubIds(x=>{const n=new Set(x);n.add(sub.id);return n;});}}
                             style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',borderRadius:6,cursor:'pointer',border:`1px solid ${active?'var(--text)':'transparent'}`,background:active?'var(--surface)':'transparent'}}>
                             <button onClick={toggleSub} title="Expandir ou recolher a subtarefa" aria-label="Expandir ou recolher a subtarefa" style={{width:16,height:16,border:'1px solid var(--border)',borderRadius:'50%',background:'transparent',cursor:'pointer',padding:0,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted)'}}><Icon name={open?'minus':'plus'} size={9}/></button>
                             <Icon name={open?'folder-open':'folder'} size={12} style={{flexShrink:0,color:'var(--muted)'}}/>
@@ -11402,7 +11402,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           <div className="card" {...miniDrop.props} style={{flex:1,padding:isMobile?20:28,display:'flex',flexDirection:'column',minWidth:0,minHeight:320,position:'relative'}}>
             {miniDrop.over&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar imagens</span></div>}
             {isMobile&&(
-              <button onClick={()=>setActiveMiniId(null)} className="btn btn-ghost" style={{alignSelf:'flex-start',padding:'4px 8px',fontSize:'.78rem',marginBottom:10}}>
+              <button onClick={()=>{setActiveMiniId(null);setActiveSubId(null);}} className="btn btn-ghost" style={{alignSelf:'flex-start',padding:'4px 8px',fontSize:'.78rem',marginBottom:10}}>
                 <Icon name="arrow-left" size={13}/> Voltar às tarefas
               </button>
             )}
@@ -11556,7 +11556,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       </select>
                     </div>
                     {(activeMini.subTasks||[]).length>0&&<div className="task-gallery-box-row"><Icon name="folder-open" size={13} style={{flexShrink:0}}/><span>Subtarefa</span>
-                      <select value={String((activeMini.subTasks||[]).some(x=>String(x.id)===String(note.subTaskId||''))?note.subTaskId:'')} onChange={e=>setNoteSub(activeMini.id,note.id,e.target.value)} aria-label="Subtarefa desta nota">
+                      <select value={String((activeMini.subTasks||[]).some(x=>String(x.id)===String(note.subTaskId||''))?note.subTaskId:'')} onChange={e=>{setNoteSub(activeMini.id,note.id,e.target.value);setActiveSubId(e.target.value||null);}} aria-label="Subtarefa desta nota">
                         <option value="">Direto na tarefa</option>
                         {(activeMini.subTasks||[]).map(x=><option key={x.id} value={String(x.id)}>{x.title||'Sem título'}</option>)}
                       </select>
