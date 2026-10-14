@@ -665,6 +665,9 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .note-undo-bar{position:absolute;z-index:6;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:999px;background:var(--text);color:var(--bg);font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.28)}
 .note-undo-bar button{border:0;border-radius:999px;padding:3px 11px;background:rgba(255,255,255,.18);color:inherit;font:700 .76rem 'Alegreya Sans',sans-serif;cursor:pointer}
 .note-undo-bar button:hover{background:rgba(255,255,255,.3)}
+.post-paid-chip{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:2px 8px;border:1px solid var(--border-2);border-radius:999px;background:transparent;color:var(--muted);font:600 .66rem 'Alegreya Sans',sans-serif;cursor:pointer}
+.post-paid-chip:hover{border-color:var(--text);color:var(--text)}
+.post-paid-chip.on{border-color:var(--ok-strong,#2f7d4f);color:var(--ok-fg);background:transparent}
 .img-copy-btn{position:absolute;z-index:2;display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(20,18,16,.72);color:#fff;cursor:pointer}
 .img-copy-btn.tl{top:5px;left:5px}.img-copy-btn.br{bottom:5px;right:5px}
 .img-copy-btn.on{background:var(--ok-strong,#2f7d4f)}
@@ -9637,6 +9640,12 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
     (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,bhLinkedPostCount(p,galleryFolders,galleryPosts)));});
     return m;
   },[projects,galleryFolders,galleryPosts]);
+  // The share of each project's price still to receive (animatics are paid one by one).
+  const unpaidShareOf=useMemo(()=>{
+    const m=new Map();
+    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectUnpaidShare(p,bhProjectScopePostIds(p,galleryFolders,galleryPosts)));});
+    return m;
+  },[projects,galleryFolders,galleryPosts]);
   // Dates edited on the Projects-page timeline go straight into the project.
   // A patch that carries a status (a drag that changed the task's phase) is
   // mirrored onto the task's card, as the project's own timeline does.
@@ -9736,7 +9745,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 {(()=>{
                   const open=projects.filter(p=>!p.deleted&&!p.paid&&(budgetOf.get(String(p.id))||0)>0&&p.status!=='Cancelado');
-                  const sum=open.reduce((s,p)=>s+(budgetOf.get(String(p.id))||0),0);
+                  const sum=open.reduce((s,p)=>s+(budgetOf.get(String(p.id))||0)*(unpaidShareOf.get(String(p.id))??1),0);
                   return sum>0?<span title={open.length+' projeto(s) com pagamento pendente'} style={{fontSize:'.74rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}><Icon name="circle-dollar-sign" size={12}/>A receber: <strong style={{color:'var(--text)'}}>{fmtBRL(sum)}</strong></span>:null;
                 })()}
                 <select value={projSort} onChange={e=>changeProjSort(e.target.value)} aria-label="Ordenar projetos" className="gallery-sort-select">
@@ -9807,7 +9816,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                     <div style={{fontWeight:600,fontSize:'.92rem',marginBottom:3}}>{p.title}</div>
                     <div style={{fontSize:'.75rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                       <span>{p.client}</span>
-                      {fmtBRL(budgetOf.get(String(p.id)))&&<span style={{fontWeight:600,color:p.paid?'var(--ok-fg)':'var(--text)',display:'flex',alignItems:'center',gap:3}}>{fmtBRL(budgetOf.get(String(p.id)))}{p.paid&&<Icon name="check" size={10}/>}</span>}
+                      {fmtBRL(budgetOf.get(String(p.id)))&&<span style={{fontWeight:600,color:p.paid?'var(--ok-fg)':'var(--text)',display:'flex',alignItems:'center',gap:3}}>{fmtBRL(budgetOf.get(String(p.id)))}{p.paid&&<Icon name="check" size={10}/>}{!p.paid&&(unpaidShareOf.get(String(p.id))??1)<1&&<span style={{fontWeight:400,color:'var(--ok-fg)',fontSize:'.68rem'}}>· {Math.round((1-unpaidShareOf.get(String(p.id)))*100)}% recebido</span>}</span>}
                     </div>
                     {Number(p.shotsTotal)>0&&(()=>{const pct=Math.min(100,Math.round((Number(p.shotsDone)||0)/Number(p.shotsTotal)*100));return(
                       <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8}}>
@@ -10473,6 +10482,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // Valor = price of one animatic; the project's Total (stored in `budget`, which
   // the project list and the pending-payments sum read) is Valor × Animatics.
   // Older projects only have `budget`: it stands in for Valor until it is edited.
+  const scopePostIds=useMemo(()=>bhProjectScopePostIds(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
+  const paidCount=scopePostIds.filter(id=>bhProjectPostPaid(local,id)).length;
+  const togglePostPaid=postId=>edit(prev=>({...prev,...bhProjectTogglePaid(prev,scopePostIds,postId)}));
   const linkedPostCount=useMemo(()=>bhLinkedPostCount(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
   const effectiveBudget=bhProjectBudget(local,linkedPostCount);
   const animaticsAuto=!(Number(local.animatics)>0);
@@ -11110,6 +11122,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         </div>
                         <div style={{padding:'7px 9px'}}>
                           <div style={{fontWeight:600,fontSize:'.74rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title}</div>
+                          {effectiveBudget>0&&<button type="button" className={'post-paid-chip'+(bhProjectPostPaid(local,post.id)?' on':'')} aria-pressed={bhProjectPostPaid(local,post.id)} title={bhProjectPostPaid(local,post.id)?'Recebido: clique para marcar como a receber':'A receber: clique para marcar como recebido'}
+                            onClick={e=>{e.stopPropagation();togglePostPaid(post.id);}}><Icon name={bhProjectPostPaid(local,post.id)?'check-circle':'circle-dollar-sign'} size={11}/>{bhProjectPostPaid(local,post.id)?'Recebido':'A receber'}</button>}
                           {post.linkedTask&&<div style={{display:'flex',alignItems:'center',gap:4,marginTop:2,fontSize:'.66rem',color:'var(--muted)',overflow:'hidden',whiteSpace:'nowrap'}}><Icon name="list-checks" size={10} style={{flexShrink:0}}/><span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{post.linkedTask.taskTitle}</span></div>}
                         </div>
                       </div>
@@ -11167,10 +11181,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   <input type="number" inputMode="decimal" min="0" step="any" className="input-box no-spin" value={(local.unitValue??local.budget)||''} onChange={e=>setUnitValue(e.target.value)} placeholder="0" style={{width:'100%'}}/>
                 </div>
                 {effectiveBudget>0&&(
-                  <BhSwitch checked={!!local.paid} onChange={()=>upd('paid',v=>!v)} label="Pago" tone="ok"
+                  <>
+                  <BhSwitch checked={!!local.paid} onChange={()=>edit(prev=>({...prev,...bhProjectSetAllPaid(!prev.paid)}))} label="Pago (todos os animatics)" tone="ok"
                     style={{display:'flex',width:'100%',justifyContent:'space-between',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
                     <span style={{display:'flex',alignItems:'center',gap:6}}><Icon name={local.paid?'check-circle':'circle-dollar-sign'} size={13}/>{local.paid?'Recebido':'A receber'}</span>
                   </BhSwitch>
+                  {!local.paid&&paidCount>0&&scopePostIds.length>0&&<div style={{fontSize:'.74rem',color:'var(--ok-fg)',lineHeight:1.4}}>Recebido: {paidCount} de {scopePostIds.length} animatics · {fmtBRL(effectiveBudget*(1-bhProjectUnpaidShare(local,scopePostIds)))}</div>}
+                  {scopePostIds.length>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.35}}>Marque cada animatic como recebido nos posts da galeria do projeto.</div>}
+                  </>
                 )}
               </div>
             </div>
@@ -11925,11 +11943,38 @@ const bhProjectGalleryScope=(project,folders,posts)=>{
   return{folderId,sectionId,postId:'',postIds:new Set(group?group.posts.map(p=>String(p.id)):[])};
 };
 // Live Gallery posts a project is linked to (its folder, section or post).
-const bhLinkedPostCount=(project,folders,posts)=>{
+const bhProjectScopePostIds=(project,folders,posts)=>{
   const scope=bhProjectGalleryScope(project,folders,posts);
-  if(!scope)return 0;
-  return (posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===scope.folderId&&(!scope.postIds||scope.postIds.has(String(p.id)))).length;
+  if(!scope)return[];
+  return (posts||[]).filter(p=>p&&!p.deleted&&!isProjectScopedPost(p)&&String(p.folder)===scope.folderId&&(!scope.postIds||scope.postIds.has(String(p.id)))).map(p=>String(p.id));
 };
+const bhLinkedPostCount=(project,folders,posts)=>bhProjectScopePostIds(project,folders,posts).length;
+// Payment per animatic (each linked post is one). `project.paid` is the master
+// switch (everything received); `project.paidPosts` lists the posts received one
+// by one. The share still to receive is unpaid posts / posts; with no posts to
+// split by, it is all or nothing.
+const bhProjectPostPaid=(project,postId)=>!!project&&(!!project.paid||(Array.isArray(project.paidPosts)&&project.paidPosts.map(String).includes(String(postId))));
+const bhProjectUnpaidShare=(project,ids)=>{
+  if(!project||project.paid)return 0;
+  if(!ids||!ids.length)return 1;
+  return ids.filter(id=>!bhProjectPostPaid(project,id)).length/ids.length;
+};
+// The fields to write when one post is marked received (or not): once every post
+// of the scope is received the master switch turns on; turning one off while the
+// master is on spreads it over the other posts.
+const bhProjectTogglePaid=(project,ids,postId)=>{
+  const id=String(postId),all=(ids||[]).map(String);
+  const listed=new Set((Array.isArray(project&&project.paidPosts)?project.paidPosts:[]).map(String));
+  if(bhProjectPostPaid(project,id)){
+    const base=project.paid?all:[...listed];
+    return{paid:false,paidPosts:base.filter(x=>x!==id)};
+  }
+  listed.add(id);
+  const done=all.length>0&&all.every(x=>listed.has(x));
+  return done?{paid:true,paidPosts:[]}:{paid:false,paidPosts:[...listed]};
+};
+// Master switch: everything received, or nothing.
+const bhProjectSetAllPaid=on=>({paid:!!on,paidPosts:[]});
 // Focus time counts both ways across that link: a project adds the category
 // time spent on its scope (all of it for the whole folder; for a section or a
 // post, the sessions filed into those posts), and the category adds the time
