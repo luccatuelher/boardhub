@@ -9724,7 +9724,11 @@ const bhSectionBlockOrder=(items,sectionId,targetId)=>{
   const block=ids.slice(a,b),rest=list.filter((_,i)=>i<a||i>=b);
   const ri=rest.findIndex(n=>String(n.id)===String(targetId));
   let at;
-  if(t<a){at=ri;while(at>0&&rest[at].type!=='section')at--;}
+  if(t<a){
+    at=ri;while(at>0&&rest[at].type!=='section')at--;
+    // No header above the target: it is in the loose group at the top, which stays above.
+    if(rest[at]&&rest[at].type!=='section'){const first=rest.findIndex(n=>n.type==='section');at=first<0?rest.length:first;}
+  }
   else{at=ri+1;while(at<rest.length&&rest[at].type!=='section')at++;}
   return[...rest.slice(0,at).map(n=>String(n.id)),...block,...rest.slice(at).map(n=>String(n.id))];
 };
@@ -9736,6 +9740,21 @@ const bhMoveIntoSection=(notes,itemId,sectionId)=>{
   if(!moving||!section||moving===section||section.type!=='section')return list;
   const rest=list.filter(n=>n!==moving),at=rest.indexOf(section);
   return[...rest.slice(0,at+1),{...moving,parentId:section.parentId==null?null:section.parentId},...rest.slice(at+1)];
+};
+// The array with `itemId` moved ahead of the first section of its level, so it stays
+// in the loose group at the top (always visible) instead of falling into whichever
+// section happens to come before its position. Unchanged when it already is, or
+// the level has no sections.
+const bhPlaceLoose=(notes,itemId)=>{
+  const list=Array.isArray(notes)?notes:[];
+  const item=list.find(n=>n&&String(n.id)===String(itemId));
+  if(!item)return list;
+  const key=n=>n.parentId==null?'':String(n.parentId);
+  const isSec=n=>n&&!n.deleted&&n.type==='section'&&key(n)===key(item);
+  const firstSec=list.findIndex(isSec);
+  if(firstSec<0||list.indexOf(item)<firstSec)return list;
+  const rest=list.filter(n=>n!==item);
+  return[...rest.slice(0,rest.findIndex(isSec)),item,...rest.slice(rest.findIndex(isSec))];
 };
 // @bh-test-end notesections
 // @bh-test-begin notetask
@@ -15069,7 +15088,22 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     setShowCreateMenu(false);
   };
 
+  // The open note's section is expanded, wherever the note was opened from (a new
+  // note, the search, the dashboard): a collapsed section would hide it.
+  useEffect(()=>{
+    if(!selected||selected.kind!=='note')return;
+    const me=notes.find(n=>n&&String(n.id)===String(selected.id));
+    if(!me)return;
+    const key=n=>n.parentId==null?'':String(n.parentId);
+    const idx=notes.indexOf(me);
+    for(let i=idx-1;i>=0;i--){
+      const n=notes[i];
+      if(!n||n.deleted||key(n)!==key(me))continue;
+      if(n.type==='section'){if(n.collapsed)updateItem(n.id,x=>({...x,collapsed:false}));break;}
+    }
+  },[selected?.id,selected?.kind]);//eslint-disable-line react-hooks/exhaustive-deps
   const newSection=()=>{
+    if(!noteDrag)changeNoteSort('manual'); // headers only show in the manual order
     const n={id:bhNewId(),type:'section',title:'Nova Seção',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,collapsed:false};
     createHere('section',n);
     setRenaming({id:n.id,value:n.title});
@@ -15111,7 +15145,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
   });
   const hardDeleteItem=async id=>{
     const target=itemById(id);
-    const directChildren=notes.filter(n=>n&&n.id!==id&&parentOf(n)===id);
+    const directChildren=notes.filter(n=>n&&n.id!==id&&n.type!=='section'&&parentOf(n)===id);
     const folderEntries=isFolder(target)&&Array.isArray(target.entries)?target.entries:[];
     const containedCount=directChildren.length+folderEntries.length;
     if(containedCount){
@@ -15119,7 +15153,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       return;
     }
     if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){
-      setNotes(p=>p.filter(n=>n.id!==id));
+      setNotes(p=>p.filter(n=>n.id!==id&&!(n.type==='section'&&parentOf(n)===id)));
       if(selected?.id===id)setSelected(null);
     }
   };
@@ -15179,7 +15213,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     const dragged=itemById(id),target=itemById(categoryId);
     if(!dragged||!target||!isCategory(target))return;
     if(dragged.id===target.id||hasCategoryAncestor(target.id,dragged.id))return;
-    updateItem(id,n=>({...n,parentId:categoryId}));
+    setNotes(prev=>bhPlaceLoose(prev.map(n=>n.id===id?{...n,parentId:categoryId}:n),id));
     setExpanded(p=>new Set(p).add(categoryId));
   };
   // Dropping onto an item under ANOTHER parent went to reorderSiblings, which
@@ -15208,7 +15242,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       if(!folder)return prev;
       const base=prev.filter(x=>x.id!==folderId);
       const updated={...folder,entries:(folder.entries||[]).filter(e=>e.id!==entry.id)};
-      return [...base,updated,n];
+      return bhPlaceLoose([...base,updated,n],n.id);
     });
     setSelected({kind:'note',id:entry.id});
     setMobileDetail(true);
@@ -15266,7 +15300,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       if(!f)return prev;
       const newFolder={...f,entries:(f.entries||[]).filter(e=>e.id!==entryId)};
       const newNote={...entry,type:'note',deleted:false,parentId:categoryId};
-      return [...prev.map(x=>x.id===fromFolderId?newFolder:x),newNote];
+      return bhPlaceLoose([...prev.map(x=>x.id===fromFolderId?newFolder:x),newNote],newNote.id);
     });
     setExpanded(p=>new Set(p).add(categoryId));
     setSelected({kind:'note',id:entryId});
@@ -15333,7 +15367,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       if(entry)rootItemFromEntry(entry,drag.folderId,null);
     }else if(drag.kind==='item'){
       const item=itemById(drag.id);
-      if(item)setNotes(p=>p.map(n=>n.id===drag.id?{...n,parentId:null}:n));
+      if(item)setNotes(p=>bhPlaceLoose(p.map(n=>n.id===drag.id?{...n,parentId:null}:n),drag.id));
     }
     dragRef.current=null;
   };
@@ -15697,7 +15731,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               {renderNoteSearch()}
               {noteResults?renderNoteResults():<>
-              {tree.length===0&&<div style={{fontSize:'.85rem',color:'var(--muted)',padding:'16px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
+              {tree.filter(x=>x.type!=='section').length===0&&<div style={{fontSize:'.85rem',color:'var(--muted)',padding:'16px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
               {renderList(tree.slice(0,treeLimit))}
               {tree.length>treeLimit&&<ListMoreSentinel key={treeLimit} onMore={moreTree}/>}
               {/* Touch screens cannot drag, so the drop-zone hint would only confuse. */}
