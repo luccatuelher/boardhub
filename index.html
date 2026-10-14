@@ -3821,7 +3821,12 @@ const bhEntityUnpack=docs=>{
 // a project here, notes, images and money must not leave the app.
 const BH_AGENDA_DAY=/^\d{4}-\d{2}-\d{2}$/;
 const BH_AGENDA_CLOSED=new Set(['Concluído','Cancelado']);
-const bhAgendaDay=v=>typeof v==='string'&&BH_AGENDA_DAY.test(v.trim())?v.trim():'';
+const bhAgendaDay=v=>{
+  const d=typeof v==='string'&&BH_AGENDA_DAY.test(v.trim())?v.trim():'';
+  if(!d)return '';
+  const t=new Date(Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10)));
+  return t.toISOString().slice(0,10)===d?d:''; // 2026-02-31 is not a date
+};
 const bhAgendaText=v=>(typeof v==='string'?v:v==null?'':String(v)).replace(/\s+/g,' ').trim().slice(0,200);
 const bhAgendaCmp=(a,b)=>a<b?-1:a>b?1:0;
 // Whole days from a to b (YYYY-MM-DD both), null when either is missing.
@@ -3876,7 +3881,7 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt)=>{
   });
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged. "parent" is the task a sub-task belongs to. generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. generatedAt is when this file was written.',
     projects:out};
 };
 // What decides whether the file needs sending again (the timestamp does not).
@@ -3888,14 +3893,22 @@ const bhAgendaPost=async(fetchFn,url,key,snapshot)=>{
   try{
     const u=typeof url==='string'?url.trim():'';
     if(!BH_AGENDA_URL.test(u))return{ok:false,err:'O endereço não é um link /exec do Google Apps Script.'};
-    if(typeof key!=='string'||!key.trim())return{ok:false,err:'Falta a chave.'};
-    const res=await fetchFn(u,{method:'POST',redirect:'follow',body:JSON.stringify({key:key.trim(),snapshot})});
-    if(!res||!res.ok)return{ok:false,err:'O Google respondeu '+(res&&res.status?res.status:'com erro')+'.'};
-    let j=null;
-    try{j=await res.json();}catch{/*silent-ok: a non-JSON reply (e.g. a Google sign-in page) is reported below*/}
-    if(!j||j.ok!==true)return{ok:false,err:'O script não aceitou (chave errada, ou a implantação não está como "Qualquer pessoa").'};
-    return{ok:true};
-  }catch(e){return{ok:false,err:String((e&&e.message)||e)};}
+    if(typeof key!=='string'||!key.trim())return{ok:false,fatal:true,err:'Falta a chave.'};
+    const body=JSON.stringify({key:key.trim(),snapshot});
+    // The script refuses bodies over 500 KB: say so instead of "wrong key".
+    if(body.length>400000)return{ok:false,fatal:true,err:'O arquivo ficou grande demais para enviar.'};
+    // A hung request must not block every later send.
+    const ctl=typeof AbortController!=='undefined'?new AbortController():null;
+    const timer=ctl?setTimeout(()=>ctl.abort(),30000):null;
+    try{
+      const res=await fetchFn(u,{method:'POST',redirect:'follow',body,...(ctl?{signal:ctl.signal}:{})});
+      if(!res||!res.ok)return{ok:false,err:'O Google respondeu '+(res&&res.status?res.status:'com erro')+'.'};
+      let j=null;
+      try{j=await res.json();}catch{/*silent-ok: a non-JSON reply (e.g. a Google sign-in page) is reported below*/}
+      if(!j||j.ok!==true)return{ok:false,fatal:!!(j&&j.ok===false),err:'O script não aceitou (chave errada, ou a implantação não está como "Qualquer pessoa").'};
+      return{ok:true};
+    }finally{if(timer)clearTimeout(timer);}
+  }catch(e){return{ok:false,err:e&&e.name==='AbortError'?'O envio demorou demais.':String((e&&e.message)||e)};}
 };
 // @bh-test-end agenda
 
@@ -16453,27 +16466,34 @@ const BH_AGENDA_SCRIPT=`function doPost(e){
   if(!k||!d||d.key!==k)return out(false);
   var s=JSON.stringify(d.snapshot,null,1);
   if(!s||s.length>500000)return out(false);
-  var l=LockService.getScriptLock();l.waitLock(10000);
+  var l=LockService.getScriptLock();
+  if(!l.tryLock(10000))return out(false);
   try{
-    var it=DriveApp.getFilesByName('boardhub-agenda.json');
-    if(it.hasNext())it.next().setContent(s);
-    else DriveApp.createFile('boardhub-agenda.json',s,'application/json');
+    var props=PropertiesService.getScriptProperties(),id=props.getProperty('FILE'),f=null;
+    if(id){try{f=DriveApp.getFileById(id);if(f.isTrashed())f=null;}catch(x){f=null;}}
+    if(f)f.setContent(s);
+    else props.setProperty('FILE',DriveApp.createFile('boardhub-agenda.json',s,'application/json').getId());
   }finally{l.releaseLock();}
   return out(true);
 }
 function out(ok){
   return ContentService.createTextOutput(JSON.stringify({ok:ok})).setMimeType(ContentService.MimeType.JSON);
 }`;
-const _bhAgenda={status:null,listeners:new Set(),busy:false,again:false,retry:null,run:null};
+const BH_AGENDA_UID_KEY='bh_agenda_uid';
+// gen: bumped when the destination changes, so a send to the old one can tell.
+const _bhAgenda={status:null,listeners:new Set(),busy:false,again:false,retry:null,run:null,gen:0,fails:0,nextOk:0,blockedGen:-1};
 const bhAgendaSetStatus=st=>{_bhAgenda.status=st;_bhAgenda.listeners.forEach(f=>{try{f();}catch(e){bhLog('agenda.listener',e);}});};
 const bhAgendaGetCfg=()=>{
-  try{return{url:localStorage.getItem(BH_AGENDA_URL_KEY)||'',key:localStorage.getItem(BH_AGENDA_KEY_KEY)||''};}
-  catch{return{url:'',key:''};/*silent-ok: no storage means the export simply stays off*/}
+  try{return{url:localStorage.getItem(BH_AGENDA_URL_KEY)||'',key:localStorage.getItem(BH_AGENDA_KEY_KEY)||'',uid:localStorage.getItem(BH_AGENDA_UID_KEY)||''};}
+  catch{return{url:'',key:'',uid:''};/*silent-ok: no storage means the export simply stays off*/}
 };
-const bhAgendaSaveCfg=(url,key)=>{
+// The destination belongs to the account that set it up.
+const bhAgendaSaveCfg=(url,key,uid)=>{
+  _bhAgenda.gen++;_bhAgenda.fails=0;_bhAgenda.nextOk=0;_bhAgenda.again=false;
+  clearTimeout(_bhAgenda.retry);_bhAgenda.retry=null;
   try{
-    if(url||key){localStorage.setItem(BH_AGENDA_URL_KEY,url);localStorage.setItem(BH_AGENDA_KEY_KEY,key);}
-    else{localStorage.removeItem(BH_AGENDA_URL_KEY);localStorage.removeItem(BH_AGENDA_KEY_KEY);}
+    if(url||key){localStorage.setItem(BH_AGENDA_URL_KEY,url);localStorage.setItem(BH_AGENDA_KEY_KEY,key);localStorage.setItem(BH_AGENDA_UID_KEY,uid||'');}
+    else{localStorage.removeItem(BH_AGENDA_URL_KEY);localStorage.removeItem(BH_AGENDA_KEY_KEY);localStorage.removeItem(BH_AGENDA_UID_KEY);}
     localStorage.removeItem(BH_AGENDA_SIG_KEY); // a new destination gets the full file
     return true;
   }catch(e){bhLog('agenda.saveCfg',e);return false;}
@@ -16483,44 +16503,70 @@ const useBhAgendaExport=(projects,sessions,fbUser)=>{
   latest.current={projects,sessions,fbUser};
   const run=useCallback(async force=>{
     const {projects,sessions,fbUser}=latest.current;
-    const {url,key}=bhAgendaGetCfg();
+    const {url,key,uid}=bhAgendaGetCfg();
     if(!url||!key||!fbUser)return;
-    let seeded=false,last='';
-    try{seeded=localStorage.getItem(SEEDED_KEY)==='1';last=localStorage.getItem(BH_AGENDA_SIG_KEY)||'';}catch{/*silent-ok: unknown means "not seeded" and "never sent", the harmless answers here*/}
-    if(seeded){if(force)bhAgendaSetStatus({at:Date.now(),ok:false,err:'Esta conta ainda tem só os dados de demonstração neste aparelho. Sincronize antes de enviar.'});return;}
-    if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
-    if(_bhAgenda.busy){_bhAgenda.again=true;return;}
+    if(uid&&uid!==fbUser.uid)return; // set up under another account
+    const note=err=>{if(force)bhAgendaSetStatus({at:Date.now(),ok:false,err});};
+    let seeded=false,last='',synced=false;
+    try{
+      seeded=localStorage.getItem(SEEDED_KEY)==='1';
+      last=localStorage.getItem(BH_AGENDA_SIG_KEY)||'';
+      // Only data this account has reconciled on this device (not a leftover from
+      // another account, not the demo seed, not a pre-sync copy).
+      synced=localStorage.getItem(SYNCED_UID_KEY)===fbUser.uid&&localStorage.getItem(LOCAL_OWNER_UID_KEY)===fbUser.uid;
+    }catch{/*silent-ok: unknown means "not synced", so nothing is sent*/}
+    if(seeded||!synced){note('Este aparelho ainda não terminou de sincronizar com a sua conta. Espere o "Sincronizado" e tente de novo.');return;}
+    if(typeof navigator!=='undefined'&&navigator.onLine===false){note('Sem internet.');return;}
+    if(!force&&(_bhAgenda.blockedGen===_bhAgenda.gen||Date.now()<_bhAgenda.nextOk))return;
+    if(_bhAgenda.busy){_bhAgenda.again=force?'force':(_bhAgenda.again||true);return;}
     const now=new Date();
     const snap=bhAgendaSnapshot(projects,sessions,localDateISO(now),now.toISOString());
     const sig=bhAgendaSig(snap);
     if(!force&&sig===last)return;
+    const gen=_bhAgenda.gen;
     _bhAgenda.busy=true;
     let r;
     try{r=await bhAgendaPost((u,o)=>fetch(u,o),url,key,snap);}
+    catch(e){r={ok:false,err:String((e&&e.message)||e)};}
     finally{_bhAgenda.busy=false;}
+    if(gen!==_bhAgenda.gen){ // the destination changed while this was in flight: drop the result
+      if(_bhAgenda.run)_bhAgenda.run(true);
+      return;
+    }
     clearTimeout(_bhAgenda.retry);_bhAgenda.retry=null;
     if(r.ok){
+      _bhAgenda.fails=0;_bhAgenda.nextOk=0;
       try{localStorage.setItem(BH_AGENDA_SIG_KEY,sig);}catch(e){bhLog('agenda.sig',e,'the file may be sent again on the next change');}
       bhAgendaSetStatus({at:Date.now(),ok:true,err:''});
     }else{
       bhLog('agenda.post',new Error(r.err));
-      bhAgendaSetStatus({at:Date.now(),ok:false,err:r.err});
-      _bhAgenda.retry=setTimeout(()=>{_bhAgenda.run&&_bhAgenda.run(false);},5*60*1000);
+      if(r.fatal){_bhAgenda.blockedGen=gen;bhAgendaSetStatus({at:Date.now(),ok:false,err:r.err,fatal:true});}
+      else{
+        // 1, 2, 4… minutes up to an hour: a down network or a wrong script must not be hammered.
+        const delay=Math.min(60000*Math.pow(2,_bhAgenda.fails++),3600000);
+        _bhAgenda.nextOk=Date.now()+delay;
+        bhAgendaSetStatus({at:Date.now(),ok:false,err:r.err});
+        _bhAgenda.retry=setTimeout(()=>{_bhAgenda.run&&_bhAgenda.run(false);},delay);
+      }
     }
-    if(_bhAgenda.again){_bhAgenda.again=false;_bhAgenda.run&&_bhAgenda.run(false);}
+    const again=_bhAgenda.again;_bhAgenda.again=false;
+    if(again&&_bhAgenda.run)_bhAgenda.run(again==='force'&&!r.fatal);
   },[]);
   useEffect(()=>{_bhAgenda.run=run;return()=>{if(_bhAgenda.run===run)_bhAgenda.run=null;clearTimeout(_bhAgenda.retry);_bhAgenda.retry=null;};},[run]);
   useEffect(()=>{
     const t=setTimeout(()=>{run(false);},3000);
     return()=>clearTimeout(t);
   },[projects,sessions,fbUser,run]);
+  // Back online, or the tab is shown again (a new day makes "days left" stale).
   useEffect(()=>{
     const on=()=>{run(false);};
+    const vis=()=>{if(document.visibilityState==='visible')run(false);};
     window.addEventListener('online',on);
-    return()=>window.removeEventListener('online',on);
+    document.addEventListener('visibilitychange',vis);
+    return()=>{window.removeEventListener('online',on);document.removeEventListener('visibilitychange',vis);};
   },[run]);
 };
-const AgendaExportCard=()=>{
+const AgendaExportCard=({uid})=>{
   const [cfg,setCfg]=useState(bhAgendaGetCfg);
   const [st,setSt]=useState(_bhAgenda.status);
   const [showSetup,setShowSetup]=useState(false);
@@ -16530,11 +16576,11 @@ const AgendaExportCard=()=>{
     const url=cfg.url.trim(),key=cfg.key.trim();
     if(!BH_AGENDA_URL.test(url)){setMsg('Cole o endereço que termina em /exec (Implantar › App da Web).');return;}
     if(!key){setMsg('Cole a chave que você pôs em KEY no script.');return;}
-    if(!bhAgendaSaveCfg(url,key)){setMsg('O navegador não deixou guardar o endereço.');return;}
+    if(!bhAgendaSaveCfg(url,key,uid)){setMsg('O navegador não deixou guardar o endereço.');return;}
     setCfg({url,key});setMsg('Enviando…');
     if(_bhAgenda.run)_bhAgenda.run(true);
   };
-  const turnOff=()=>{bhAgendaSaveCfg('','');setCfg({url:'',key:''});setSt(null);_bhAgenda.status=null;setMsg('Desligado.');};
+  const turnOff=()=>{bhAgendaSaveCfg('','','');setCfg({url:'',key:''});setSt(null);_bhAgenda.status=null;setMsg('Desligado.');};
   const on=!!bhAgendaGetCfg().url;
   return(
     <div style={{border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
@@ -16887,7 +16933,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             {/* Once the account has it, every device follows it automatically: the
                 button only exists for an account that was never switched over. */}
             {!bhEntityModes.has(fbUser.uid)&&<button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>}
-            <AgendaExportCard/>
+            <AgendaExportCard uid={fbUser.uid}/>
             {syncStatus==='error'&&(
               <button className="btn btn-danger" style={{width:'100%',justifyContent:'center'}} onClick={handleDiscardLocal} disabled={loading}>
                 <Icon name="cloud-download" size={14}/> Descartar locais e puxar da nuvem

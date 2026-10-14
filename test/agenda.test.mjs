@@ -145,3 +145,42 @@ test('signature follows today (days change) but not the timestamp', () => {
   const a = bhAgendaSnapshot([P(1, 'p')], [], '2026-10-14', 't1'), b = bhAgendaSnapshot([P(1, 'p')], [], '2026-10-15', 't1');
   assert.notEqual(bhAgendaSig(a), bhAgendaSig(b));
 });
+
+test('impossible calendar dates are dropped', () => {
+  const s = bhAgendaSnapshot([P(1, 'p', { startDate: '2026-02-31', deadline: '2026-13-01', projectTasks: [T(1, 'a', { startDate: '2026-04-31', dueDate: '2026-02-28' })] })], [], TODAY, 'now');
+  assert.equal(s.projects[0].startDate, ''); assert.equal(s.projects[0].deadline, '');
+  assert.equal(s.projects[0].tasks[0].startDate, ''); assert.equal(s.projects[0].tasks[0].dueDate, '2026-02-28');
+});
+
+test('sessions that are not an array are tolerated', () => {
+  for (const bad of [null, undefined, 'x', 5, {}, [null, 'a', { id: null }]])
+    assert.equal(bhAgendaSnapshot([P(1, 'p', { projectTasks: [T(1, 'a')] })], bad, TODAY, 'now').projects[0].focusMinutes, 0);
+});
+
+test('post: follows the redirect, carries an abort signal, and is fatal when the script refuses', async () => {
+  let opts;
+  const r = await bhAgendaPost(async (u, o) => { opts = o; return { ok: true, json: async () => ({ ok: false }) }; }, URL_OK, 'k', snap);
+  assert.equal(opts.redirect, 'follow');
+  assert.ok(opts.signal && typeof opts.signal.aborted === 'boolean');
+  assert.equal(r.ok, false); assert.equal(r.fatal, true);
+  const net = await bhAgendaPost(async () => { throw new TypeError('Failed to fetch'); }, URL_OK, 'k', snap);
+  assert.equal(net.ok, false); assert.ok(!net.fatal);
+  const http = await bhAgendaPost(async () => ({ ok: false, status: 500 }), URL_OK, 'k', snap);
+  assert.ok(!http.fatal);
+});
+
+test('post: a body over the script limit is refused up front, as fatal', async () => {
+  const huge = { projects: [{ text: 'x'.repeat(450000) }] };
+  let called = false;
+  const r = await bhAgendaPost(async () => { called = true; return { ok: true, json: async () => ({ ok: true }) }; }, URL_OK, 'k', huge);
+  assert.equal(called, false); assert.equal(r.ok, false); assert.equal(r.fatal, true);
+});
+
+test('post: a hung request is aborted after the timeout', async () => {
+  const realSet = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => realSet(fn, ms === 30000 ? 5 : ms, ...a);
+  try {
+    const r = await bhAgendaPost((u, o) => new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(Object.assign(new Error('x'), { name: 'AbortError' })))), URL_OK, 'k', snap);
+    assert.equal(r.ok, false); assert.match(r.err, /demorou/);
+  } finally { globalThis.setTimeout = realSet; }
+});
