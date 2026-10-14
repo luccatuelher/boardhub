@@ -25,7 +25,7 @@ export const EXPECTED = {
   stable: ['bhCanonicalState', 'bhStableStringify'],
   sync: ['bhEqual', 'bhMergeSync', 'bhSyncRankPoints', 'bhSyncPlan', 'bhSplitState', 'bhUtf8Bytes'],
   entity: ['bhEntityPack', 'bhEntityUnpack'],
-  agenda: ['bhAgendaSnapshot', 'bhAgendaSig', 'bhAgendaPost', 'BH_AGENDA_URL'],
+  agenda: ['bhAgendaSnapshot', 'bhAgendaRecent', 'bhAgendaSig', 'bhAgendaPost', 'BH_AGENDA_URL'],
   safehref: ['safeHref'],
   rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'pomoRankMaintain', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays', 'pomoRetargetSession', 'pomoSessionParts', 'pomoRetargetPlan', 'pomoApplyRetargets', 'pomoSeedCycle', 'pomoCreditParts', 'pomoRefilePosts'],
   dup: ['bhDuplicateProject'],

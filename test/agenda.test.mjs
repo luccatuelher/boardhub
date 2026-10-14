@@ -198,3 +198,31 @@ test('each open project gets a stable Calendar color; older projects keep theirs
   // even more projects than colors: nobody gets an undefined color
   assert.ok(bhAgendaSnapshot(mk(14), [], TODAY, 'now').projects.every(p => p.colorId));
 });
+
+test('recent: focus per day and per project, tasks due in the window with their status', () => {
+  const pomo = {
+    days: { '2026-10-14': 5400, '2026-10-12': 1800, '2026-09-20': 9999, 'junk': 5 },
+    dailyAllocations: { '2026-10-14': { 'project:1': 3600, 'project:2': 1800, 'project:99': 60, study: 600 }, '2026-10-12': { 'project:1': 1800 } },
+  };
+  const projects = [
+    P(1, 'Alpha', { projectTasks: [T(1, 'done', { status: 'Concluído', dueDate: '2026-10-13' }), T(2, 'late', { dueDate: '2026-10-10' }), T(3, 'future', { dueDate: '2026-10-20' }), T(4, 'old', { dueDate: '2026-09-01' })], deadline: '2026-10-14' }),
+    P(2, 'Beta', { status: 'Concluído', deadline: '2026-10-11', projectTasks: [] }),
+    P(3, 'Gone', { deleted: true, projectTasks: [T(1, 'x', { dueDate: '2026-10-13' })] }),
+  ];
+  const r = bhAgendaSnapshot(projects, [], TODAY, 'now', pomo).recent;
+  assert.equal(r.windowDays, 14); assert.equal(r.from, '2026-10-01'); assert.equal(r.to, TODAY);
+  assert.deepEqual(r.focus, [
+    { date: '2026-10-12', totalMinutes: 30, projects: { 1: 30 } },
+    { date: '2026-10-14', totalMinutes: 90, projects: { 1: 60, 2: 30 } },
+  ]);
+  assert.deepEqual(r.projectNames, { 1: 'Alpha', 2: 'Beta' });
+  assert.deepEqual(r.dueInWindow.map(d => [d.dueDate, d.text, d.status]), [
+    ['2026-10-10', 'late', 'Pendente'], ['2026-10-11', 'Entrega: Beta', 'Concluído'], ['2026-10-13', 'done', 'Concluído'], ['2026-10-14', 'Entrega: Alpha', 'Em Andamento'],
+  ]);
+});
+
+test('recent: no pomodoro data, or no valid today, is tolerated', () => {
+  assert.deepEqual(bhAgendaSnapshot([P(1, 'p')], [], TODAY, 'now', null).recent.focus, []);
+  assert.deepEqual(bhAgendaSnapshot([P(1, 'p')], [], TODAY, 'now', { days: 5, dailyAllocations: [] }).recent.focus, []);
+  assert.equal(bhAgendaSnapshot([P(1, 'p')], [], 'bad', 'now').recent, null);
+});

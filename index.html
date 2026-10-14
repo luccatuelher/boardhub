@@ -3871,7 +3871,47 @@ const bhAgendaFocus=(p,sessions)=>{
   });
   return{total:Math.round(total/60),task:id=>Math.round((perTask.get(String(id))||0)/60)};
 };
-const bhAgendaSnapshot=(projects,sessions,today,generatedAt)=>{
+// The last `span` days, for the weekly review (the main list only holds what is
+// still open): focus minutes per day (and per project), and the tasks/projects
+// whose due date fell in the window with their status, done ones included.
+// There is no "finished on" date in the app, so "due in the window and done"
+// is the closest honest signal.
+const bhAgendaRecent=(projects,pomo,today,span)=>{
+  const day=bhAgendaDay(today);
+  if(!day)return null;
+  const from=new Date(Date.UTC(+day.slice(0,4),+day.slice(5,7)-1,+day.slice(8,10))-(span-1)*86400000).toISOString().slice(0,10);
+  const live=(Array.isArray(projects)?projects:[]).filter(p=>p&&typeof p==='object'&&!p.deleted);
+  const names={};live.forEach(p=>{names[String(p.id)]=bhAgendaText(p.title);});
+  const alloc=pomo&&typeof pomo.dailyAllocations==='object'&&pomo.dailyAllocations?pomo.dailyAllocations:{};
+  const days=pomo&&typeof pomo.days==='object'&&pomo.days?pomo.days:{};
+  const focus=[];
+  [...new Set([...Object.keys(days),...Object.keys(alloc)])].filter(d=>BH_AGENDA_DAY.test(d)&&d>=from&&d<=day).sort().forEach(d=>{
+    const byProject={};
+    Object.entries(alloc[d]&&typeof alloc[d]==='object'?alloc[d]:{}).forEach(([k,v])=>{
+      const id=String(k).startsWith('project:')?String(k).slice(8):'';
+      const m=Math.round(Math.max(0,Number(v)||0)/60);
+      if(id&&names[id]!=null&&m>0)byProject[id]=m;
+    });
+    const total=Math.round(Math.max(0,Number(days[d])||0)/60);
+    if(total>0||Object.keys(byProject).length)focus.push({date:d,totalMinutes:total,projects:byProject});
+  });
+  const due=[];
+  live.forEach(p=>{
+    const base={project:bhAgendaText(p.title),projectId:String(p.id)};
+    const pd=bhAgendaDay(p.deadline);
+    if(pd&&pd>=from&&pd<=day)due.push({...base,text:'Entrega: '+base.project,kind:'project',status:bhAgendaText(p.status),startDate:bhAgendaDay(p.startDate),dueDate:pd});
+    (Array.isArray(p.projectTasks)?p.projectTasks:[]).forEach(t=>{
+      if(!t||typeof t!=='object'||t.deleted)return;
+      const dd=bhAgendaDay(t.dueDate);
+      if(!dd||dd<from||dd>day)return;
+      const text=bhAgendaText(t.text!=null?t.text:t.title);
+      if(text)due.push({...base,text,kind:'task',status:bhAgendaText(t.status),startDate:bhAgendaDay(t.startDate),dueDate:dd});
+    });
+  });
+  due.sort((a,b)=>bhAgendaCmp(a.dueDate,b.dueDate)||bhAgendaCmp(a.project,b.project)||bhAgendaCmp(a.text,b.text));
+  return{windowDays:span,from,to:day,projectNames:names,focus,dueInWindow:due};
+};
+const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
   const out=[],day=bhAgendaDay(today);
   const timing=(start,due)=>({overdue:!!(day&&due&&due<day),daysElapsed:bhAgendaDays(start,day),daysLeft:bhAgendaDays(day,due)});
   (Array.isArray(projects)?projects:[]).forEach(p=>{
@@ -3899,11 +3939,12 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt)=>{
   out.forEach(r=>{r.colorId=colors.get(r.id);});
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "colorId" is the Google Calendar event color (1-11) assigned to the project. generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
+    recent:bhAgendaRecent(projects,pomo,day,14),
     projects:out};
 };
 // What decides whether the file needs sending again (the timestamp does not).
-const bhAgendaSig=snap=>bhStableStringify({schema:snap&&snap.schema,today:snap&&snap.today,projects:snap&&snap.projects});
+const bhAgendaSig=snap=>bhStableStringify({schema:snap&&snap.schema,today:snap&&snap.today,recent:snap&&snap.recent,projects:snap&&snap.projects});
 const BH_AGENDA_URL=/^https:\/\/script\.google\.com\/(macros|a\/macros\/[^/\s]+)\/s\/[^\s/]+\/exec$/;
 // POST without a Content-Type: a "simple" request, so the browser sends no
 // preflight (Apps Script cannot answer one). Never throws.
@@ -16516,11 +16557,12 @@ const bhAgendaSaveCfg=(url,key,uid)=>{
     return true;
   }catch(e){bhLog('agenda.saveCfg',e);return false;}
 };
-const useBhAgendaExport=(projects,sessions,fbUser)=>{
+const useBhAgendaExport=(projects,pomoData,fbUser)=>{
   const latest=useRef({});
-  latest.current={projects,sessions,fbUser};
+  const sessions=pomoData?.rank?.sessions;
+  latest.current={projects,sessions,pomo:pomoData,fbUser};
   const run=useCallback(async force=>{
-    const {projects,sessions,fbUser}=latest.current;
+    const {projects,sessions,pomo,fbUser}=latest.current;
     const {url,key,uid}=bhAgendaGetCfg();
     if(!url||!key||!fbUser)return;
     if(uid&&uid!==fbUser.uid)return; // set up under another account
@@ -16538,7 +16580,7 @@ const useBhAgendaExport=(projects,sessions,fbUser)=>{
     if(!force&&(_bhAgenda.blockedGen===_bhAgenda.gen||Date.now()<_bhAgenda.nextOk))return;
     if(_bhAgenda.busy){_bhAgenda.again=force?'force':(_bhAgenda.again||true);return;}
     const now=new Date();
-    const snap=bhAgendaSnapshot(projects,sessions,localDateISO(now),now.toISOString());
+    const snap=bhAgendaSnapshot(projects,sessions,localDateISO(now),now.toISOString(),pomo);
     const sig=bhAgendaSig(snap);
     if(!force&&sig===last)return;
     const gen=_bhAgenda.gen;
@@ -16574,7 +16616,7 @@ const useBhAgendaExport=(projects,sessions,fbUser)=>{
   useEffect(()=>{
     const t=setTimeout(()=>{run(false);},3000);
     return()=>clearTimeout(t);
-  },[projects,sessions,fbUser,run]);
+  },[projects,sessions,pomoData?.days,pomoData?.dailyAllocations,fbUser,run]);
   // Back online, or the tab is shown again (a new day makes "days left" stale).
   useEffect(()=>{
     const on=()=>{run(false);};
@@ -18314,7 +18356,7 @@ const App=()=>{
     });
     return ()=>{alive=false;if(unsub)unsub();};
   },[]);
-  useBhAgendaExport(projects,pomoData?.rank?.sessions,fbUser);
+  useBhAgendaExport(projects,pomoData,fbUser);
 
   // Firestore real-time listener — fires instantly when any device saves
   // (v23: removed _isApplyingRemote — it was written in three places and read
