@@ -657,6 +657,24 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .note-drop-bar{position:absolute;z-index:6;background:#3b82f6;border-radius:3px;box-shadow:0 0 0 2px rgba(59,130,246,.35),0 0 14px rgba(59,130,246,.85);pointer-events:none;}
 .note-cap-btn{position:absolute;z-index:4;padding:3px 9px 3px 7px;border-radius:999px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font:700 .7rem 'Alegreya Sans',sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);display:inline-flex;align-items:center;gap:4px;}
 .note-cap-btn:hover{background:var(--text);color:var(--bg);}
+.note-img-tools{position:absolute;z-index:5;display:flex;gap:4px;pointer-events:none}
+.note-img-tool{pointer-events:auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:rgba(20,18,16,.78);color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.note-img-tool:hover{background:rgba(20,18,16,.95)}
+.note-img-tool.on{background:var(--ok-strong,#2f7d4f)}
+.note-img-tool.danger:hover{background:var(--danger-strong)}
+.note-undo-bar{position:absolute;z-index:6;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:999px;background:var(--text);color:var(--bg);font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.28)}
+.note-undo-bar button{border:0;border-radius:999px;padding:3px 11px;background:rgba(255,255,255,.18);color:inherit;font:700 .76rem 'Alegreya Sans',sans-serif;cursor:pointer}
+.note-undo-bar button:hover{background:rgba(255,255,255,.3)}
+.img-copy-btn{position:absolute;z-index:2;display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(20,18,16,.72);color:#fff;cursor:pointer}
+.img-copy-btn.tl{top:5px;left:5px}.img-copy-btn.br{bottom:5px;right:5px}
+.img-copy-btn.on{background:var(--ok-strong,#2f7d4f)}
+.img-clip-bar{display:inline-flex;align-items:center;gap:6px;margin:0 8px 10px 0;padding:2px 4px 2px 9px;border:1px solid var(--border-2);border-radius:999px;background:var(--surface);font-size:.74rem;color:var(--muted)}
+.img-clip-bar button{display:inline-flex;align-items:center;border:0;border-radius:999px;padding:3px 10px;background:var(--text);color:var(--bg);font:700 .72rem 'Alegreya Sans',sans-serif;cursor:pointer}
+.img-clip-bar button:last-child{padding:3px 5px;background:transparent;color:var(--muted)}
+.note-clip-chip{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:2px 4px 2px 9px;border:1px solid var(--border-2);border-radius:999px;background:var(--surface);font-size:.72rem;color:var(--muted)}
+.note-clip-chip button{display:inline-flex;align-items:center;border:0;border-radius:999px;padding:3px 9px;background:var(--text);color:var(--bg);font:700 .7rem 'Alegreya Sans',sans-serif;cursor:pointer}
+.note-clip-chip button:last-child{padding:3px 5px;background:transparent;color:var(--muted)}
+.note-clip-chip button:last-child:hover{color:var(--text)}
 /* Font sizes: classes (not inline styles) so they survive the sanitizer. */
 .rich-editor .note-fs-1{font-size:.76rem;}.rich-editor .note-fs-2{font-size:.95rem;}.rich-editor .note-fs-3{font-size:1.235rem;}.rich-editor .note-fs-4{font-size:1.615rem;line-height:1.35;}.rich-editor .note-fs-5{font-size:2.185rem;line-height:1.25;}
 /* Whole-note size: a wrapper div around the content (no selection = whole note). */
@@ -11248,11 +11266,13 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('frames',i,moveMiniFrame)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                         {isVideoSrc(img)?<Vid src={img} controls playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>:<Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>}
                         <ImgMoveTools index={i} count={list.length} onMove={moveMiniFrame}/>
+                        <ImgCopyBtn src={img}/>
                         <button onClick={()=>{updateMini('frames',fr=>{const f=[...(fr||[])];f.splice(i,1);return f;});}} aria-label={'Remover frame '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                       </div>
                     ))}
                   </div>;
                 })()}
+                <ImgClipBar onPaste={srcs=>updateMini('frames',fr=>bhUniqStrings([...(fr||[]),...srcs]))}/>
                 <button className="btn btn-outline" style={{alignSelf:'flex-start',padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>miniImgRef.current.click()}>
                   <Icon name="image-plus" size={13}/> Adicionar imagens
                 </button>
@@ -11301,11 +11321,13 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('note',i,moveInnerNoteImage)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                           {isVideoSrc(img)?<Vid src={img} controls playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>:<Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>}
                           <ImgMoveTools index={i} count={list.length} onMove={moveInnerNoteImage}/>
+                          <ImgCopyBtn src={img}/>
                           <button onClick={()=>{updateInnerNote('images',im=>{const imgs=[...(im||[])];imgs.splice(i,1);return imgs;});}} aria-label={'Remover mídia '+(i+1)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                         </div>
                       ))}
                     </div>
                   )}
+                  <ImgClipBar onPaste={srcs=>updateInnerNote('images',im=>bhUniqStrings([...(im||[]),...srcs]))}/>
                   <label style={{alignSelf:'flex-start'}}>
                     <button className="btn btn-outline" style={{padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>document.getElementById('inner-note-img-'+activeInnerNoteId)?.click()}>
                       <Icon name="image-plus" size={13}/> Adicionar imagens
@@ -11380,11 +11402,13 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('research',i,moveResearchImg)} style={{position:'relative',borderRadius:8,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)'}}>
                         <Img src={img} priority={i<(isMobile?6:9)} style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
                         <ImgMoveTools index={i} count={list.length} onMove={moveResearchImg}/>
+                        <ImgCopyBtn src={img}/>
                         <button onClick={()=>removeResearchImg(activeResearch.id,i)} style={{position:'absolute',top:5,right:5,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white'}}><Icon name="x" size={11}/></button>
                       </div>
                     ))}
                   </div>
                 )}
+                <ImgClipBar onPaste={srcs=>mapResearch(activeResearchId,n=>({...n,images:bhUniqStrings([...(n.images||[]),...srcs])}))}/>
                 <button className="btn btn-outline" style={{alignSelf:'flex-start',padding:'6px 14px',fontSize:'.8rem'}} onClick={()=>researchImgRef.current.click()}>
                   <Icon name="image-plus" size={13}/> Adicionar imagens
                 </button>
@@ -11426,12 +11450,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
               {galleryPopupEditing
                 ?<textarea value={galleryPopup.content||''} onChange={e=>updateGalleryPopup('content',e.target.value)} placeholder="Notas da sessão (opcional)" style={{width:'100%',boxSizing:'border-box',minHeight:84,resize:'vertical',border:'1px solid var(--field-border)',borderRadius:9,padding:'11px 13px',background:'var(--bg)',color:'var(--text)',font:'400 .88rem Alegreya Sans,sans-serif',lineHeight:1.6,outline:'none',margin:'0 0 16px'}}/>
                 :galleryPopup.content&&<p style={{fontSize:'.9rem',lineHeight:1.7,color:'var(--text)',margin:'0 0 16px',whiteSpace:'pre-wrap'}}>{galleryPopup.content}</p>}
+              {galleryPopupEditing&&<ImgClipBar onPaste={srcs=>mapPopupPost(post=>{const images=bhUniqStrings([...(Array.isArray(post.images)?post.images:[]),...srcs]);return{...post,images,bannerImage:post.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>}
               {(galleryPopup.images||[]).length>0&&(
                 <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:isMobile?8:12}}>
                   {(galleryPopup.images||[]).map((img,i,list)=>(
                     <div key={imgKey(img,i,list)} className="post-img-tile" {...(galleryPopupEditing?imgReorderDragProps('popup',i,moveGalleryPopupImage):{})} style={{position:'relative',aspectRatio:'16/9',overflow:'hidden',borderRadius:9,background:'#000'}}>
                       {isVideoSrc(img)?<Vid src={img} controls playsInline style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>:<Img full src={img} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>}
                       {galleryPopupEditing&&<ImgMoveTools index={i} count={list.length} onMove={moveGalleryPopupImage}/>}
+                      <ImgCopyBtn src={img} pos="br"/>
                       {galleryPopupEditing&&!isVideoSrc(img)&&<button onClick={e=>{e.stopPropagation();updateGalleryPopup('bannerImage',img);}} title="Usar como capa" style={{position:'absolute',top:6,left:6,width:25,height:25,border:0,borderRadius:'50%',background:(galleryPopup.bannerImage||galleryPopup.images?.[0])===img?'rgba(251,191,36,.92)':'rgba(20,18,16,.72)',color:'white',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',zIndex:2}}><Icon name="star" size={12} style={{fill:(galleryPopup.bannerImage||galleryPopup.images?.[0])===img?'white':'none'}}/></button>}
                       {galleryPopupEditing&&<button onClick={()=>removeGalleryPopupImage(i)} title="Remover imagem" style={{position:'absolute',top:6,right:6,width:25,height:25,border:0,borderRadius:'50%',background:'rgba(20,18,16,.72)',color:'white',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}><Icon name="x" size={12}/></button>}
                     </div>
@@ -11474,6 +11500,25 @@ const ImgMoveTools=({index,count,onMove})=>count>1?(
     <button type="button" onClick={()=>onMove(index,index+1)} disabled={index===count-1} title="Mover para a direita" aria-label={'Mover imagem '+(index+1)+' para a direita'}><Icon name="arrow-right" size={11}/></button>
   </div>
 ):null;
+// Copy button for an image tile (task frames, note images, Gallery posts): puts
+// its stored reference on the image clipboard (see bhImgClipToggle).
+const ImgCopyBtn=({src,pos='tl'})=>{
+  const clip=React.useSyncExternalStore(bhImgClipSubscribe,bhImgClipGet);
+  const on=clip.some(i=>i.src===src);
+  return <button type="button" className={'img-copy-btn '+pos+(on?' on':'')} title={on?'Copiada: clique para tirar da seleção':'Copiar para colar em outra nota ou post'} aria-label={on?'Tirar a imagem das copiadas':'Copiar imagem'} aria-pressed={on}
+    onClick={e=>{e.stopPropagation();if(!bhImgClipToggle(src,isVideoSrc(src)?'video':'image'))bhAlert('Esta mídia não pode ser copiada.');}}>
+    <Icon name={on?'check':'copy'} size={12}/></button>;
+};
+// "N copiadas · Colar aqui" over a list of images; onPaste gets the copied srcs.
+const ImgClipBar=({onPaste})=>{
+  const clip=React.useSyncExternalStore(bhImgClipSubscribe,bhImgClipGet);
+  if(!clip.length)return null;
+  return <div className="img-clip-bar" role="group" aria-label="Imagens copiadas">
+    <Icon name="copy" size={12}/><span>{clip.length} {clip.length===1?'copiada':'copiadas'}</span>
+    <button type="button" onClick={()=>onPaste(clip.map(i=>i.src))}>Colar aqui</button>
+    <button type="button" aria-label="Limpar as imagens copiadas" title="Limpar" onClick={bhImgClipClear}><Icon name="x" size={11}/></button>
+  </div>;
+};
 // Files dragged in from the computer onto an upload target. Only drags that
 // carry 'Files' react, so the image reorder drags above pass through untouched;
 // dragleave into a child of the target does not drop the overlay.
@@ -12513,6 +12558,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         </div>}
         <textarea value={selected.content} onChange={e=>upd('content',e.target.value)} placeholder="Análise, insights, observações..."
           style={{width:'100%',border:'1px solid var(--field-border)',borderRadius:10,padding:'16px 20px',fontSize:'.92rem',outline:'none',resize:'vertical',minHeight:160,fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',backgroundColor:'var(--bg)',marginBottom:24}}/>
+        <ImgClipBar onPaste={srcs=>updPost(selected.id,p=>{const images=bhUniqStrings([...p.images,...srcs]);return{...p,images,bannerImage:p.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>
         <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
           {selected.images.map((img,i,list)=>(
             <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('gallery',i,moveImg)}
@@ -12523,6 +12569,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
               }
               {/* No ← n/N → pill here: the owner does not want it over gallery
                   images (2026-09-23). Reordering stays available by dragging. */}
+              <ImgCopyBtn src={img} pos="br"/>
               <button onClick={e=>{e.stopPropagation();removeImg(i);}} title="Remover imagem" aria-label={'Remover imagem '+(i+1)} style={{position:'absolute',top:6,right:6,background:'rgba(28,25,23,.7)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',zIndex:2}}><Icon name="x" size={11}/></button>
               {!isVideoSrc(img)&&<button onClick={e=>{e.stopPropagation();upd('bannerImage',img);}} title="Usar como banner"
                 style={{position:'absolute',top:6,left:6,background:selected.bannerImage===img?'rgba(251,191,36,.9)':'rgba(28,25,23,.55)',border:'none',borderRadius:'50%',width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'white',transition:'background .2s',zIndex:2}}>
@@ -13277,6 +13324,30 @@ const _noteCaretRangeFromPoint=(x,y)=>{
   return range;
 };
 
+// - IMAGE CLIPBOARD -
+// Images copied from one note (or task, or Gallery post) to paste in another.
+// Only the stored reference travels (an https or idb:// src), never the file:
+// two notes may point at the same image. In memory only: an idb:// reference
+// outliving the blob collector's grace period would dangle.
+// @bh-test-begin imgclip
+const BH_IMGCLIP_MAX=50;
+const bhImgClipSrcOk=src=>typeof src==='string'&&src.length<2048&&/^(?:https?:\/\/|idb:\/\/)/i.test(src);
+let bhImgClipItems=[];
+const bhImgClipListeners=new Set();
+const bhImgClipGet=()=>bhImgClipItems;
+const bhImgClipSubscribe=fn=>{bhImgClipListeners.add(fn);return()=>{bhImgClipListeners.delete(fn);};};
+const bhImgClipSet=next=>{bhImgClipItems=next;bhImgClipListeners.forEach(fn=>{try{fn();}catch{/*silent-ok: one listener must not stop the rest*/}});};
+const bhImgClipHas=src=>bhImgClipItems.some(i=>i.src===src);
+// Copying an image that is already copied takes it back out. False when the
+// reference cannot be shared (a base64 image embedded in the text, a blob URL).
+const bhImgClipToggle=(src,kind)=>{
+  if(!bhImgClipSrcOk(src))return false;
+  if(bhImgClipHas(src))bhImgClipSet(bhImgClipItems.filter(i=>i.src!==src));
+  else bhImgClipSet([...bhImgClipItems,{src,kind:kind==='video'?'video':'image'}].slice(-BH_IMGCLIP_MAX));
+  return true;
+};
+const bhImgClipClear=()=>{if(bhImgClipItems.length)bhImgClipSet([]);};
+// @bh-test-end imgclip
 // RichEditor saves 800 ms after the last key. Leaving inside that window (closing
 // or reloading the tab, switching apps on a phone) dropped the last words: the
 // app's flush on leaving only writes the state already rendered, which does not
@@ -13316,6 +13387,14 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const [remoteConflict,setRemoteConflict]=useState(null);
   const [fmt,setFmt]=useState({});
   const [noteLightbox,setNoteLightbox]=useState(null); // {images,index}|null
+  const clip=React.useSyncExternalStore(bhImgClipSubscribe,bhImgClipGet);
+  const [toolsEl,setToolsElState]=useState(null); // the image/video under the pointer: copy / delete buttons
+  const setToolsEl=el=>setToolsElState(cur=>cur===el?cur:el);
+  const [undoDel,setUndoDel]=useState(false);
+  const undoSnapRef=useRef(null); // serialized note from before the last image removal
+  const undoTimerRef=useRef(0);
+  const dropUndo=()=>{undoSnapRef.current=null;clearTimeout(undoTimerRef.current);setUndoDel(false);};
+  useEffect(()=>{dropUndo();return()=>clearTimeout(undoTimerRef.current);},[noteId]);//eslint-disable-line react-hooks/exhaustive-deps
 
   // Hydrate and normalize the selected note before the browser paints it. A
   // passive effect briefly exposed the empty editor / legacy 16:9 grid first,
@@ -13448,16 +13527,23 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     return()=>{bhPendingEditFlushers.delete(flusher);};
   },[flushSave]);
 
-  const acceptRemote=()=>{
-    if(!remoteConflict||!ref.current)return;
-    clearTimeout(saveTimer.current);pendingSaveRef.current=false;
-    ref.current.innerHTML=remoteConflict.html;
-    _normalizeNoteImages(ref.current);
-    [...ref.current.querySelectorAll('img[src^="idb://"],video[src^="idb://"]')].forEach(img=>{
+  // Puts a saved note back into the editor (a received version, an undone removal).
+  const loadHTML=html=>{
+    const ed=ref.current;if(!ed)return;
+    const top=ed.scrollTop;
+    ed.innerHTML=html;
+    _normalizeNoteImages(ed);
+    [...ed.querySelectorAll('img[src^="idb://"],video[src^="idb://"]')].forEach(img=>{
       const persisted=img.getAttribute('src');
       img.setAttribute('data-persist-src',persisted);
       resolveLocalNoteImage(img,persisted);
     });
+    ed.scrollTop=top;
+  };
+  const acceptRemote=()=>{
+    if(!remoteConflict||!ref.current)return;
+    clearTimeout(saveTimer.current);pendingSaveRef.current=false;
+    loadHTML(remoteConflict.html);
     lastEmittedRef.current=remoteConflict.html;dirtyRef.current=false;setRemoteConflict(null);
   };
   const keepLocal=()=>{
@@ -13681,13 +13767,13 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     if(!gesture||gesture.img!==img||gesture.moved||dragImgRef.current||performance.now()-dragEndedAtRef.current<800)return;
     // Touch: the first tap selects the image (showing its resize handle), a
     // second tap on the selected image opens it. A mouse opens it directly.
-    if(gesture.touch&&resizeEl!==resizeBlockOf(img)){setResizeEl(resizeBlockOf(img));setCapImg(capTargetOf(img));return;}
+    if(gesture.touch&&resizeEl!==resizeBlockOf(img)){setResizeEl(resizeBlockOf(img));setCapImg(capTargetOf(img));setToolsEl(img);return;}
     openNoteImage(img);
   };
   const handleEditorPointerDown=e=>{
     const img=e.target?.closest?.('img');
     imagePointerRef.current=img&&ref.current?.contains(img)?{img,x:e.clientX,y:e.clientY,moved:false,touch:e.pointerType!=='mouse'}:null;
-    if(!img&&!resizingRef.current){setResizeEl(null);setCapImg(null);}
+    if(!img&&!resizingRef.current){setResizeEl(null);setCapImg(null);setToolsEl(null);}
   };
   const handleEditorPointerMove=e=>{
     const g=imagePointerRef.current;
@@ -13697,6 +13783,8 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       const img=e.target?.closest?.('img');
       setResizeEl(img&&ref.current?.contains(img)?resizeBlockOf(img):null);
       setCapImg(img&&ref.current?.contains(img)?capTargetOf(img):null);
+      const media=e.target?.closest?.('img,video');
+      setToolsEl(media&&ref.current?.contains(media)?media:null);
     }
   };
   // "＋ Texto": a grid image without text gets a button to add some above it.
@@ -13722,12 +13810,20 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const resizingRef=useRef(false);
   const wrapRef=useRef(null);
   const setResizeEl=el=>setResizeElState(cur=>cur===el?cur:el);
+  // The overlays are placed from measurements: they follow scrolling, window
+  // resizes and layout changes (an image decoding, the toolbar wrapping).
   useEffect(()=>{
-    if(!resizeEl)return;
+    if(!resizeEl&&!toolsEl)return;
     const upd=()=>setResizeTick(t=>t+1);
     window.addEventListener('scroll',upd,true);window.addEventListener('resize',upd);
-    return()=>{window.removeEventListener('scroll',upd,true);window.removeEventListener('resize',upd);};
-  },[resizeEl]);
+    let ro=null;
+    if(typeof ResizeObserver!=='undefined'){
+      ro=new ResizeObserver(upd);
+      if(ref.current)ro.observe(ref.current);
+      if(toolsEl)ro.observe(toolsEl);
+    }
+    return()=>{window.removeEventListener('scroll',upd,true);window.removeEventListener('resize',upd);if(ro)ro.disconnect();};
+  },[resizeEl,toolsEl]);
   const widthClassOf=el=>[...el.classList].find(c=>/^note-w-\d+$/.test(c));
   const startResize=e=>{
     const el=resizeEl,editor=ref.current;if(!el||!editor)return;
@@ -13759,7 +13855,77 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const r=capImg.getBoundingClientRect(),w=wrapRef.current.getBoundingClientRect(),ed=ref.current.getBoundingClientRect();
     if(r.bottom>ed.top+8&&r.top<ed.bottom-8)capBox={left:r.left-w.left+8,top:r.top-w.top+8};
   }
+  let toolsBox=null;
+  if(toolsEl&&toolsEl.isConnected&&wrapRef.current&&ref.current?.contains(toolsEl)){
+    const r=toolsEl.getBoundingClientRect(),w=wrapRef.current.getBoundingClientRect(),ed=ref.current.getBoundingClientRect();
+    // Top-right corner of the image, kept inside the editor's visible area.
+    if(r.bottom>ed.top+8&&r.top<ed.bottom-8)toolsBox={right:Math.max(4,w.right-Math.min(r.right,ed.right)+8),top:Math.max(r.top,ed.top)-w.top+8};
+  }
   const cancelImagePointer=()=>{imagePointerRef.current=null;};
+
+  // COPY / DELETE an image from the note. Copy puts its stored reference on the
+  // image clipboard (the chip in the toolbar pastes it into any note). Delete
+  // removes it (with its caption, for a grid image) and offers to undo: the
+  // browser's own undo cannot see a DOM removal, so the note as it was is kept.
+  const persistedSrcOf=el=>el.getAttribute('data-persist-src')||el.getAttribute('src')||'';
+  const copyToolsImage=()=>{
+    const el=toolsEl;if(!el||!el.isConnected)return;
+    if(!bhImgClipToggle(persistedSrcOf(el),el.tagName==='VIDEO'?'video':'image'))
+      bhAlert('Esta mídia está embutida no texto da nota e não pode ser copiada. Adicione-a de novo como imagem.');
+  };
+  const deleteToolsImage=()=>{
+    const el=toolsEl,ed=ref.current;if(!el||!ed||!el.isConnected||!ed.contains(el))return;
+    const snapshot=serializedHTML();
+    const cell=el.closest('.note-image-cell'),grid=el.closest('.note-image-grid');
+    if(cell&&grid&&ed.contains(grid)){cell.remove();_normalizeNoteGrid(grid);}
+    else{
+      const parent=el.parentElement;
+      el.remove();
+      if(parent&&parent!==ed&&/^(?:DIV|P)$/.test(parent.tagName)&&!/note-all-\d/.test(parent.className)&&!parent.textContent.trim()&&!parent.querySelector('img,video,iframe,.note-image-grid,.note-embed'))parent.remove();
+    }
+    setToolsEl(null);setResizeEl(null);setCapImg(null);
+    undoSnapRef.current=snapshot;setUndoDel(true);
+    clearTimeout(undoTimerRef.current);undoTimerRef.current=setTimeout(dropUndo,8000);
+    emit();
+  };
+  const undoDelete=()=>{
+    const snap=undoSnapRef.current;if(snap==null||!ref.current)return;
+    dropUndo();loadHTML(snap);emit();
+  };
+  // Pastes the copied images where the caret is (a caret inside a grid image's
+  // text goes after that grid), each as its own image.
+  const pasteCopiedImages=()=>{
+    const ed=ref.current,items=bhImgClipGet();if(!ed||!items.length)return;
+    ed.focus();
+    const sel=window.getSelection();
+    let r=null;
+    if(sel&&sel.rangeCount&&ed.contains(sel.anchorNode)){
+      r=sel.getRangeAt(0).cloneRange();
+      const grid=(r.endContainer.nodeType===1?r.endContainer:r.endContainer.parentElement)?.closest?.('.note-image-grid');
+      if(grid&&ed.contains(grid))r.setStartAfter(grid);
+      r.collapse(false);
+    }else{r=document.createRange();r.selectNodeContents(ed);r.collapse(false);}
+    sel.removeAllRanges();sel.addRange(r);
+    const holder=document.createElement('div');
+    items.forEach(it=>{
+      const el=document.createElement(it.kind==='video'?'video':'img');
+      el.setAttribute('data-note-clip','true');
+      el.setAttribute('data-persist-src',it.src);
+      if(it.kind==='video'){el.controls=true;el.preload='metadata';el.setAttribute('data-note-video','true');}
+      else{el.alt='';el.setAttribute('data-note-image','true');}
+      holder.appendChild(el);
+      holder.appendChild(document.createElement('br'));
+    });
+    document.execCommand('insertHTML',false,holder.innerHTML);
+    ed.querySelectorAll('[data-note-clip]').forEach(el=>{
+      const persisted=el.getAttribute('data-persist-src');
+      el.removeAttribute('data-note-clip');
+      if(persisted.startsWith('idb://'))resolveLocalNoteImage(el,persisted);
+      else{el.setAttribute('src',persisted);el.removeAttribute('data-persist-src');}
+      if(el.tagName==='IMG')_prepareNoteImage(el);
+    });
+    emit();
+  };
 
   const noteLightboxOpen=!!noteLightbox;
   const noteLightboxIsTop=useEscapeLayer(noteLightboxOpen,()=>setNoteLightbox(null));
@@ -13791,6 +13957,8 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     return true;
   };
   const handleKeyDown=e=>{
+    // A removed image comes back with Ctrl/Cmd+Z while the "Desfazer" bar is up.
+    if(undoSnapRef.current!=null&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoDelete();return;}
     if(e.key==='Tab'){
       e.preventDefault();
       if(e.shiftKey)deleteTabBefore();
@@ -13948,6 +14116,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     files.forEach(f=>insertImageFile(f));
   };
   const handleDragStart=e=>{
+    setToolsEl(null);
     if(e.target.tagName!=='IMG')return;
     clearDragTarget();
     // Suppress every click generated by the native drag gesture, including
@@ -13983,7 +14152,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         if(t.closest('img,video,.note-image-grid')&&!t.closest('.note-cell-text'))sel.removeAllRanges();
         return;
       }
-      if(t.closest('.rich-toolbar-btn,.note-size-wrap,.note-cap-btn,.note-resize-frame,.note-drop-bar,[role=dialog],[role=menu]'))return;
+      if(t.closest('.rich-toolbar-btn,.note-size-wrap,.note-cap-btn,.note-img-tools,.note-resize-frame,.note-drop-bar,[role=dialog],[role=menu]'))return;
       sel.removeAllRanges();
     };
     document.addEventListener('pointerdown',onDown,true);
@@ -14136,8 +14305,13 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   return(
     <>
     {noteLightboxPortal}
-    <div ref={wrapRef} onPointerLeave={e=>{if(e.pointerType==='mouse'&&!resizingRef.current){setResizeEl(null);setCapImg(null);}}} style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',position:'relative'}}>
+    <div ref={wrapRef} onPointerLeave={e=>{if(e.pointerType==='mouse'&&!resizingRef.current){setResizeEl(null);setCapImg(null);setToolsEl(null);}}} style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,overflow:'hidden',position:'relative'}}>
       {dropBar&&<div className="note-drop-bar" aria-hidden="true" style={dropBar}/>}
+      {toolsBox&&<div className="note-img-tools" style={toolsBox}>
+        {(()=>{const src=persistedSrcOf(toolsEl),copied=bhImgClipHas(src);return <button type="button" className={'note-img-tool'+(copied?' on':'')} title={copied?'Copiada: clique para tirar da seleção':'Copiar para colar em outra nota'} aria-label={copied?'Tirar a imagem das copiadas':'Copiar imagem'} aria-pressed={copied} onMouseDown={e=>e.preventDefault()} onClick={copyToolsImage}><Icon name={copied?'check':'copy'} size={13}/></button>;})()}
+        <button type="button" className="note-img-tool danger" title="Remover imagem" aria-label="Remover imagem" onMouseDown={e=>e.preventDefault()} onClick={deleteToolsImage}><Icon name="trash-2" size={13}/></button>
+      </div>}
+      {undoDel&&<div className="note-undo-bar" role="status"><span>Imagem removida.</span><button type="button" onMouseDown={e=>e.preventDefault()} onClick={undoDelete}>Desfazer</button></div>}
       {capBox&&<button type="button" className="note-cap-btn" style={capBox} title="Adicionar texto acima desta imagem" onMouseDown={e=>e.preventDefault()} onClick={()=>addCellText(capImg)}>＋ Texto</button>}
       {resizeBox&&<div className="note-resize-frame" style={resizeBox}>
         {resizeLive!=null&&<span className="note-resize-label">{resizeLive}%</span>}
@@ -14194,6 +14368,11 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
           onClick={e=>{if(e.detail===0)openEmbedPanel();}}>
           <Icon name="monitor-play" size={13}/>
         </button>
+        {clip.length>0&&<span className="note-clip-chip" role="group" aria-label="Imagens copiadas">
+          <Icon name="copy" size={12}/><span>{clip.length} {clip.length===1?'copiada':'copiadas'}</span>
+          <button type="button" title="Colar as imagens copiadas aqui" onMouseDown={e=>{e.preventDefault();pasteCopiedImages();}} onClick={e=>{if(e.detail===0)pasteCopiedImages();}}>Colar</button>
+          <button type="button" title="Limpar as imagens copiadas" aria-label="Limpar as imagens copiadas" onMouseDown={e=>{e.preventDefault();bhImgClipClear();}} onClick={e=>{if(e.detail===0)bhImgClipClear();}}><Icon name="x" size={11}/></button>
+        </span>}
       </div>
       {embedOpen&&<form onSubmit={e=>{e.preventDefault();submitEmbed();}} style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',padding:'0 0 10px',flexShrink:0}}>
         <input autoFocus value={embedText} onChange={e=>setEmbedText(e.target.value)} aria-label="Link ou código do embed" maxLength={2000}
@@ -14208,7 +14387,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       <div ref={ref} className="rich-editor" contentEditable suppressContentEditableWarning
         data-placeholder={placeholder||"Comece a escrever..."}
         onScroll={e=>{scrollTopRef.current=e.currentTarget.scrollTop;}}
-        onInput={emit} onKeyDown={handleKeyDown} onKeyUp={updateFmt} onMouseUp={e=>{if(e.target.tagName!=='IMG')updateFmt();}} onSelect={updateFmt}
+        onInput={e=>{if(undoSnapRef.current!=null&&e.nativeEvent?.isTrusted)dropUndo();emit();}} onKeyDown={handleKeyDown} onKeyUp={updateFmt} onMouseUp={e=>{if(e.target.tagName!=='IMG')updateFmt();}} onSelect={updateFmt}
         onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
         onPaste={handlePaste} onPointerDown={handleEditorPointerDown} onPointerMove={handleEditorPointerMove} onPointerCancel={cancelImagePointer} onClick={handleEditorClick} onBlur={e=>{const t=e.target?.closest?.('.note-cell-text');if(t&&!t.textContent.trim()){t.remove();emit();}flushSave();}}
         style={{flex:1,fontSize:'.95rem',fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.9,color:'var(--text)'}}/>

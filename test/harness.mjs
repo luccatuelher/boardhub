@@ -34,6 +34,7 @@ export const EXPECTED = {
   gallinks: ['DEFAULT_GALLERY_FOLDERS', 'normalizeGallerySections', 'galleryManualLayout', 'bhProjectGalleryScope', 'bhLinkedPostCount', 'pomoLinkedExtra', 'pomoSectionSeconds', 'pomoSectionProjectSeconds'],
   postmerge: ['bhStripPostDate', 'bhMergePosts'],
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
+  imgclip: ['bhImgClipSrcOk', 'bhImgClipGet', 'bhImgClipSubscribe', 'bhImgClipHas', 'bhImgClipToggle', 'bhImgClipClear'],
   tasklinks: ['bhHtmlMediaSrcs', 'bhUniqStrings', 'bhNoteMedia', 'bhTextToHTML', 'bhTaskPostLinks', 'bhLinkedPostView'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
