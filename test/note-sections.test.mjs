@@ -1,0 +1,39 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { load } from './harness.mjs';
+
+const { bhSectionGroups, bhSectionBlockOrder, bhMoveIntoSection } = load(['notesections']);
+const { bhNoteCreateAt } = load(['notecreate']);
+const N = id => ({ id, type: 'note' });
+const S = id => ({ id, type: 'section' });
+const ids = l => l.map(x => x.id).join(',');
+
+test('a section groups the items after it, up to the next section; loose items come first', () => {
+  const g = bhSectionGroups([N('a'), S('s1'), N('b'), N('c'), S('s2'), S('s3'), N('d')]);
+  assert.deepEqual(g.map(x => [x.section && x.section.id, ids(x.members)]), [[null, 'a'], ['s1', 'b,c'], ['s2', ''], ['s3', 'd']]);
+  assert.deepEqual(bhSectionGroups([S('s1')]).map(x => x.section.id), ['s1']);
+  assert.deepEqual(bhSectionGroups([]), []);
+});
+
+test('dropping a section moves it with its group, above/below whole sections', () => {
+  const list = [N('a'), S('s1'), N('b'), N('c'), S('s2'), N('d'), S('s3'), N('e')];
+  assert.equal(bhSectionBlockOrder(list, 's3', 'd').join(), 'a,s1,b,c,s3,e,s2,d', 'up onto an item of s2: above s2');
+  assert.equal(bhSectionBlockOrder(list, 's1', 'd').join(), 'a,s2,d,s1,b,c,s3,e', 'down onto an item of s2: below all of s2');
+  assert.equal(bhSectionBlockOrder(list, 's2', 'a').join(), 's2,d,a,s1,b,c,s3,e', 'up onto a loose item: to the very top');
+  assert.equal(bhSectionBlockOrder(list, 's1', 'b'), null, 'onto its own item: nothing');
+  assert.equal(bhSectionBlockOrder(list, 'a', 'b'), null, 'only sections move this way');
+});
+
+test('an item dropped on a section header becomes its first member', () => {
+  const notes = [{ id: 'n1', type: 'note' }, { id: 's', type: 'section', parentId: 'cat' }, { id: 'n2', type: 'note', parentId: 'cat' }];
+  const out = bhMoveIntoSection(notes, 'n1', 's');
+  assert.deepEqual(out.map(x => x.id), ['s', 'n1', 'n2']);
+  assert.equal(out[1].parentId, 'cat');
+  assert.equal(bhMoveIntoSection(notes, 's', 's'), notes);
+});
+
+test('a new section goes above the open note (like a folder)', () => {
+  const notes = [{ id: 'a', type: 'note', parentId: null }, { id: 'b', type: 'note', parentId: null }];
+  const out = bhNoteCreateAt(notes, { kind: 'note', id: 'b' }, 'section', { id: 's', type: 'section' });
+  assert.deepEqual(out.notes.map(x => x.id), ['a', 's', 'b']);
+});

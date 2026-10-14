@@ -665,6 +665,13 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .note-undo-bar{position:absolute;z-index:6;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:999px;background:var(--text);color:var(--bg);font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.28)}
 .note-undo-bar button{border:0;border-radius:999px;padding:3px 11px;background:rgba(255,255,255,.18);color:inherit;font:700 .76rem 'Alegreya Sans',sans-serif;cursor:pointer}
 .note-undo-bar button:hover{background:rgba(255,255,255,.3)}
+.note-section-head{display:flex;align-items:center;gap:5px;min-width:0;margin:8px 0 3px;padding:4px 6px;border-radius:7px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.note-section-head.drag-over{background:var(--surface);border-bottom-color:var(--text)}
+.note-section-title{flex:1;min-width:0;font-size:.68rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-section-count{font-size:.62rem;color:var(--muted);flex-shrink:0}
+.note-section-btn{border:0;background:transparent;color:var(--muted);padding:3px;cursor:pointer;line-height:0;border-radius:5px;opacity:.55;flex-shrink:0}
+.note-section-head:hover .note-section-btn{opacity:1}
+.note-section-btn:hover{color:var(--text);background:var(--bg)}
 .tl-add-menu{position:absolute;right:0;top:100%;z-index:20;min-width:190px;max-width:260px;max-height:220px;overflow-y:auto;padding:4px;margin-top:2px;border:1px solid var(--border-2);border-radius:10px;background:var(--surface);box-shadow:0 6px 20px rgba(0,0,0,.22);display:flex;flex-direction:column}
 .tl-add-menu button{text-align:left;padding:6px 10px;border:0;border-radius:6px;background:transparent;color:var(--text);font:500 .78rem 'Alegreya Sans',sans-serif;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tl-add-menu button:hover{background:var(--bg)}
@@ -9678,17 +9685,59 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
       entries.splice(j<0?entries.length:j+1,0,{id:item.id,title:item.title,content:item.content||'',date:item.date});
       return{notes:list.map(n=>n===folder?{...n,entries}:n),expand:[folder.id],entryOf:folder.id};
     }
-    if(kind==='folder')return put(folder.id,'after',fp);
+    if(kind==='folder'||kind==='section')return put(folder.id,'after',fp);
     const anchor=fp!=null?byId.get(String(fp)):folder;
     return put(anchor.id,'after',parentOf(anchor));
   }
   const par=parentOf(sel);
   if(kind==='note')return put(sel.id,'after',par);
-  if(kind==='folder')return put(sel.id,'before',par);
+  if(kind==='folder'||kind==='section')return put(sel.id,'before',par);
   // A category goes beside the category of the open note (categories may nest).
   return par!=null?put(par,'after',parentOf(byId.get(String(par)))):put(sel.id,'before',null);
 };
 // @bh-test-end notecreate
+// @bh-test-begin notesections
+// Sections of the Anotações list ("Seção"): a header row inside a level (the root
+// or a category) that groups the items after it, up to the next header, like the
+// Gallery's sections. A section is a record {type:'section',title,collapsed}; what
+// it groups is decided by position, so moving the header moves the group.
+// `items`: the siblings of one level, in order.
+const bhSectionGroups=items=>{
+  const groups=[{section:null,members:[]}];
+  (Array.isArray(items)?items:[]).forEach(n=>{
+    if(!n)return;
+    if(n.type==='section')groups.push({section:n,members:[]});
+    else groups[groups.length-1].members.push(n);
+  });
+  return groups.filter((g,i)=>i>0||g.members.length>0);
+};
+// The new order (ids) of a level when the section `sectionId` and its group are
+// dropped on `targetId`: above the target's section when going up, below the
+// target's whole section when going down. Null when nothing moves.
+const bhSectionBlockOrder=(items,sectionId,targetId)=>{
+  const list=(Array.isArray(items)?items:[]).filter(Boolean);
+  const ids=list.map(n=>String(n.id)),a=ids.indexOf(String(sectionId)),t=ids.indexOf(String(targetId));
+  if(a<0||t<0||list[a].type!=='section')return null;
+  let b=a+1;
+  while(b<list.length&&list[b].type!=='section')b++;
+  if(t>=a&&t<b)return null;
+  const block=ids.slice(a,b),rest=list.filter((_,i)=>i<a||i>=b);
+  const ri=rest.findIndex(n=>String(n.id)===String(targetId));
+  let at;
+  if(t<a){at=ri;while(at>0&&rest[at].type!=='section')at--;}
+  else{at=ri+1;while(at<rest.length&&rest[at].type!=='section')at++;}
+  return[...rest.slice(0,at).map(n=>String(n.id)),...block,...rest.slice(at).map(n=>String(n.id))];
+};
+// The whole notes array with `itemId` moved to sit right after the section header
+// (so it is the first of that section), under the section's parent.
+const bhMoveIntoSection=(notes,itemId,sectionId)=>{
+  const list=Array.isArray(notes)?notes:[];
+  const moving=list.find(n=>n&&String(n.id)===String(itemId)),section=list.find(n=>n&&String(n.id)===String(sectionId));
+  if(!moving||!section||moving===section||section.type!=='section')return list;
+  const rest=list.filter(n=>n!==moving),at=rest.indexOf(section);
+  return[...rest.slice(0,at+1),{...moving,parentId:section.parentId==null?null:section.parentId},...rest.slice(at+1)];
+};
+// @bh-test-end notesections
 // @bh-test-begin notetask
 // Project tasks made from a note. A project is linked to a section of the Notes
 // screen (project.notesSection = a Categoria or a Pasta); every note inside that
@@ -15020,6 +15069,13 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     setShowCreateMenu(false);
   };
 
+  const newSection=()=>{
+    const n={id:bhNewId(),type:'section',title:'Nova Seção',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,collapsed:false};
+    createHere('section',n);
+    setRenaming({id:n.id,value:n.title});
+    setShowCreateMenu(false);
+  };
+
   // ── TRASH ──
   const trashItem=id=>{
     if(Date.now()-newNoteCooldownRef.current<600)return;
@@ -15093,6 +15149,21 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     });
   };
 
+  // Sections: a header and what follows it, up to the next header (see bhSectionGroups).
+  const moveSectionTo=(sectionId,targetId)=>{
+    const sec=itemById(sectionId),tg=itemById(targetId);
+    if(!sec||!tg||String(parentOf(sec)??'')!==String(parentOf(tg)??''))return;
+    const pid=parentOf(sec);
+    setNotes(prev=>{
+      const siblings=prev.filter(n=>!n.deleted&&String(parentOf(n)??'')===String(pid??''));
+      const order=bhSectionBlockOrder(siblings,sectionId,targetId);
+      if(!order)return prev;
+      const byId=Object.fromEntries(prev.map(n=>[n.id,n]));
+      let i=0;
+      return prev.map(n=>(!n.deleted&&String(parentOf(n)??'')===String(pid??''))?(byId[order[i++]]||n):n);
+    });
+  };
+  const deleteSection=id=>{setNotes(p=>p.filter(n=>n.id!==id));if(renaming?.id===id)setRenaming(null);};
   const hasCategoryAncestor=(id,targetId)=>{
     let cur=itemById(id);
     const seen=new Set();
@@ -15210,6 +15281,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
     if(drag.kind==='entry'){
       return target.kind==='entry'||target.kind==='folder'||target.kind==='category';
     }
+    if(drag.kind==='section')return target.kind==='item'||target.kind==='folder'||target.kind==='category';
     if(drag.kind==='item'){
       if(drag.id===target.id)return false;
       if(target.kind==='category')return true;
@@ -15228,6 +15300,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       if(target.kind==='entry')moveEntryToFolder(drag.id,drag.folderId,target.folderId,target.id);
       else if(target.kind==='folder')moveEntryToFolder(drag.id,drag.folderId,target.id,null);
       else if(target.kind==='category')moveEntryToCategory(drag.id,drag.folderId,target.id);
+    }else if(drag.kind==='section'){
+      moveSectionTo(drag.id,target.id);
     }else if(drag.kind==='item'){
       const dragged=itemById(drag.id),targetItem=itemById(target.id);
       if(!dragged||!targetItem)return;
@@ -15283,6 +15357,45 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       style={{border:'1px dashed transparent',borderRadius:8,padding:'2px 0',transition:'all .12s',...style}}>{children}</div>
   );
 
+  const renderSection=(n,depth,members)=>{
+    const collapsed=!!n.collapsed,isRenaming=renaming?.id===n.id&&!showTrash;
+    const dropOnSection=e=>{
+      e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('drag-over');
+      const d=dragRef.current;if(!d)return;
+      if(d.kind==='section'){if(d.id!==n.id)moveSectionTo(d.id,n.id);}
+      else if(d.kind==='item'){
+        const dragged=itemById(d.id),pid=parentOf(n);
+        if(dragged&&!(isCategory(dragged)&&pid!=null&&(String(pid)===String(dragged.id)||hasCategoryAncestor(pid,dragged.id))))setNotes(p=>bhMoveIntoSection(p,d.id,n.id));
+      }
+      dragRef.current=null;
+    };
+    return <div key={n.id} className="note-section">
+      <div className="note-section-head drag-item" draggable={noteDrag&&!isRenaming}
+        onDragStart={e=>onDragStart({kind:'section',id:n.id,parentId:parentOf(n)},e)} onDragEnd={clearDrag}
+        onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add('drag-over');}} onDragLeave={e=>e.currentTarget.classList.remove('drag-over')}
+        onDrop={dropOnSection}
+        onClick={()=>{if(!isRenaming)updateItem(n.id,x=>({...x,collapsed:!x.collapsed}));}} onDoubleClick={e=>beginRename(n,e)}
+        style={{paddingLeft:6+depth*16}}>
+        <span className="drag-handle" style={{color:'var(--muted)',flexShrink:0,lineHeight:0}}><Icon name="grip-vertical" size={10}/></span>
+        <Icon name={collapsed?'chevron-right':'chevron-down'} size={11} style={{color:'var(--muted)',flexShrink:0}}/>
+        {isRenaming
+          ?<input aria-label="Novo nome da seção" autoFocus onFocus={e=>{const t=e.target;setTimeout(()=>{try{t.select();}catch{/*silent-ok: selection is a nicety*/}},0);}} value={renaming.value} onChange={e=>setRenaming(r=>({...r,value:e.target.value}))} onBlur={commitRename}
+              onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commitRename();}if(e.key==='Escape')setRenaming(null);}} onClick={e=>e.stopPropagation()}
+              style={{flex:1,minWidth:0,fontWeight:700,fontSize:'.7rem',textTransform:'uppercase',letterSpacing:'.08em',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
+          :<span className="note-section-title">{n.title||'Seção'}</span>}
+        <span className="note-section-count">{members.length}</span>
+        <button className="bh-touch-target note-section-btn" onClick={e=>beginRename(n,e)} title="Renomear seção" aria-label={'Renomear seção '+(n.title||'')}><Icon name="pencil" size={11}/></button>
+        <button className="bh-touch-target note-section-btn" onClick={e=>{e.stopPropagation();deleteSection(n.id);}} title="Excluir a seção (os itens ficam)" aria-label={'Excluir a seção '+(n.title||'')}><Icon name="x" size={11}/></button>
+      </div>
+      {!collapsed&&members.map(m=>renderRow(m,depth))}
+    </div>;
+  };
+  // A level of the tree: sections group what follows them (manual order only; the
+  // sorted views list the items flat, without the headers).
+  const renderList=(items,depth=0)=>{
+    if(!noteDrag||!items.some(x=>x&&x.type==='section'))return items.filter(x=>x&&x.type!=='section').map(n=>renderRow(n,depth));
+    return bhSectionGroups(items).map((g,i)=>g.section?renderSection(g.section,depth,g.members):<div key={'loose'+i}>{g.members.map(n=>renderRow(n,depth))}</div>);
+  };
   const renderRow=(n,depth=0)=>{
     const meta=typeMeta(n), open=isExpanded(n.id), kids=isCategory(n)?sortItems(childrenOf(n.id)):[];
     // Use d.parentId from the drag payload (recorded at drag-start) instead of
@@ -15343,10 +15456,10 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
           </div>}
         </div>
         <div style={{fontSize:'.66rem',color:'var(--muted)',paddingLeft:28+depth*16,marginTop:2}}>
-          {isCategory(n)?`${childrenOf(n.id).length} item${childrenOf(n.id).length===1?'':'s'}`:isFolder(n)?`${(n.entries||[]).length} nota${(n.entries||[]).length===1?'':'s'}`:noteDateLabel(n)}
+          {isCategory(n)?`${childrenOf(n.id).filter(x=>x.type!=='section').length} item${childrenOf(n.id).filter(x=>x.type!=='section').length===1?'':'s'}`:isFolder(n)?`${(n.entries||[]).length} nota${(n.entries||[]).length===1?'':'s'}`:noteDateLabel(n)}
         </div>
       </div>
-      {!showTrash&&open&&isCategory(n)&&kids.map(child=>renderRow(child,depth+1))}
+      {!showTrash&&open&&isCategory(n)&&renderList(kids,depth+1)}
       {!showTrash&&open&&isFolder(n)&&(
         <div style={{marginLeft:26+depth*16,paddingLeft:8,borderLeft:'1px solid var(--border)'}}>
           {(n.entries||[]).length===0&&<div style={{fontSize:'.69rem',color:'var(--muted)',padding:'6px 8px 8px'}}>Nenhuma nota.</div>}
@@ -15520,6 +15633,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
               <button onClick={newNote} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="file-text" size={13}/> Nota</button>
               <button onClick={newFolder} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="folder" size={13}/> Pasta</button>
               <button onClick={newCategory} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="layers-3" size={13}/> Categoria</button>
+              <button onClick={newSection} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="separator-horizontal" size={13}/> Seção</button>
             </div>}
           </div>}
         </div>
@@ -15540,8 +15654,8 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
             <>{renderNoteSearch()}
             <div ref={treePaneRef} onScroll={e=>{treeScrollTopRef.current=e.currentTarget.scrollTop;}} style={{flex:1,overflowY:'auto',paddingRight:3}}>
               {noteResults?renderNoteResults():<>
-              {tree.length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
-              {tree.slice(0,treeLimit).map(n=>renderRow(n))}
+              {tree.filter(x=>x.type!=='section').length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
+              {renderList(tree.slice(0,treeLimit))}
               {tree.length>treeLimit&&<ListMoreSentinel key={treeLimit} onMore={moreTree}/>}
               {noteDrag&&renderRootDropZone('Solte aqui para mover para a raiz',{marginTop:8,padding:'8px 8px',fontSize:'.68rem',color:'var(--muted)',textAlign:'center'})}
               </>}
@@ -15574,6 +15688,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
                   <button onClick={newNote} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="file-text" size={13}/> Nota</button>
                   <button onClick={newFolder} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="folder" size={13}/> Pasta</button>
                   <button onClick={newCategory} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="layers-3" size={13}/> Categoria</button>
+                  <button onClick={newSection} className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'8px 10px',fontSize:'.8rem'}}><Icon name="separator-horizontal" size={13}/> Seção</button>
                 </div>}
               </div>}
             </div>
@@ -15583,7 +15698,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
               {renderNoteSearch()}
               {noteResults?renderNoteResults():<>
               {tree.length===0&&<div style={{fontSize:'.85rem',color:'var(--muted)',padding:'16px 4px',textAlign:'center'}}>Nenhuma anotação ainda.</div>}
-              {tree.slice(0,treeLimit).map(n=>renderRow(n))}
+              {renderList(tree.slice(0,treeLimit))}
               {tree.length>treeLimit&&<ListMoreSentinel key={treeLimit} onMore={moreTree}/>}
               {/* Touch screens cannot drag, so the drop-zone hint would only confuse. */}
               {noteDrag&&!(window.matchMedia&&window.matchMedia('(hover: none)').matches)&&renderRootDropZone('Solte aqui para a raiz',{marginTop:8,padding:'9px 8px',fontSize:'.72rem',color:'var(--muted)',textAlign:'center'})}
