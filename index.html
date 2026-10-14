@@ -665,6 +665,10 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .note-undo-bar{position:absolute;z-index:6;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:999px;background:var(--text);color:var(--bg);font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.28)}
 .note-undo-bar button{border:0;border-radius:999px;padding:3px 11px;background:rgba(255,255,255,.18);color:inherit;font:700 .76rem 'Alegreya Sans',sans-serif;cursor:pointer}
 .note-undo-bar button:hover{background:rgba(255,255,255,.3)}
+.tl-add-menu{position:absolute;right:0;top:100%;z-index:20;min-width:190px;max-width:260px;max-height:220px;overflow-y:auto;padding:4px;margin-top:2px;border:1px solid var(--border-2);border-radius:10px;background:var(--surface);box-shadow:0 6px 20px rgba(0,0,0,.22);display:flex;flex-direction:column}
+.tl-add-menu button{text-align:left;padding:6px 10px;border:0;border-radius:6px;background:transparent;color:var(--text);font:500 .78rem 'Alegreya Sans',sans-serif;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-add-menu button:hover{background:var(--bg)}
+.tl-add-menu-label{padding:6px 10px 2px;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .tl-sub-add{display:flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;padding:0;border:1px dashed var(--border);border-radius:50%;background:transparent;color:var(--muted);cursor:pointer;opacity:0;transition:opacity .15s}
 div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
 .tl-sub-add:hover{border-color:var(--text);color:var(--text)}
@@ -1565,6 +1569,60 @@ const bhGroupByParent=list=>{
   list.forEach(x=>{if(x&&!bhIsChildTask(x,idSet))place(x);});
   list.forEach(x=>{if(x&&!seen.has(x)){seen.add(x);out.push(x);}});
   return out.length===list.length&&out.every((x,i)=>x===list[i])?list:out;
+};
+// [start,end) of the block that moves with list[i]: a task with its children, or a child alone.
+const bhTaskBlock=(list,i)=>{
+  const idSet=new Set(list.filter(Boolean).map(x=>String(x.id))),t=list[i];
+  if(!t||bhIsChildTask(t,idSet))return[i,i+1];
+  let j=i+1;
+  while(j<list.length&&bhIsChildTask(list[j],idSet)&&String(list[j].parentId)===String(t.id))j++;
+  return[i,j];
+};
+// Moves list[from] (with its children) to where list[to] is: after the target's whole
+// group when going down, before it when going up. A child only moves among its siblings
+// (the grouping puts it back under its parent otherwise).
+const bhMoveTaskGroup=(list,from,to)=>{
+  if(!Array.isArray(list)||from===to||from<0||to<0||from>=list.length||to>=list.length)return list;
+  const idSet=new Set(list.filter(Boolean).map(x=>String(x.id)));
+  const [a,b]=bhTaskBlock(list,from);
+  if(to>=a&&to<b)return list;
+  const block=list.slice(a,b),rest=[...list.slice(0,a),...list.slice(b)];
+  const movingChild=bhIsChildTask(list[from],idSet);
+  let ref=list[to];
+  if(!movingChild&&bhIsChildTask(ref,idSet))ref=list.find(x=>x&&String(x.id)===String(ref.parentId));
+  const ri=rest.indexOf(ref);
+  if(ri<0)return list;
+  let at=from<to?ri+1:ri;
+  if(from<to&&!movingChild)while(at<rest.length&&bhIsChildTask(rest[at],idSet)&&String(rest[at].parentId)===String(ref.id))at++;
+  return[...rest.slice(0,at),...block,...rest.slice(at)];
+};
+// One step up (-1) or down (1): a task jumps over a whole neighbouring group, a child over a sibling.
+const bhNudgeTask=(list,i,delta)=>{
+  if(!Array.isArray(list)||i<0||i>=list.length||!delta)return list;
+  const idSet=new Set(list.filter(Boolean).map(x=>String(x.id)));
+  const [a,b]=bhTaskBlock(list,i);
+  if(bhIsChildTask(list[i],idSet)){
+    const sib=[];
+    list.forEach((x,k)=>{if(bhIsChildTask(x,idSet)&&String(x.parentId)===String(list[i].parentId))sib.push(k);});
+    const q=sib[sib.indexOf(i)+(delta>0?1:-1)];
+    return q==null?list:bhMoveTaskGroup(list,i,q);
+  }
+  if(delta>0){
+    if(b>=list.length)return list;
+    return bhMoveTaskGroup(list,i,bhTaskBlock(list,b)[1]-1);
+  }
+  if(a<=0)return list;
+  let k=a-1;
+  while(k>0&&bhIsChildTask(list[k],idSet))k--;
+  return bhMoveTaskGroup(list,i,k);
+};
+// A child goes after its parent's last child (so siblings keep creation order).
+const bhInsertChild=(list,parentId,item)=>{
+  const arr=Array.isArray(list)?list:[];
+  const pi=arr.findIndex(x=>x&&String(x.id)===String(parentId));
+  if(pi<0)return[item,...arr];
+  const end=bhTaskBlock(arr,pi)[1];
+  return[...arr.slice(0,end),item,...arr.slice(end)];
 };
 const bhNormalizeTaskTree=project=>{
   if(!project)return project;
@@ -7417,11 +7475,12 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
   const taskProject=isProjectSession?project:(linkedProjects.find(p=>String(p.id)===String(linkProjectId))||null);
   const asTask=isProjectSession||!!taskProject;
   const projectTasks=taskProject?.projectTasks||[];
-  const taskIdSet=useMemo(()=>new Set((projectTasks||[]).map(x=>x&&String(x.id))),[projectTasks]);
   const taskOptions=useMemo(()=>{
     const list=bhGroupByParent((projectTasks||[]).filter(t=>t&&t.id!=null));
     return{open:list.filter(t=>t.status!=='Concluído'),done:list.filter(t=>t.status==='Concluído')};
   },[projectTasks]);
+  const openIdSet=useMemo(()=>new Set(taskOptions.open.map(x=>String(x.id))),[taskOptions]);
+  const doneIdSet=useMemo(()=>new Set(taskOptions.done.map(x=>String(x.id))),[taskOptions]);
   // Starts on the task this project's last session went to, while it exists;
   // with no tasks at all, on "new task".
   const [taskChoice,setTaskChoice]=useState(()=>{
@@ -7585,8 +7644,8 @@ const SessionCaptureModal=({session,onSave,onDefer,rankIndex=0,showRank=true,gal
         <label className="session-post-field"><span>Tarefa</span>
           <select value={taskChoice} onChange={e=>{setTaskChoice(e.target.value);setGalleryLink('');setError('');}} disabled={saving} aria-label="Tarefa do projeto trabalhada na sessão">
             {taskChoice===''&&<option value="" disabled>Escolha a tarefa…</option>}
-            {taskOptions.open.map(t=><option key={t.id} value={String(t.id)}>{bhNestedLabel(t,taskIdSet,t.text||'Sem título')}</option>)}
-            {taskOptions.done.length>0&&<optgroup label="Concluídas">{taskOptions.done.map(t=><option key={t.id} value={String(t.id)}>{bhNestedLabel(t,taskIdSet,t.text||'Sem título')}</option>)}</optgroup>}
+            {taskOptions.open.map(t=><option key={t.id} value={String(t.id)}>{bhNestedLabel(t,openIdSet,t.text||'Sem título')}</option>)}
+            {taskOptions.done.length>0&&<optgroup label="Concluídas">{taskOptions.done.map(t=><option key={t.id} value={String(t.id)}>{bhNestedLabel(t,doneIdSet,t.text||'Sem título')}</option>)}</optgroup>}
             <option value="__new__">+ Nova tarefa…</option>
           </select>
         </label>
@@ -7993,10 +8052,11 @@ const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], 
   // project's link, for its category.
   const projectTaskOptions = useMemo(()=>{
     if(!selectedProjectAny)return [];
-    const allIds=new Set((selectedProjectAny.projectTasks||[]).map(x=>x&&String(x.id)));
     return bhGroupByParent(projectTaskNamed(selectedProjectAny.projectTasks||[],selectedProjectAny.miniProjects))
       .filter(t=>t&&t.id!=null&&t.status!=='Concluído')
-      .map(t=>({id:String(t.id),label:String(t.text||t.title||'Tarefa'),child:bhIsChildTask(t,allIds)}));
+      .map(t=>({id:String(t.id),label:String(t.text||t.title||'Tarefa'),parentId:t.parentId}))
+      // nested only under a parent that is in this same list
+      .map((o,_i,arr)=>({...o,child:bhIsChildTask(o,new Set(arr.map(x=>x.id)))}));
   },[selectedProjectAny]);
   const [taskPicks,setTaskPicks]=useState(pomoTaskPicksLoad);
   const pickedTask = selectedProjectAny?(projectTaskOptions.find(t=>t.id===taskPicks[String(selectedProjectAny.id)])||null):null;
@@ -10039,6 +10099,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   // The new task is added at the TOP, and the collapsed timeline shows 4 rows: scrolled down,
   // the Enter/Adicionar looked like it did nothing (the row sat above the fold).
   // Scrolls the timeline's own area back to its top once the row is in the list (a no-op expanded).
+  const [addMenu,setAddMenu]=useState(false);
   const [justAdded,setJustAdded]=useState(null);
   useEffect(()=>{
     if(justAdded==null)return;
@@ -10127,14 +10188,17 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   };
   const deleteTask=()=>{if(!editDraft)return;const id=editDraft.id;const removed=tasks.find(t=>String(t.id)===String(id))||editDraft;onUpdateTasks(ts=>ts.filter(t=>String(t.id)!==String(id)));if(onSyncDelete)onSyncDelete(removed);closeEdit();};
   const cycleStatus=id=>{onUpdateTasks(ts=>ts.map(t=>String(t.id)===String(id)?{...t,status:PTASK_NEXT[t.status]||'Pendente'}:t));if(editDraft&&String(editDraft.id)===String(id))setEditDraft(d=>({...d,status:PTASK_NEXT[d.status]||'Pendente'}));};
-  const addTask=()=>{
+  const addTask=(parentId=null)=>{
     if(!newTaskName.trim())return;
     const id=bhNewId();
     // When "this week" view is active, default to today so the task is visible immediately.
-    const s=thisWeek?today:(projectStart||today);
-    const e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
-    const newTask={id,text:newTaskName.trim(),status:'Pendente',startDate:s,dueDate:e,notes:''};
-    onUpdateTasks(ts=>[newTask,...ts]);
+    let s=thisWeek?today:(projectStart||today);
+    let e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
+    // A sub-task starts with its parent's dates.
+    const parent=parentId!=null?tasks.find(x=>x&&String(x.id)===String(parentId)&&!bhIsChildTask(x,new Set(tasks.map(y=>y&&String(y.id))))):null;
+    if(parent){s=parent.startDate||s;e=parent.dueDate||e;}
+    const newTask={id,text:newTaskName.trim(),status:'Pendente',startDate:s,dueDate:e,notes:'',...(parent?{parentId:parent.id}:{})};
+    onUpdateTasks(ts=>parent?bhInsertChild(ts,parent.id,newTask):[newTask,...ts]);
     if(onSyncAdd)onSyncAdd(newTask);
     setNewTaskName('');
     setJustAdded(id);
@@ -10172,7 +10236,17 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
             placeholder="Nome da tarefa..."
             style={{border:'1px solid var(--field-border)',borderRadius:7,padding:'5px 10px',fontSize:'.78rem',fontFamily:'Alegreya Sans,sans-serif',outline:'none',backgroundColor:'var(--bg)',color:'var(--text)',width:160,minWidth:0,flex:'0 1 160px',transition:'border-color .2s'}}
             onFocus={e=>e.target.style.borderColor='var(--text)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
-          <button onClick={addTask} className="btn btn-dark" style={{padding:'5px 12px',fontSize:'.78rem',flexShrink:0}}><Icon name="plus" size={12}/> Adicionar</button>
+          {/* Adicionar: hovering (or the arrow) offers a task or a sub-task of one of the tasks. */}
+          <div style={{position:'relative',display:'flex',flexShrink:0}} onMouseEnter={()=>setAddMenu(true)} onMouseLeave={()=>setAddMenu(false)}>
+            <button onClick={()=>addTask()} className="btn btn-dark" style={{padding:'5px 8px 5px 12px',fontSize:'.78rem',borderTopRightRadius:0,borderBottomRightRadius:0}}><Icon name="plus" size={12}/> Adicionar</button>
+            <button type="button" onClick={()=>setAddMenu(v=>!v)} aria-haspopup="menu" aria-expanded={addMenu} aria-label="Escolher como adicionar" title="Adicionar como tarefa ou subtarefa" className="btn btn-dark" style={{padding:'5px 6px',borderTopLeftRadius:0,borderBottomLeftRadius:0,borderLeft:'1px solid rgba(255,255,255,.25)'}}><Icon name="chevron-down" size={12}/></button>
+            {addMenu&&<div role="menu" className="tl-add-menu">
+              <button type="button" role="menuitem" onClick={()=>{addTask();setAddMenu(false);}}>Como tarefa</button>
+              {(()=>{const ids=new Set(tasks.map(x=>x&&String(x.id)));const parents=tasks.filter(x=>x&&!bhIsChildTask(x,ids));
+                return parents.length>0?<><div className="tl-add-menu-label">Como subtarefa de</div>
+                  {parents.map(x=><button key={x.id} type="button" role="menuitem" onClick={()=>{addTask(x.id);setAddMenu(false);}}>{x.text||x.title||'Tarefa sem nome'}</button>)}</>:null;})()}
+            </div>}
+          </div>
         </div>
       </div>
 
@@ -10208,7 +10282,7 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
                     e.preventDefault();
                     const from=dragRowRef.current;const to=dragOverRowRef.current;
                     if(from===null||from===to){dragRowRef.current=null;dragOverRowRef.current=null;return;}
-                    onUpdateTasks(ts=>{const reordered=[...ts];const[moved]=reordered.splice(from,1);reordered.splice(to,0,moved);return reordered;});
+                    onUpdateTasks(ts=>bhMoveTaskGroup(ts,from,to));
                     dragRowRef.current=null;dragOverRowRef.current=null;
                   }}
                   onDragEnd={()=>{dragRowRef.current=null;dragOverRowRef.current=null;}}
@@ -10321,7 +10395,7 @@ const applyAutoLate=tasks=>{
   });
 };
 const projectTaskMiniStatus=s=>({'Fazendo':'Em Andamento','Concluído':'Concluído','Atrasado':'Atrasado'}[s]||'Pendente');
-const projectTaskToMini=t=>({id:t.id,title:t.text||'Nova Tarefa',status:projectTaskMiniStatus(t.status),notes:t.notes||'',frames:[],innerNotes:[],createdAt:t.createdAt||new Date().toLocaleDateString('pt-BR')});
+const projectTaskToMini=t=>({...(t.parentId!=null&&t.parentId!==''?{parentId:t.parentId}:{}),id:t.id,title:t.text||'Nova Tarefa',status:projectTaskMiniStatus(t.status),notes:t.notes||'',frames:[],innerNotes:[],createdAt:t.createdAt||new Date().toLocaleDateString('pt-BR')});
 // A timeline task with no text rendered as a blank bar. Its task card (same
 // id) usually still has the name, so the task takes it from there.
 const projectTaskNamed=(tasks,minis)=>{
@@ -10679,13 +10753,13 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // starts with the parent's dates). One level only.
   const addSubTask=parentId=>{
     const parent=(local.miniProjects||[]).find(m=>String(m.id)===String(parentId));
-    if(!parent||parent.parentId)return;
+    if(!parent||bhIsChildTask(parent,miniIdSet))return;
     const pt0=(local.projectTasks||[]).find(t=>String(t.id)===String(parentId))||{};
     const n=((local.miniProjects||[]).filter(m=>String(m.parentId||'')===String(parentId)).length)+1;
     const id=bhNewId(),title='Rodada '+n;
     const mini={id,title,status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),parentId:parent.id};
     const pt={id,text:title,status:'Pendente',startDate:pt0.startDate||local.startDate||todayISO(),dueDate:pt0.dueDate||local.deadline||addDays(todayISO(),7),notes:'',parentId:parent.id};
-    edit(prev=>({...prev,miniProjects:[mini,...(prev.miniProjects||[])],projectTasks:[pt,...(prev.projectTasks||[])]}));
+    edit(prev=>({...prev,miniProjects:bhInsertChild(prev.miniProjects,parent.id,mini),projectTasks:bhInsertChild(prev.projectTasks,parent.id,pt)}));
     setActiveMiniId(id);setActiveInnerNoteId(null);
     setExpandedMiniIds(x=>{const s2=new Set(x);s2.add(parent.id);s2.add(id);return s2;});
   };
@@ -10820,7 +10894,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(target){setActiveMiniId(target.id);setExpandedMiniIds(s=>{const n=new Set(s);n.add(target.id);return n;});}
   };
   const nudgeInnerNote=(miniId,noteId,delta)=>mapInnerNotes(miniId,ns=>{const i=ns.findIndex(n=>String(n.id)===String(noteId));return i<0?ns:bhMoveItem(ns,i,i+delta);});
-  const nudgeMini=(miniId,delta)=>upd('miniProjects',ms=>{const list=ms||[];const i=list.findIndex(m=>String(m.id)===String(miniId));return i<0?list:bhMoveItem(list,i,i+delta);});
+  const nudgeMini=(miniId,delta)=>upd('miniProjects',ms=>{const list=ms||[];const i=list.findIndex(m=>String(m.id)===String(miniId));return i<0?list:bhNudgeTask(list,i,delta);});
   const sessionSummary=note=>{
     const rows=(Array.isArray(note?.sessionIds)?note.sessionIds:[]).map(id=>sessionById.get(String(id))).filter(Boolean);
     if(!rows.length)return null;
@@ -10889,12 +10963,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // FIRST task used to jump to wherever the thing was dropped.
   const reorderMinis=(fromIdx,toIdx)=>{
     if(fromIdx==null||toIdx==null||fromIdx===toIdx)return;
-    upd('miniProjects',ms=>{
-      const minis=[...(ms||[])];
-      const[moved]=minis.splice(fromIdx,1);
-      minis.splice(toIdx,0,moved);
-      return minis;
-    });
+    upd('miniProjects',ms=>bhMoveTaskGroup(ms||[],fromIdx,toIdx));
   };
   // The timeline hands over a function of the current task list (as the
   // timeline shows it, auto-late applied); the tasks' text and status are
@@ -10906,7 +10975,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   });
   const miniIdSet=new Set((local.miniProjects||[]).map(x=>String(x.id)));
   const addTimelineTaskCard=pt=>edit(prev=>(prev.miniProjects||[]).some(m=>String(m.id)===String(pt.id))?prev
-    :{...prev,miniProjects:[{id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),...(pt.parentId!=null&&pt.parentId!==''?{parentId:pt.parentId}:{})},...(prev.miniProjects||[])]});
+    :{...prev,miniProjects:(card=>pt.parentId!=null&&pt.parentId!==''?bhInsertChild(prev.miniProjects,pt.parentId,card):[card,...(prev.miniProjects||[])])({id:pt.id,title:pt.text,status:ptaskStatusToMini(pt.status),notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),...(pt.parentId!=null&&pt.parentId!==''?{parentId:pt.parentId}:{})})});
   const miniImgRef=useRef();
   const handleMiniImgs=e=>intoTask(inputFiles(e));
   const addMiniFrames=(miniId,rawFiles)=>miniId==null?undefined:addUploadedImages(rawFiles,

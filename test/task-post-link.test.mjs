@@ -185,3 +185,34 @@ test('sub-task folders of the earlier build become child tasks that take their n
   assert.deepEqual(tasks.map(t => [t.id, t.parentId, t.status, t.startDate]), [['t1', undefined, 'Fazendo', '2026-10-01'], ['s1', 't1', 'Concluído', '2026-10-01']]);
   assert.equal(bhPromoteSubTasks(out), out, 'nothing left to promote: same array');
 });
+
+const { bhMoveTaskGroup, bhNudgeTask, bhInsertChild, bhTaskBlock } = load(['tasklinks']);
+const ids = l => l.map(x => x.id).join(',');
+const T = (id, parentId) => ({ id, ...(parentId ? { parentId } : {}) });
+
+test('moving a task moves its children with it; a child moves among its siblings', () => {
+  const list = [T('P'), T('c1', 'P'), T('c2', 'P'), T('Q'), T('R'), T('r1', 'R')];
+  assert.deepEqual(bhTaskBlock(list, 0), [0, 3]);
+  assert.equal(ids(bhMoveTaskGroup(list, 0, 3)), 'Q,P,c1,c2,R,r1');
+  assert.equal(ids(bhMoveTaskGroup(list, 3, 0)), 'Q,P,c1,c2,R,r1');
+  assert.equal(ids(bhMoveTaskGroup(list, 0, 5)), 'Q,R,r1,P,c1,c2', 'dropping on a child goes after its whole group');
+  assert.equal(ids(bhMoveTaskGroup(list, 4, 1)), 'R,r1,P,c1,c2,Q', 'going up lands before the target group');
+  assert.equal(ids(bhMoveTaskGroup(list, 1, 2)), 'P,c2,c1,Q,R,r1');
+  assert.equal(bhMoveTaskGroup(list, 0, 1), list, 'onto its own child: nothing');
+});
+
+test('nudging jumps over whole groups and never gets undone by the grouping', () => {
+  const list = [T('P'), T('c1', 'P'), T('Q'), T('R')];
+  assert.equal(ids(bhNudgeTask(list, 0, 1)), 'Q,P,c1,R');
+  assert.equal(ids(bhNudgeTask(list, 2, -1)), 'Q,P,c1,R');
+  assert.equal(ids(bhNudgeTask(list, 3, -1)), 'P,c1,R,Q');
+  assert.equal(bhNudgeTask(list, 0, -1), list);
+  assert.equal(bhNudgeTask(list, 3, 1), list);
+  assert.equal(bhNudgeTask(list, 1, 1), list, 'a lone child cannot leave its group');
+});
+
+test('a new child goes after its parent\'s last child', () => {
+  const list = [T('P'), T('c1', 'P'), T('Q')];
+  assert.equal(ids(bhInsertChild(list, 'P', T('c2', 'P'))), 'P,c1,c2,Q');
+  assert.equal(ids(bhInsertChild(list, 'gone', T('x'))), 'x,P,c1,Q');
+});
