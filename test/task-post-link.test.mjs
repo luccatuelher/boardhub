@@ -141,3 +141,13 @@ test('publishing does not apply without a session, a Gallery folder, or when alr
   assert.equal(bhPublishSessionNote({ ...note, galleryPostId: 'p' }, { galleryFolder: 'f1' }), null);
   assert.equal(bhHtmlToText('a &amp; b<br>c'), 'a & b\nc');
 });
+
+const { bhLegacyPostImages } = load(['tasklinks']);
+
+test('an old linked post gets back what it showed: task images, then its own, in its order, minus hidden', () => {
+  const mini = { frames: ['f1.png', 'f2.png'], notes: '<img src="inline.png">', innerNotes: [
+    { id: 'a', images: ['n1.png'] }, { id: 'b', images: ['hidden-note.png'], hideInGallery: true }, { id: 'c', galleryPostId: 'x', images: ['linked.png'] }] };
+  assert.deepEqual(bhLegacyPostImages(mini, { images: ['own.png'] }), ['f1.png', 'f2.png', 'inline.png', 'n1.png', 'own.png']);
+  assert.deepEqual(bhLegacyPostImages(mini, { images: ['own.png'], imageOrder: ['own.png', 'f2.png'], hiddenImages: ['f1.png'] }), ['own.png', 'f2.png', 'inline.png', 'n1.png']);
+  assert.deepEqual(bhLegacyPostImages({ frames: [] }, { images: ['own.png'] }), ['own.png']);
+});

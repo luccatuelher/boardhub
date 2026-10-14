@@ -1502,6 +1502,26 @@ const bhRelinkNotes=(projects,imagesByPost)=>bhMapTaskNotes(projects,n=>{
   const wrote=bhAppendImages(imagesByPost.get(pid),own);
   return JSON.stringify(rest.images||[])===JSON.stringify(wrote)?{...rest,images:own,galleryPostId:pid}:rest;
 });
+// Posts linked to a task BEFORE 2026-10-13 showed the task's images instead of
+// keeping their own (linking even moved the post's images into the task's
+// frames). This rebuilds what such a post showed then: the task's frames, media
+// pasted into its notes text, images of notes not hidden from the post, then
+// the post's own images, in the post's custom order (`imageOrder`) and without
+// the ones hidden from it (`hiddenImages`). The result is meant to be written
+// into the post's own `images`.
+const bhLegacyPostImages=(mini,post)=>{
+  const fromTask=bhUniqStrings([
+    ...(Array.isArray(mini&&mini.frames)?mini.frames:[]),
+    ...bhHtmlMediaSrcs(mini&&mini.notes),
+    ...(Array.isArray(mini&&mini.innerNotes)?mini.innerNotes:[]).filter(n=>n&&!n.hideInGallery&&(n.galleryPostId==null||n.galleryPostId==='')).flatMap(n=>Array.isArray(n.images)?n.images:[]),
+  ]);
+  const all=bhUniqStrings([...fromTask,...(Array.isArray(post&&post.images)?post.images:[])]);
+  const order=Array.isArray(post&&post.imageOrder)?post.imageOrder:[];
+  const rank=new Map(order.map((src,i)=>[src,i]));
+  const sorted=rank.size?[...all.filter(x=>rank.has(x)).sort((a,b)=>rank.get(a)-rank.get(b)),...all.filter(x=>!rank.has(x))]:all;
+  const hidden=new Set(Array.isArray(post&&post.hiddenImages)?post.hiddenImages:[]);
+  return sorted.filter(x=>!hidden.has(x));
+};
 // Plain text of a note's HTML (the Gallery post text is plain).
 const bhHtmlToText=html=>String(html||'')
   .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/blockquote)\s*\/?>/gi,'\n')
@@ -10678,14 +10698,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     if(!mini||!local.galleryFolder||linkedPostOf(mini))return;
     const post={id:'task-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),folder:String(local.galleryFolder),storageScope:'gallery',title:mini.title||'Tarefa',date:localDateISO(),content:'',images:[],bannerImage:'',deleted:false};
     setGalleryPosts(prev=>[post,...(prev||[])]);
-    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:post.id});
+    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:post.id,postImagesSeparate:true});
   };
   // Linking shares time, never images: the post and the task keep their own.
   const linkTaskToPost=(miniId,postId)=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     const post=(galleryPosts||[]).find(p=>p&&String(p.id)===String(postId));
     if(!mini||!post||post.linkedTask||(mini.galleryPostId!=null&&mini.galleryPostId!==''))return;
-    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id)});
+    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id),postImagesSeparate:true});
   };
   const unlinkTaskPost=async miniId=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
@@ -11360,6 +11380,15 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         {live&&<button className="btn btn-outline" onClick={()=>setGalleryPopup(post)}><Icon name="external-link" size={11}/> Ver post</button>}
                         <button className="btn btn-ghost" onClick={()=>unlinkTaskPost(activeMini.id)}><Icon name="unlink" size={11}/> Desvincular</button>
                       </div>
+                      {live&&(()=>{
+                        const legacy=bhLegacyPostImages(activeMini,post),have=new Set(post.images||[]),missing=legacy.filter(x=>!have.has(x));
+                        return missing.length>0&&!activeMini.postImagesSeparate?<div className="task-gallery-box-row"><span>Este post foi ligado à tarefa no modelo antigo: {missing.length} {missing.length===1?'imagem que ele mostrava está':'imagens que ele mostrava estão'} só na tarefa.</span>
+                          <button className="btn btn-outline" onClick={()=>{mapMini(activeMini.id,m=>({...m,postImagesSeparate:true}));setGalleryPosts(prev=>(prev||[]).map(p=>{
+                            if(!p||String(p.id)!==String(post.id))return p;
+                            const images=bhLegacyPostImages(activeMini,p);
+                            return{...p,images,bannerImage:images.includes(p.bannerImage)?p.bannerImage:(images.find(x=>!isVideoSrc(x))||'')};
+                          }));}}><Icon name="undo-2" size={11}/> Restaurar no post</button></div>:null;
+                      })()}
                       {live&&<span style={{fontSize:'.72rem',lineHeight:1.45}}>A ligação é só para o tempo: as imagens do post e as da tarefa são separadas.</span>}
                     </div>;
                   }
@@ -17412,7 +17441,7 @@ const App=()=>{
         if(at<0){const t=projectTasks.find(t=>t&&String(t.id)===taskId);if(!t)return p;miniProjects.push(projectTaskToMini(t));at=miniProjects.length-1;}
         const m=miniProjects[at],link=linkId&&(m.galleryPostId==null||m.galleryPostId==='');
         miniProjects[at]={...m,innerNotes:[...(m.innerNotes||[]).filter(n=>String(n?.id)!==noteId),note],
-          ...(link?{galleryPostId:linkId}:{})};
+          ...(link?{galleryPostId:linkId,postImagesSeparate:true}:{})};
         return{...p,projectTasks,miniProjects};
       }));
       if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
