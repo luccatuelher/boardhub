@@ -3827,7 +3827,7 @@ const bhAgendaDay=v=>{
   const t=new Date(Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10)));
   return t.toISOString().slice(0,10)===d?d:''; // 2026-02-31 is not a date
 };
-const bhAgendaText=v=>(typeof v==='string'?v:v==null?'':String(v)).replace(/\s+/g,' ').trim().slice(0,200);
+const bhAgendaText=(v,max=200)=>(typeof v==='string'?v:v==null?'':String(v)).replace(/\s+/g,' ').trim().slice(0,max);
 const bhAgendaCmp=(a,b)=>a<b?-1:a>b?1:0;
 // Google Calendar event colors (1-11) minus 8, graphite, which reads as "done".
 const BH_AGENDA_COLORS=['1','2','3','4','5','6','7','9','10','11'];
@@ -3926,7 +3926,7 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
       const pid=t.parentId!=null&&t.parentId!==''?String(t.parentId):'';
       const startDate=bhAgendaDay(t.startDate),dueDate=bhAgendaDay(t.dueDate);
       return{id:String(t.id),text:nameOf(t),status:bhAgendaText(t.status),startDate,dueDate,
-        parent:pid&&pid!==String(t.id)&&names.has(pid)?names.get(pid):'',...timing(startDate,dueDate),focusMinutes:focus.task(t.id)};
+        notes:bhAgendaText(t.notes,500),parent:pid&&pid!==String(t.id)&&names.has(pid)?names.get(pid):'',...timing(startDate,dueDate),focusMinutes:focus.task(t.id)};
     }).filter(t=>t.text&&(t.startDate||t.dueDate));
     tasks.sort((a,b)=>bhAgendaCmp(a.dueDate||'9999',b.dueDate||'9999')||bhAgendaCmp(a.startDate,b.startDate)||bhAgendaCmp(a.text,b.text)||bhAgendaCmp(a.id,b.id));
     const startDate=bhAgendaDay(p.startDate),deadline=bhAgendaDay(p.deadline);
@@ -3939,7 +3939,7 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
   out.forEach(r=>{r.colorId=colors.get(r.id);});
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "notes" is the quick note typed on the task (first 500 characters). "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
     recent:bhAgendaRecent(projects,pomo,day,14),
     projects:out};
 };
@@ -16645,7 +16645,7 @@ const AgendaExportCard=({uid})=>{
   return(
     <div style={{border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
       <div style={{fontWeight:600,fontSize:'.9rem',display:'flex',alignItems:'center',gap:6}}><Icon name="calendar" size={14}/> Agenda no Drive</div>
-      <div style={{fontSize:'.78rem',color:'var(--muted)',lineHeight:1.5}}>Mantém um único arquivo <code>boardhub-agenda.json</code> no seu Drive com nomes, datas, status e tempo de foco dos projetos e tarefas em aberto (nada de notas, imagens ou valores). Atualiza sozinho a cada mudança.</div>
+      <div style={{fontSize:'.78rem',color:'var(--muted)',lineHeight:1.5}}>Mantém um único arquivo <code>boardhub-agenda.json</code> no seu Drive com nomes, datas, status e tempo de foco dos projetos e tarefas em aberto (mais as notas rápidas das tarefas; sem imagens, valores ou notas de projeto). Atualiza sozinho a cada mudança.</div>
       <input className="input-box" aria-label="Endereço do Apps Script" placeholder="https://script.google.com/macros/s/…/exec" value={cfg.url} onChange={e=>setCfg({...cfg,url:e.target.value})}/>
       <input className="input-box" type="password" aria-label="Chave" placeholder="Chave (KEY do script)" value={cfg.key} onChange={e=>setCfg({...cfg,key:e.target.value})}/>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>

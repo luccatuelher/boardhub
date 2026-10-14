@@ -31,9 +31,9 @@ test('paused and late projects stay; undated tasks and empty undated projects go
 test('only the allow-listed fields leave the app', () => {
   const s = bhAgendaSnapshot([P(1, 'p', { projectTasks: [T(1, 't')] })], [], TODAY, 'now');
   assert.deepEqual(Object.keys(s.projects[0]).sort(), ['client', 'colorId', 'daysElapsed', 'daysLeft', 'deadline', 'focusMinutes', 'id', 'overdue', 'startDate', 'status', 'tasks', 'title', 'type']);
-  assert.deepEqual(Object.keys(s.projects[0].tasks[0]).sort(), ['daysElapsed', 'daysLeft', 'dueDate', 'focusMinutes', 'id', 'overdue', 'parent', 'startDate', 'status', 'text']);
+  assert.deepEqual(Object.keys(s.projects[0].tasks[0]).sort(), ['daysElapsed', 'daysLeft', 'dueDate', 'focusMinutes', 'id', 'notes', 'overdue', 'parent', 'startDate', 'status', 'text']);
   const json = JSON.stringify(s);
-  for (const leak of ['secret', 'private', 'data:x', '5000']) assert.ok(!json.includes(leak), leak);
+  for (const leak of ['private', 'data:x', '5000']) assert.ok(!json.includes(leak), leak);
 });
 
 test('bad dates become empty, ids become strings, text is trimmed and capped', () => {
@@ -225,4 +225,11 @@ test('recent: no pomodoro data, or no valid today, is tolerated', () => {
   assert.deepEqual(bhAgendaSnapshot([P(1, 'p')], [], TODAY, 'now', null).recent.focus, []);
   assert.deepEqual(bhAgendaSnapshot([P(1, 'p')], [], TODAY, 'now', { days: 5, dailyAllocations: [] }).recent.focus, []);
   assert.equal(bhAgendaSnapshot([P(1, 'p')], [], 'bad', 'now').recent, null);
+});
+
+test('task notes are exported (trimmed, capped) and project notes still are not', () => {
+  const s = bhAgendaSnapshot([P(1, 'p', { notes: 'project note', projectTasks: [T(1, 'a', { notes: '  call the\n client  ' }), T(2, 'b', { notes: 'x'.repeat(900) }), T(3, 'c', { notes: undefined })] })], [], TODAY, 'now');
+  const n = Object.fromEntries(s.projects[0].tasks.map(t => [t.text, t.notes]));
+  assert.equal(n.a, 'call the client'); assert.equal(n.b.length, 500); assert.equal(n.c, '');
+  assert.ok(!JSON.stringify(s).includes('project note'));
 });
