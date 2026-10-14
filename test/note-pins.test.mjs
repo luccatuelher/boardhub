@@ -41,3 +41,14 @@ test('trashed notes do not count; a fifth pin is refused and nothing changes', (
   // unpinning is always allowed at the limit
   assert.equal(bhTogglePin(list, { kind: 'note', id: 'a' }, 6).ok, true);
 });
+
+test('folders and categories can be pinned too, and count toward the same limit', () => {
+  let list = [{ id: 'c', type: 'category' }, { id: 'f', type: 'project', entries: [] }, { id: 's', type: 'section' }, { id: 'n', type: 'note' }];
+  list = bhTogglePin(list, { kind: 'category', id: 'c' }, 1).notes;
+  list = bhTogglePin(list, { kind: 'folder', id: 'f' }, 2).notes;
+  assert.equal(bhIsPinned(list, { kind: 'folder', id: 'f' }), true);
+  assert.equal(bhPinCount(list), 2);
+  assert.equal(bhPinCount([{ id: 's', type: 'section', pinned: true }]), 0, 'a section header is never counted');
+  list = bhTogglePin(list, { kind: 'note', id: 'n' }, 3).notes;
+  assert.equal(bhPinCount(list), 3);
+});

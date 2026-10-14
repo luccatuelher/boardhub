@@ -8971,6 +8971,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
       if(!n||n.deleted)return;
       const expanded=lineage(n);if(!expanded)return;
       if(n.type==='note'||!n.type)result.push({...n,_recentKind:'note',_recentExpanded:expanded,_recentPreview:noteTextPreview(n.content)});
+      if(n.pinned&&n.type==='project'){const c=(n.entries||[]).filter(e=>e&&!e.deleted).length;result.push({...n,_recentKind:'folder',_recentExpanded:[n.id,...expanded],_recentPreview:c+(c===1?' nota':' notas')});}
+      if(n.pinned&&n.type==='category'){const c=list.filter(x=>x&&!x.deleted&&x.type!=='section'&&x.parentId!=null&&String(x.parentId)===String(n.id)).length;result.push({...n,_recentKind:'category',_recentExpanded:[n.id,...expanded],_recentPreview:c+(c===1?' item':' itens')});}
       if(n.type==='project'&&Array.isArray(n.entries))n.entries.forEach(entry=>{
         if(entry&&!entry.deleted)result.push({...entry,_recentKind:'entry',_recentFolderId:n.id,_recentExpanded:[n.id,...expanded],_recentPreview:noteTextPreview(entry.content)});
       });
@@ -8978,7 +8980,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
     // Where each note lives, briefly: its folder, preceded by that folder's own
     // parent (the category) when there is one. _recentExpanded is nearest first.
     result.forEach(n=>{
-      const names=(n._recentExpanded||[]).map(id=>byId.get(String(id))).filter(Boolean).map(x=>String(x.title||'').trim()).filter(Boolean);
+      const names=(n._recentExpanded||[]).filter(id=>!((n._recentKind==='folder'||n._recentKind==='category')&&String(id)===String(n.id))).map(id=>byId.get(String(id))).filter(Boolean).map(x=>String(x.title||'').trim()).filter(Boolean);
       n._recentWhere=names.slice(0,2).reverse().join(' › ');
     });
     // Newest first. The array is tree order (notes made in Anotações are
@@ -8991,7 +8993,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const unpinRecent=n=>setNotes(prev=>bhTogglePin(prev,n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id},Date.now()).notes);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
-    const selected=n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id};
+    const selected=n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:(n._recentKind==='folder'||n._recentKind==='category')?null:{kind:'note',id:n.id};
     bhUiReplace('ideas',{...ui,selected,showTrash:false,expanded:n._recentExpanded||[],mobileDetail:!!isMobile,treeScroll:0});
     setView('ideas');
   };
@@ -9122,12 +9124,12 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('ideas')}>Ver todas <Icon name="arrow-right" size={10}/></button>
             </div>
             {recentNotes.length===0&&<div className="card" style={{padding:'20px 12px',textAlign:'center',color:'var(--muted)',fontSize:'.82rem',display:'flex',flexDirection:'column',alignItems:'center',gap:6,flex:1,justifyContent:'center'}}>
-              <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas em Anotações para vê-las aqui.</span>
+              <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas, pastas ou categorias em Anotações para vê-las aqui.</span>
             </div>}
             <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0}}>
               {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'7px 10px':'10px 12px',flex:'1 1 auto',maxHeight:isSmall?74:104,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
-                  <Icon name="pin" size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
+                  <Icon name={n._recentKind==='category'?'layers-3':n._recentKind==='folder'?'folder':'pin'} size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
                   <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title||'Sem título'}</div>
                   {n._recentWhere&&<span title={'Pasta: '+n._recentWhere} style={{flex:'0 1 auto',maxWidth:'40%',fontSize:'.6rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentWhere}</span>}
                   <button type="button" className="dashboard-unpin" title="Desafixar" aria-label={'Desafixar '+(n.title||'nota')} onClick={e=>{e.stopPropagation();unpinRecent(n);}}><Icon name="x" size={11}/></button>
@@ -9714,15 +9716,15 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
 };
 // @bh-test-end notecreate
 // @bh-test-begin notepins
-// Notes pinned to the home screen (up to BH_PIN_MAX). A pin is a flag on the note, or on
-// the entry of a folder: {pinned:true,pinnedAt:<ms>}. `target` is {kind:'note',id} or
-// {kind:'entry',id,folderId}.
+// Notes, folders and categories pinned to the home screen (up to BH_PIN_MAX in all). A
+// pin is a flag on the record, or on the entry of a folder: {pinned:true,pinnedAt:<ms>}.
+// `target` is {kind:'note'|'folder'|'category',id} or {kind:'entry',id,folderId}.
 const BH_PIN_MAX=4;
 const bhPinCount=notes=>{
   let n=0;
   (Array.isArray(notes)?notes:[]).forEach(x=>{
     if(!x||x.deleted)return;
-    if((x.type==='note'||!x.type)&&x.pinned)n++;
+    if(x.type!=='section'&&x.pinned)n++;
     if(x.type==='project'&&Array.isArray(x.entries))x.entries.forEach(e=>{if(e&&!e.deleted&&e.pinned)n++;});
   });
   return n;
@@ -15163,7 +15165,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
   // Pin a note (or an entry of a folder) to the home screen; at most BH_PIN_MAX.
   const togglePin=target=>{
     if(!bhIsPinned(notes,target)&&bhPinCount(notes)>=BH_PIN_MAX){
-      bhAlert('Você já fixou '+BH_PIN_MAX+' notas na tela inicial. Desafixe uma para fixar outra.');
+      bhAlert('Você já fixou '+BH_PIN_MAX+' itens na tela inicial. Desafixe uma para fixar outra.');
       return;
     }
     setNotes(prev=>bhTogglePin(prev,target,Date.now()).notes);
@@ -15545,7 +15547,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
                 onClick={e=>e.stopPropagation()} style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
             : <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>}
           {!showTrash&&(isCategory(n)||isFolder(n)||isNote(n))&&<div style={{display:'flex',gap:2,flexShrink:0,opacity:.65}}>
-            {isNote(n)&&<button className={'bh-touch-target note-pin-btn'+(n.pinned?' on':'')} onClick={e=>{e.stopPropagation();togglePin({kind:'note',id:n.id});}} title={n.pinned?'Desafixar da tela inicial':'Fixar na tela inicial'} aria-label={(n.pinned?'Desafixar ':'Fixar ')+(n.title||'nota')} aria-pressed={!!n.pinned}><Icon name={n.pinned?'pin-off':'pin'} size={11}/></button>}
+            <button className={'bh-touch-target note-pin-btn'+(n.pinned?' on':'')} onClick={e=>{e.stopPropagation();togglePin({kind:isCategory(n)?'category':isFolder(n)?'folder':'note',id:n.id});}} title={n.pinned?'Desafixar da tela inicial':'Fixar na tela inicial'} aria-label={(n.pinned?'Desafixar ':'Fixar ')+(n.title||'item')} aria-pressed={!!n.pinned}><Icon name={n.pinned?'pin-off':'pin'} size={11}/></button>
             <button className="bh-touch-target" onClick={e=>beginRename(n,e)} title="Renomear" aria-label={'Renomear '+(n.title||'item')}
               style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}
               onMouseEnter={e=>{e.currentTarget.style.color='var(--text)';e.currentTarget.style.background='var(--bg)';}}
