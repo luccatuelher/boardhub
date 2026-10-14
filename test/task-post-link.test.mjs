@@ -118,3 +118,26 @@ test('notes in trashed tasks are materialized and relinked too', () => {
   assert.deepEqual(n9.images, ['z.png']);
   assert.equal(bhRelinkNotes(out, imgs)[0].taskTrash[0].mini.innerNotes[0].galleryPostId, 'post9');
 });
+
+const { bhHtmlToText, bhPublishSessionNote } = load(['tasklinks']);
+
+test('publishing an old session note moves its images into a linked post', () => {
+  const note = { id: 'session-note-s1', title: 'Sessão 1', date: '2026-10-01', sessionIds: ['s1'], images: ['a.png', 'v.mp4', 'a.png'], content: '<div>um</div><div>dois<br>três</div>' };
+  const out = bhPublishSessionNote(note, { galleryFolder: 'f1' }, 'season-1');
+  assert.equal(out.post.id, 'session-post-s1');
+  assert.equal(out.post.folder, 'f1');
+  assert.deepEqual(out.post.images, ['a.png', 'v.mp4']);
+  assert.equal(out.post.bannerImage, 'a.png');
+  assert.equal(out.post.content, 'um\ndois\ntrês');
+  assert.deepEqual(out.note.images, []);
+  assert.equal(out.note.galleryPostId, 'session-post-s1');
+  assert.equal(out.post.sourceTargetKey, 'none');
+});
+
+test('publishing does not apply without a session, a Gallery folder, or when already linked', () => {
+  const note = { id: 'n', sessionIds: ['s1'], images: [] };
+  assert.equal(bhPublishSessionNote({ id: 'n', images: [] }, { galleryFolder: 'f1' }), null);
+  assert.equal(bhPublishSessionNote(note, {}), null);
+  assert.equal(bhPublishSessionNote({ ...note, galleryPostId: 'p' }, { galleryFolder: 'f1' }), null);
+  assert.equal(bhHtmlToText('a &amp; b<br>c'), 'a & b\nc');
+});

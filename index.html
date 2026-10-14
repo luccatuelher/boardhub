@@ -1502,6 +1502,26 @@ const bhRelinkNotes=(projects,imagesByPost)=>bhMapTaskNotes(projects,n=>{
   const wrote=bhAppendImages(imagesByPost.get(pid),own);
   return JSON.stringify(rest.images||[])===JSON.stringify(wrote)?{...rest,images:own,galleryPostId:pid}:rest;
 });
+// Plain text of a note's HTML (the Gallery post text is plain).
+const bhHtmlToText=html=>String(html||'')
+  .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/blockquote)\s*\/?>/gi,'\n')
+  .replace(/<[^>]*>/g,'')
+  .replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&')
+  .replace(/\n{3,}/g,'\n\n').trim();
+// "Publicar na Galeria" for a session note made before notes were linked to
+// posts: its images move into a new post of the project's Gallery folder (the
+// id comes from the session, so doing it twice finds the same post) and the note
+// links to it. Null when it does not apply (not a session note, already linked,
+// or the project has no Gallery folder).
+const bhPublishSessionNote=(note,project,seasonId)=>{
+  const sid=Array.isArray(note&&note.sessionIds)&&note.sessionIds.length?String(note.sessionIds[0]):'';
+  if(!sid||!project||!project.galleryFolder||(note.galleryPostId!=null&&note.galleryPostId!==''))return null;
+  const images=bhUniqStrings(note.images);
+  const post={id:'session-post-'+sid,folder:String(project.galleryFolder),storageScope:'gallery',projectId:null,title:note.title||'Sessão',
+    date:note.date||'',content:bhHtmlToText(note.content),images,bannerImage:images.find(x=>!/\.(?:mp4|webm|mov)(?:\?|$)/i.test(x))||'',deleted:false,
+    sourceSessionId:note.sessionIds[0],sourceSessionIds:note.sessionIds.map(x=>x),sourceTargetKey:'none',sourceTargetKeys:['none'],sourceTargetType:'other',sourceSeasonId:seasonId};
+  return{post,note:{...note,images:[],galleryPostId:post.id}};
+};
 // @bh-test-end tasklinks
 // Where a task note is now (it may have been moved to another task): live
 // projects only.
@@ -10220,7 +10240,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -10641,6 +10661,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       return{...p,images:next,bannerImage:next.includes(p.bannerImage)?p.bannerImage:(next.find(x=>!isVideoSrc(x))||'')};
     }));
     if((note.images||[]).length)updateInnerNote('images',[],activeMiniId,note.id);
+  };
+  // Old session notes (made before notes were linked to posts) get their post on demand.
+  const publishNoteToGallery=note=>{
+    const out=bhPublishSessionNote(note,local,rankSeasonForDate().id);
+    if(!out)return;
+    setGalleryPosts(prev=>(prev||[]).some(x=>x&&String(x.id)===out.post.id)?prev:[out.post,...(prev||[])]);
+    mapInnerNotes(activeMiniId,ns=>ns.map(n=>String(n.id)===String(note.id)?out.note:n));
+    if(local.gallerySection&&onPlacePost)onPlacePost(out.post.folder,out.post.id,String(local.gallerySection));
   };
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
   const projectGalleryFolder=local.galleryFolder?(galleryFolders||[]).find(f=>f&&String(f.id)===String(local.galleryFolder))||null:null;
@@ -11418,6 +11446,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <RichEditor key={'tasknote-'+note.id} noteId={'tasknote-'+note.id} initialHTML={bhTextToHTML(note.content)} onSave={saveInnerNoteContent} saveTarget={note.id} apiRef={innerNoteEditorApi}
                       placeholder="Notas, análises, referências... Cole imagens aqui."/>
                   </div>
+                  {Array.isArray(note.sessionIds)&&note.sessionIds.length>0&&(note.galleryPostId==null||note.galleryPostId==='')&&local.galleryFolder&&projectGalleryFolder&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/>
+                    <span style={{flex:'1 1 220px'}}>Esta sessão ainda não tem post na Galeria. Publicar cria o post em <strong>{projectGalleryFolder.label}</strong> com as imagens e o texto da nota, e liga os dois.</span>
+                    <button type="button" className="gallery-chip" onClick={()=>publishNoteToGallery(note)}><Icon name="upload" size={11}/> Publicar na Galeria</button></div>}
                   {note.galleryPostId!=null&&note.galleryPostId!==''&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/><span>{notePost
                     ?(notePost.deleted?<>O post <strong>{notePost.title||'Sem título'}</strong> desta sessão está na lixeira da Galeria; as imagens abaixo vêm dele.</>:<>As imagens abaixo são as do post <strong>{notePost.title||'Sem título'}</strong> da Galeria: mudar aqui muda lá.</>)
                     :'O post da Galeria desta sessão não está mais disponível.'}</span></div>}
@@ -18677,7 +18708,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
