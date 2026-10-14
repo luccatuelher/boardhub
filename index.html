@@ -11122,7 +11122,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         </div>
                         <div style={{padding:'7px 9px'}}>
                           <div style={{fontWeight:600,fontSize:'.74rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title}</div>
-                          {effectiveBudget>0&&<button type="button" className={'post-paid-chip'+(bhProjectPostPaid(local,post.id)?' on':'')} aria-pressed={bhProjectPostPaid(local,post.id)} title={bhProjectPostPaid(local,post.id)?'Recebido: clique para marcar como a receber':'A receber: clique para marcar como recebido'}
+                          {effectiveBudget>0&&local.type==='work'&&<button type="button" className={'post-paid-chip'+(bhProjectPostPaid(local,post.id)?' on':'')} aria-pressed={bhProjectPostPaid(local,post.id)} title={bhProjectPostPaid(local,post.id)?'Recebido: clique para marcar como a receber':'A receber: clique para marcar como recebido'}
                             onClick={e=>{e.stopPropagation();togglePostPaid(post.id);}}><Icon name={bhProjectPostPaid(local,post.id)?'check-circle':'circle-dollar-sign'} size={11}/>{bhProjectPostPaid(local,post.id)?'Recebido':'A receber'}</button>}
                           {post.linkedTask&&<div style={{display:'flex',alignItems:'center',gap:4,marginTop:2,fontSize:'.66rem',color:'var(--muted)',overflow:'hidden',whiteSpace:'nowrap'}}><Icon name="list-checks" size={10} style={{flexShrink:0}}/><span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{post.linkedTask.taskTitle}</span></div>}
                         </div>
@@ -11186,8 +11186,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     style={{display:'flex',width:'100%',justifyContent:'space-between',fontSize:'.82rem',color:local.paid?'var(--ok-fg)':'var(--muted)',fontWeight:local.paid?600:400}}>
                     <span style={{display:'flex',alignItems:'center',gap:6}}><Icon name={local.paid?'check-circle':'circle-dollar-sign'} size={13}/>{local.paid?'Recebido':'A receber'}</span>
                   </BhSwitch>
-                  {!local.paid&&paidCount>0&&scopePostIds.length>0&&<div style={{fontSize:'.74rem',color:'var(--ok-fg)',lineHeight:1.4}}>Recebido: {paidCount} de {scopePostIds.length} animatics · {fmtBRL(effectiveBudget*(1-bhProjectUnpaidShare(local,scopePostIds)))}</div>}
-                  {scopePostIds.length>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.35}}>Marque cada animatic como recebido nos posts da galeria do projeto.</div>}
+                  {local.type==='work'&&!local.paid&&paidCount>0&&scopePostIds.length>0&&<div style={{fontSize:'.74rem',color:'var(--ok-fg)',lineHeight:1.4}}>Recebido: {paidCount} de {scopePostIds.length} animatics · {fmtBRL(effectiveBudget*(1-bhProjectUnpaidShare(local,scopePostIds)))}</div>}
+                  {local.type==='work'&&scopePostIds.length>0&&<div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.35}}>Marque cada animatic como recebido nos posts da galeria do projeto.</div>}
                   </>
                 )}
               </div>
