@@ -3829,6 +3829,22 @@ const bhAgendaDay=v=>{
 };
 const bhAgendaText=v=>(typeof v==='string'?v:v==null?'':String(v)).replace(/\s+/g,' ').trim().slice(0,200);
 const bhAgendaCmp=(a,b)=>a<b?-1:a>b?1:0;
+// Google Calendar event colors (1-11) minus 8, graphite, which reads as "done".
+const BH_AGENDA_COLORS=['1','2','3','4','5','6','7','9','10','11'];
+// One color per open project, stable: each project prefers a color from its id,
+// and takes the next free one when an older project already has it.
+const bhAgendaColors=ids=>{
+  const born=id=>+((String(id).match(/\d{10,}/)||['0'])[0]);
+  const hash=id=>{let h=0;String(id).split('').forEach(c=>{h=(h*31+c.charCodeAt(0))>>>0;});return h;};
+  const out=new Map(),used=new Set();
+  [...ids].map(String).sort((a,b)=>born(a)-born(b)||bhAgendaCmp(a,b)).forEach(id=>{
+    let i=hash(id)%BH_AGENDA_COLORS.length,n=0;
+    while(used.has(i)&&n<BH_AGENDA_COLORS.length){i=(i+1)%BH_AGENDA_COLORS.length;n++;}
+    used.add(i);if(used.size>BH_AGENDA_COLORS.length)used.clear();
+    out.set(id,BH_AGENDA_COLORS[i]);
+  });
+  return out;
+};
 // Whole days from a to b (YYYY-MM-DD both), null when either is missing.
 const bhAgendaDays=(a,b)=>{
   if(!a||!b)return null;
@@ -3879,9 +3895,11 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt)=>{
     if(!row.title||(!row.startDate&&!row.deadline&&!tasks.length))return;
     out.push(row);
   });
+  const colors=bhAgendaColors(out.map(r=>r.id));
+  out.forEach(r=>{r.colorId=colors.get(r.id);});
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "colorId" is the Google Calendar event color (1-11) assigned to the project. generatedAt is when this file was written.',
     projects:out};
 };
 // What decides whether the file needs sending again (the timestamp does not).

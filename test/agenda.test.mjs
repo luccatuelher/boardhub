@@ -30,7 +30,7 @@ test('paused and late projects stay; undated tasks and empty undated projects go
 
 test('only the allow-listed fields leave the app', () => {
   const s = bhAgendaSnapshot([P(1, 'p', { projectTasks: [T(1, 't')] })], [], TODAY, 'now');
-  assert.deepEqual(Object.keys(s.projects[0]).sort(), ['client', 'daysElapsed', 'daysLeft', 'deadline', 'focusMinutes', 'id', 'overdue', 'startDate', 'status', 'tasks', 'title', 'type']);
+  assert.deepEqual(Object.keys(s.projects[0]).sort(), ['client', 'colorId', 'daysElapsed', 'daysLeft', 'deadline', 'focusMinutes', 'id', 'overdue', 'startDate', 'status', 'tasks', 'title', 'type']);
   assert.deepEqual(Object.keys(s.projects[0].tasks[0]).sort(), ['daysElapsed', 'daysLeft', 'dueDate', 'focusMinutes', 'id', 'overdue', 'parent', 'startDate', 'status', 'text']);
   const json = JSON.stringify(s);
   for (const leak of ['secret', 'private', 'data:x', '5000']) assert.ok(!json.includes(leak), leak);
@@ -183,4 +183,18 @@ test('post: a hung request is aborted after the timeout', async () => {
     const r = await bhAgendaPost((u, o) => new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(Object.assign(new Error('x'), { name: 'AbortError' })))), URL_OK, 'k', snap);
     assert.equal(r.ok, false); assert.match(r.err, /demorou/);
   } finally { globalThis.setTimeout = realSet; }
+});
+
+test('each open project gets a stable Calendar color; older projects keep theirs', () => {
+  const mk = n => Array.from({ length: n }, (_, i) => P(1790000000000 + i * 1000, 'p' + i));
+  const a = bhAgendaSnapshot(mk(6), [], TODAY, 'now').projects, b = bhAgendaSnapshot(mk(6), [], TODAY, 'later').projects;
+  assert.deepEqual(a.map(p => p.colorId), b.map(p => p.colorId));
+  assert.equal(new Set(a.map(p => p.colorId)).size, 6);
+  assert.ok(a.every(p => /^(?:[1-79]|1[01])$/.test(p.colorId)));
+  // adding a newer project does not recolor the older ones
+  const more = bhAgendaSnapshot(mk(7), [], TODAY, 'now').projects;
+  const byId = Object.fromEntries(more.map(p => [p.id, p.colorId]));
+  a.forEach(p => assert.equal(byId[p.id], p.colorId));
+  // even more projects than colors: nobody gets an undefined color
+  assert.ok(bhAgendaSnapshot(mk(14), [], TODAY, 'now').projects.every(p => p.colorId));
 });
