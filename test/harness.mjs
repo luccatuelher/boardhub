@@ -36,6 +36,7 @@ export const EXPECTED = {
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
   imgclip: ['bhImgClipSrcOk', 'bhImgClipGet', 'bhImgClipSubscribe', 'bhImgClipHas', 'bhImgClipToggle', 'bhImgClipClear'],
   tasklinks: ['bhHtmlMediaSrcs', 'bhUniqStrings', 'bhNoteMedia', 'bhTextToHTML', 'bhTaskPostLinks', 'bhLinkedPostView', 'bhIsChildTask', 'bhGroupByParent', 'bhNormalizeTaskTree', 'bhTaskBlock', 'bhMoveTaskGroup', 'bhNudgeTask', 'bhInsertChild', 'bhNestedLabel', 'bhPromoteSubTasks', 'bhLegacyPostImages', 'bhHtmlToText', 'bhPublishSessionNote', 'bhAppendImages', 'bhNoteImages', 'bhNotePostLinks', 'bhMaterializeNotes', 'bhRelinkNotes'],
+  notepins: ['BH_PIN_MAX', 'bhPinCount', 'bhIsPinned', 'bhTogglePin'],
   notesections: ['bhSectionGroups', 'bhSectionBlockOrder', 'bhMoveIntoSection', 'bhPlaceLoose'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],

@@ -665,6 +665,12 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .note-undo-bar{position:absolute;z-index:6;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:7px 8px 7px 14px;border-radius:999px;background:var(--text);color:var(--bg);font-size:.8rem;box-shadow:0 4px 16px rgba(0,0,0,.28)}
 .note-undo-bar button{border:0;border-radius:999px;padding:3px 11px;background:rgba(255,255,255,.18);color:inherit;font:700 .76rem 'Alegreya Sans',sans-serif;cursor:pointer}
 .note-undo-bar button:hover{background:rgba(255,255,255,.3)}
+.dashboard-unpin{flex-shrink:0;align-self:center;display:flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;opacity:.5}
+.dashboard-pinned-note:hover .dashboard-unpin{opacity:1}
+.dashboard-unpin:hover{background:var(--bg);color:var(--text)}
+.note-pin-btn{border:0;background:transparent;color:var(--muted);padding:3px;cursor:pointer;line-height:0;border-radius:5px}
+.note-pin-btn:hover{color:var(--text);background:var(--bg)}
+.note-pin-btn.on{color:var(--text)}
 .note-section-head{display:flex;align-items:center;gap:5px;min-width:0;margin:8px 0 3px;padding:4px 6px;border-radius:7px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
 .note-section-head.drag-over{background:var(--surface);border-bottom-color:var(--text)}
 .note-section-title{flex:1;min-width:0;font-size:.68rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -8979,8 +8985,10 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
     // appended, reordering the tree moves them), so the first three were the
     // OLDEST ones and a new note never showed up here. Ids are creation
     // timestamps; there is no edit stamp to sort by.
-    return result.sort((a,b)=>bhIdTime(b.id)-bhIdTime(a.id)).slice(0,3);
+    // The pinned ones (up to BH_PIN_MAX), in the order they were pinned.
+    return result.filter(n=>n.pinned).sort((a,b)=>(Number(a.pinnedAt)||0)-(Number(b.pinnedAt)||0)).slice(0,BH_PIN_MAX);
   },[notes]);
+  const unpinRecent=n=>setNotes(prev=>bhTogglePin(prev,n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id},Date.now()).notes);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
     const selected=n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id};
@@ -9077,7 +9085,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               </button>
             </div>}
             <div className="dashboard-project-list" style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:'auto',paddingRight:2}}>
-              {active.map(p=>{
+              {active.slice(0,4).map(p=>{
                 const pt=p.projectTasks||[];const total=pt.length;const done=pt.filter(t=>t.status==='Concluído').length;
                 const pct=total>0?Math.round((done/total)*100):0;const r=10;const c=2*Math.PI*r;const offset=c-(pct/100)*c;
                 return(
@@ -9107,22 +9115,24 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               })}
             </div>
           </div>
-          {/* Notas recentes ficam no espaço de apoio à esquerda, ao lado da lista de atividades. */}
-          <div style={{flexShrink:0}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7}}>
-              <span className="label label-section"><StaveGlyph name="eighth"/>Notas Recentes</span>
+          {/* Notas fixadas (até 4, como os projetos): ocupam o espaço que sobra na coluna. */}
+          <div className="dashboard-notes-pane" style={isMobile?undefined:{flex:'1 0 auto',display:'flex',flexDirection:'column',minHeight:0}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7,flexShrink:0}}>
+              <span className="label label-section"><StaveGlyph name="eighth"/>Notas Fixadas</span>
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('ideas')}>Ver todas <Icon name="arrow-right" size={10}/></button>
             </div>
-            {recentNotes.length===0&&<div className="card" style={{padding:'20px 12px',textAlign:'center',color:'var(--muted)',fontSize:'.82rem',display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
-              <Icon name="lightbulb" size={20} style={{opacity:.25}}/><span>Suas notas e ideias vão aparecer aqui.</span>
+            {recentNotes.length===0&&<div className="card" style={{padding:'20px 12px',textAlign:'center',color:'var(--muted)',fontSize:'.82rem',display:'flex',flexDirection:'column',alignItems:'center',gap:6,flex:1,justifyContent:'center'}}>
+              <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas em Anotações para vê-las aqui.</span>
             </div>}
-            <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:5}}>
-              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota: '+(n.title||''))} style={{padding:isSmall?'6px 10px':'7px 12px'}}>
+            <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0}}>
+              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'7px 10px':'10px 12px',flex:'1 1 auto',maxHeight:isSmall?74:104,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
-                  <div style={{fontWeight:600,fontSize:'.78rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title}</div>
-                  {n._recentWhere&&<span title={'Pasta: '+n._recentWhere} style={{flex:'0 1 auto',maxWidth:'46%',fontSize:'.6rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentWhere}</span>}
+                  <Icon name="pin" size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
+                  <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title||'Sem título'}</div>
+                  {n._recentWhere&&<span title={'Pasta: '+n._recentWhere} style={{flex:'0 1 auto',maxWidth:'40%',fontSize:'.6rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentWhere}</span>}
+                  <button type="button" className="dashboard-unpin" title="Desafixar" aria-label={'Desafixar '+(n.title||'nota')} onClick={e=>{e.stopPropagation();unpinRecent(n);}}><Icon name="x" size={11}/></button>
                 </div>
-                <div style={{fontSize:'.66rem',color:'var(--muted)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentPreview}</div>
+                <div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:isSmall?1:3,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{n._recentPreview||'Sem conteúdo'}</div>
               </div>)}
             </div>
           </div>
@@ -9703,6 +9713,45 @@ const bhNoteCreateAt=(notes,selected,kind,item)=>{
   return par!=null?put(par,'after',parentOf(byId.get(String(par)))):put(sel.id,'before',null);
 };
 // @bh-test-end notecreate
+// @bh-test-begin notepins
+// Notes pinned to the home screen (up to BH_PIN_MAX). A pin is a flag on the note, or on
+// the entry of a folder: {pinned:true,pinnedAt:<ms>}. `target` is {kind:'note',id} or
+// {kind:'entry',id,folderId}.
+const BH_PIN_MAX=4;
+const bhPinCount=notes=>{
+  let n=0;
+  (Array.isArray(notes)?notes:[]).forEach(x=>{
+    if(!x||x.deleted)return;
+    if((x.type==='note'||!x.type)&&x.pinned)n++;
+    if(x.type==='project'&&Array.isArray(x.entries))x.entries.forEach(e=>{if(e&&!e.deleted&&e.pinned)n++;});
+  });
+  return n;
+};
+const bhIsPinned=(notes,target)=>{
+  const list=Array.isArray(notes)?notes:[];
+  if(target&&target.kind==='entry'){
+    const f=list.find(x=>x&&String(x.id)===String(target.folderId));
+    const e=f&&Array.isArray(f.entries)?f.entries.find(y=>y&&String(y.id)===String(target.id)):null;
+    return !!(e&&e.pinned);
+  }
+  const n=target?list.find(x=>x&&String(x.id)===String(target.id)):null;
+  return !!(n&&n.pinned);
+};
+// {notes, ok, pinned}: ok false when pinning would pass the limit (nothing changes).
+const bhTogglePin=(notes,target,now,max=BH_PIN_MAX)=>{
+  const list=Array.isArray(notes)?notes:[];
+  const pinned=bhIsPinned(list,target);
+  if(!pinned&&bhPinCount(list)>=max)return{notes:list,ok:false,pinned:false};
+  const flip=o=>{
+    if(pinned){const {pinned:_p,pinnedAt:_a,...rest}=o;return rest;}
+    return{...o,pinned:true,pinnedAt:now};
+  };
+  if(target&&target.kind==='entry'){
+    return{ok:true,pinned:!pinned,notes:list.map(x=>x&&String(x.id)===String(target.folderId)?{...x,entries:(x.entries||[]).map(e=>e&&String(e.id)===String(target.id)?flip(e):e)}:x)};
+  }
+  return{ok:true,pinned:!pinned,notes:list.map(x=>x&&String(x.id)===String(target.id)?flip(x):x)};
+};
+// @bh-test-end notepins
 // @bh-test-begin notesections
 // Sections of the Anotações list ("Seção"): a header row inside a level (the root
 // or a category) that groups the items after it, up to the next header, like the
@@ -15111,6 +15160,14 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       if(n.type==='section'){if(n.collapsed)updateItem(n.id,x=>({...x,collapsed:false}));break;}
     }
   },[selected?.id,selected?.kind]);//eslint-disable-line react-hooks/exhaustive-deps
+  // Pin a note (or an entry of a folder) to the home screen; at most BH_PIN_MAX.
+  const togglePin=target=>{
+    if(!bhIsPinned(notes,target)&&bhPinCount(notes)>=BH_PIN_MAX){
+      bhAlert('Você já fixou '+BH_PIN_MAX+' notas na tela inicial. Desafixe uma para fixar outra.');
+      return;
+    }
+    setNotes(prev=>bhTogglePin(prev,target,Date.now()).notes);
+  };
   const newSection=()=>{
     if(!noteDrag)changeNoteSort('manual'); // headers only show in the manual order
     const n={id:bhNewId(),type:'section',title:'Nova Seção',date:new Date().toLocaleDateString('pt-BR'),deleted:false,parentId:null,collapsed:false};
@@ -15264,7 +15321,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
       const source=prev.find(x=>x.id===noteId);
       const dest=prev.find(x=>x.id===folderId);
       if(!source||!dest)return prev;
-      const entry={id:source.id,title:source.title,content:source.content||'',date:source.date||new Date().toLocaleDateString('pt-BR')};
+      const entry={id:source.id,title:source.title,content:source.content||'',date:source.date||new Date().toLocaleDateString('pt-BR'),...(source.pinned?{pinned:true,pinnedAt:source.pinnedAt}:{})};
       const entries=[...(dest.entries||[])];
       const pos=beforeEntryId?entries.findIndex(e=>e.id===beforeEntryId):-1;
       if(pos>=0)entries.splice(pos,0,entry);else entries.push(entry);
@@ -15488,6 +15545,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
                 onClick={e=>e.stopPropagation()} style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',background:'transparent',border:'none',outline:'none',color:'var(--text)',padding:0}}/>
             : <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.title}</div>}
           {!showTrash&&(isCategory(n)||isFolder(n)||isNote(n))&&<div style={{display:'flex',gap:2,flexShrink:0,opacity:.65}}>
+            {isNote(n)&&<button className={'bh-touch-target note-pin-btn'+(n.pinned?' on':'')} onClick={e=>{e.stopPropagation();togglePin({kind:'note',id:n.id});}} title={n.pinned?'Desafixar da tela inicial':'Fixar na tela inicial'} aria-label={(n.pinned?'Desafixar ':'Fixar ')+(n.title||'nota')} aria-pressed={!!n.pinned}><Icon name={n.pinned?'pin-off':'pin'} size={11}/></button>}
             <button className="bh-touch-target" onClick={e=>beginRename(n,e)} title="Renomear" aria-label={'Renomear '+(n.title||'item')}
               style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}
               onMouseEnter={e=>{e.currentTarget.style.color='var(--text)';e.currentTarget.style.background='var(--bg)';}}
@@ -15521,6 +15579,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
             <span className="drag-handle" style={{color:'var(--muted)',lineHeight:0,flexShrink:0}}><Icon name="grip-vertical" size={9}/></span>
             <span style={{fontSize:'.62rem',color:'var(--muted)',width:15,flexShrink:0,fontVariantNumeric:'tabular-nums'}}>{String(i+1).padStart(2,'0')}</span>
             <span style={{fontSize:'.76rem',fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{entry.title}</span>
+            <button className={'bh-touch-target note-pin-btn'+(entry.pinned?' on':'')} onClick={e=>{e.stopPropagation();togglePin({kind:'entry',id:entry.id,folderId:n.id});}} title={entry.pinned?'Desafixar da tela inicial':'Fixar na tela inicial'} aria-label={(entry.pinned?'Desafixar ':'Fixar ')+(entry.title||'nota')} aria-pressed={!!entry.pinned}><Icon name={entry.pinned?'pin-off':'pin'} size={10}/></button>
             <button className="bh-touch-target" onClick={e=>{e.stopPropagation();setRenaming({id:entry.id,value:entry.title||''});setSelected({kind:'entry',id:entry.id,folderId:n.id});setMobileDetail(true);}} title="Renomear nota" aria-label={'Renomear nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="pencil" size={10}/></button>
             <button className="bh-touch-target" onClick={e=>{e.stopPropagation();archiveEntry(entry.id,n.id);if(selected?.kind==='entry'&&selected.id===entry.id)setSelected(null);}} title="Mover nota para Arquivos" aria-label={'Arquivar nota '+(entry.title||'nota')} style={{border:'none',background:'transparent',color:'var(--muted)',padding:'3px',cursor:'pointer',lineHeight:0,borderRadius:5}}><Icon name="archive" size={10}/></button>
           </div>)}
@@ -15617,6 +15676,7 @@ const IdeasLab=React.memo(({notes,setNotes,navTick,isMobile,projects,setProjects
           style={{fontFamily:'Cormorant Garamond,serif',fontSize:isMobile?'1.5rem':'1.8rem',fontWeight:400,background:'transparent',border:'none',outline:'none',color:'var(--text)',flex:1,minWidth:0}}/>
         <div style={{display:'flex',gap:6,flexShrink:0,alignItems:'center'}}>
           {date&&<span style={{fontSize:'.72rem',color:'var(--muted)'}}>{date}</span>}
+          <button className={'btn btn-ghost note-pin-btn'+(target.pinned?' on':'')} onClick={()=>togglePin(selected?.kind==='entry'?{kind:'entry',id:selected.id,folderId:selected.folderId}:{kind:'note',id:target.id})} title={target.pinned?'Desafixar da tela inicial':'Fixar na tela inicial'} aria-label={target.pinned?'Desafixar nota da tela inicial':'Fixar nota na tela inicial'} aria-pressed={!!target.pinned} style={{padding:6}}><Icon name={target.pinned?'pin-off':'pin'} size={15}/></button>
           <button onClick={()=>{if(selected?.kind==='entry')trashEntry(selected.id,selected.folderId);else trashItem(target.id);}} className="btn btn-ghost" title="Mover para lixeira" aria-label="Mover nota para lixeira" style={{padding:6,color:'var(--muted)'}} onMouseEnter={e=>e.currentTarget.style.color='var(--danger-strong)'} onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}><Icon name="trash-2" size={15}/></button>
         </div>
       </div>
