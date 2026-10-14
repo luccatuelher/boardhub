@@ -3812,6 +3812,93 @@ const bhEntityUnpack=docs=>{
   return unpack({ref:'v4_root'});
 };
 // @bh-test-end entity
+
+// @bh-test-begin agenda
+// Agenda snapshot: a small file with names, dates and status of the OPEN projects
+// and tasks, sent to a Google Apps Script the owner deploys in their own account
+// (it keeps ONE boardhub-agenda.json in their Drive, replaced on each change).
+// A daily routine reads it. The field list is spelled out on purpose: never spread
+// a project here, notes, images and money must not leave the app.
+const BH_AGENDA_DAY=/^\d{4}-\d{2}-\d{2}$/;
+const BH_AGENDA_CLOSED=new Set(['Concluído','Cancelado']);
+const bhAgendaDay=v=>typeof v==='string'&&BH_AGENDA_DAY.test(v.trim())?v.trim():'';
+const bhAgendaText=v=>(typeof v==='string'?v:v==null?'':String(v)).replace(/\s+/g,' ').trim().slice(0,200);
+const bhAgendaCmp=(a,b)=>a<b?-1:a>b?1:0;
+// Whole days from a to b (YYYY-MM-DD both), null when either is missing.
+const bhAgendaDays=(a,b)=>{
+  if(!a||!b)return null;
+  const x=Date.UTC(+a.slice(0,4),+a.slice(5,7)-1,+a.slice(8,10)),y=Date.UTC(+b.slice(0,4),+b.slice(5,7)-1,+b.slice(8,10));
+  return Math.round((y-x)/86400000);
+};
+// Focus minutes per task: the sessions its notes carry, plus older sessions that
+// only recorded a taskId (same rule as the task screen). The project total is
+// every session filed straight under the project.
+const bhAgendaFocus=(p,sessions)=>{
+  const byId=new Map(),key='project:'+String(p.id),perTask=new Map(),filed=new Set();
+  (Array.isArray(sessions)?sessions:[]).forEach(x=>{if(x&&typeof x==='object'&&x.id!=null)byId.set(String(x.id),x);});
+  const secs=x=>Math.max(0,Number(x.durationSeconds)||0);
+  const credit=(id,x)=>perTask.set(String(id),(perTask.get(String(id))||0)+secs(x));
+  (Array.isArray(p.miniProjects)?p.miniProjects:[]).forEach(m=>m&&(Array.isArray(m.innerNotes)?m.innerNotes:[]).forEach(n=>(n&&Array.isArray(n.sessionIds)?n.sessionIds:[]).forEach(sid=>{
+    const x=byId.get(String(sid));
+    if(x&&!filed.has(String(sid))){filed.add(String(sid));credit(m.id,x);}
+  })));
+  let total=0;
+  byId.forEach((x,id)=>{
+    if(String(x.targetKey)!==key)return;
+    total+=secs(x);
+    if(!filed.has(id)&&x.taskId!=null&&x.taskNoteId==null)credit(x.taskId,x);
+  });
+  return{total:Math.round(total/60),task:id=>Math.round((perTask.get(String(id))||0)/60)};
+};
+const bhAgendaSnapshot=(projects,sessions,today,generatedAt)=>{
+  const out=[],day=bhAgendaDay(today);
+  const timing=(start,due)=>({overdue:!!(day&&due&&due<day),daysElapsed:bhAgendaDays(start,day),daysLeft:bhAgendaDays(day,due)});
+  (Array.isArray(projects)?projects:[]).forEach(p=>{
+    if(!p||typeof p!=='object'||p.deleted||BH_AGENDA_CLOSED.has(p.status))return;
+    const all=Array.isArray(p.projectTasks)?p.projectTasks.filter(t=>t&&typeof t==='object'&&!t.deleted):[];
+    const minis=new Map((Array.isArray(p.miniProjects)?p.miniProjects:[]).filter(m=>m&&m.id!=null).map(m=>[String(m.id),m.title]));
+    // A timeline task with no text takes the name of its task card.
+    const nameOf=t=>bhAgendaText(t.text)||bhAgendaText(minis.get(String(t.id)))||bhAgendaText(t.title);
+    const names=new Map(all.map(t=>[String(t.id),nameOf(t)]));
+    const focus=bhAgendaFocus(p,sessions);
+    const tasks=all.filter(t=>!BH_AGENDA_CLOSED.has(t.status)).map(t=>{
+      const pid=t.parentId!=null&&t.parentId!==''?String(t.parentId):'';
+      const startDate=bhAgendaDay(t.startDate),dueDate=bhAgendaDay(t.dueDate);
+      return{id:String(t.id),text:nameOf(t),status:bhAgendaText(t.status),startDate,dueDate,
+        parent:pid&&pid!==String(t.id)&&names.has(pid)?names.get(pid):'',...timing(startDate,dueDate),focusMinutes:focus.task(t.id)};
+    }).filter(t=>t.text&&(t.startDate||t.dueDate));
+    tasks.sort((a,b)=>bhAgendaCmp(a.dueDate||'9999',b.dueDate||'9999')||bhAgendaCmp(a.startDate,b.startDate)||bhAgendaCmp(a.text,b.text)||bhAgendaCmp(a.id,b.id));
+    const startDate=bhAgendaDay(p.startDate),deadline=bhAgendaDay(p.deadline);
+    const row={id:String(p.id),title:bhAgendaText(p.title),type:p.type==='personal'?'personal':'work',client:bhAgendaText(p.client),
+      status:bhAgendaText(p.status),startDate,deadline,...timing(startDate,deadline),focusMinutes:focus.total,tasks};
+    if(!row.title||(!row.startDate&&!row.deadline&&!tasks.length))return;
+    out.push(row);
+  });
+  out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
+  return{schema:1,generatedAt:String(generatedAt||''),today:day,
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged. "parent" is the task a sub-task belongs to. generatedAt is when this file was written.',
+    projects:out};
+};
+// What decides whether the file needs sending again (the timestamp does not).
+const bhAgendaSig=snap=>bhStableStringify({schema:snap&&snap.schema,today:snap&&snap.today,projects:snap&&snap.projects});
+const BH_AGENDA_URL=/^https:\/\/script\.google\.com\/(macros|a\/macros\/[^/\s]+)\/s\/[^\s/]+\/exec$/;
+// POST without a Content-Type: a "simple" request, so the browser sends no
+// preflight (Apps Script cannot answer one). Never throws.
+const bhAgendaPost=async(fetchFn,url,key,snapshot)=>{
+  try{
+    const u=typeof url==='string'?url.trim():'';
+    if(!BH_AGENDA_URL.test(u))return{ok:false,err:'O endereço não é um link /exec do Google Apps Script.'};
+    if(typeof key!=='string'||!key.trim())return{ok:false,err:'Falta a chave.'};
+    const res=await fetchFn(u,{method:'POST',redirect:'follow',body:JSON.stringify({key:key.trim(),snapshot})});
+    if(!res||!res.ok)return{ok:false,err:'O Google respondeu '+(res&&res.status?res.status:'com erro')+'.'};
+    let j=null;
+    try{j=await res.json();}catch{/*silent-ok: a non-JSON reply (e.g. a Google sign-in page) is reported below*/}
+    if(!j||j.ok!==true)return{ok:false,err:'O script não aceitou (chave errada, ou a implantação não está como "Qualquer pessoa").'};
+    return{ok:true};
+  }catch(e){return{ok:false,err:String((e&&e.message)||e)};}
+};
+// @bh-test-end agenda
+
 const bhEntityChanges=(before,after)=>[...new Set([...before.keys(),...after.keys()])].filter(id=>!bhEqual(before.get(id),after.get(id))).map(id=>({id,before:before.get(id),after:after.get(id)}));
 const bhEntityAssert=uid=>{if(!_fbDb||_fbAuth?.currentUser?.uid!==uid)throw new Error('Conta alterada; operação cancelada.');};
 const bhEntityStage=async(state,uid,expected)=>{
@@ -16354,6 +16441,127 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
   );
 });
 
+// - AGENDA EXPORT (Sincronizar > "Agenda no Drive") -
+// Sends the small agenda snapshot (see the `agenda` region) to the owner's own
+// Apps Script. The address and key live only in this browser (localStorage),
+// never in the repo. Sends are debounced, skipped while nothing changed, and a
+// failure never interrupts anything: it shows in Sincronizar and retries later.
+const BH_AGENDA_URL_KEY='bh_agenda_url',BH_AGENDA_KEY_KEY='bh_agenda_key',BH_AGENDA_SIG_KEY='bh_agenda_sig';
+const BH_AGENDA_SCRIPT=`function doPost(e){
+  var d;try{d=JSON.parse(e.postData.contents);}catch(x){return out(false);}
+  var k=PropertiesService.getScriptProperties().getProperty('KEY');
+  if(!k||!d||d.key!==k)return out(false);
+  var s=JSON.stringify(d.snapshot,null,1);
+  if(!s||s.length>500000)return out(false);
+  var l=LockService.getScriptLock();l.waitLock(10000);
+  try{
+    var it=DriveApp.getFilesByName('boardhub-agenda.json');
+    if(it.hasNext())it.next().setContent(s);
+    else DriveApp.createFile('boardhub-agenda.json',s,'application/json');
+  }finally{l.releaseLock();}
+  return out(true);
+}
+function out(ok){
+  return ContentService.createTextOutput(JSON.stringify({ok:ok})).setMimeType(ContentService.MimeType.JSON);
+}`;
+const _bhAgenda={status:null,listeners:new Set(),busy:false,again:false,retry:null,run:null};
+const bhAgendaSetStatus=st=>{_bhAgenda.status=st;_bhAgenda.listeners.forEach(f=>{try{f();}catch(e){bhLog('agenda.listener',e);}});};
+const bhAgendaGetCfg=()=>{
+  try{return{url:localStorage.getItem(BH_AGENDA_URL_KEY)||'',key:localStorage.getItem(BH_AGENDA_KEY_KEY)||''};}
+  catch{return{url:'',key:''};/*silent-ok: no storage means the export simply stays off*/}
+};
+const bhAgendaSaveCfg=(url,key)=>{
+  try{
+    if(url||key){localStorage.setItem(BH_AGENDA_URL_KEY,url);localStorage.setItem(BH_AGENDA_KEY_KEY,key);}
+    else{localStorage.removeItem(BH_AGENDA_URL_KEY);localStorage.removeItem(BH_AGENDA_KEY_KEY);}
+    localStorage.removeItem(BH_AGENDA_SIG_KEY); // a new destination gets the full file
+    return true;
+  }catch(e){bhLog('agenda.saveCfg',e);return false;}
+};
+const useBhAgendaExport=(projects,sessions,fbUser)=>{
+  const latest=useRef({});
+  latest.current={projects,sessions,fbUser};
+  const run=useCallback(async force=>{
+    const {projects,sessions,fbUser}=latest.current;
+    const {url,key}=bhAgendaGetCfg();
+    if(!url||!key||!fbUser)return;
+    let seeded=false,last='';
+    try{seeded=localStorage.getItem(SEEDED_KEY)==='1';last=localStorage.getItem(BH_AGENDA_SIG_KEY)||'';}catch{/*silent-ok: unknown means "not seeded" and "never sent", the harmless answers here*/}
+    if(seeded){if(force)bhAgendaSetStatus({at:Date.now(),ok:false,err:'Esta conta ainda tem só os dados de demonstração neste aparelho. Sincronize antes de enviar.'});return;}
+    if(typeof navigator!=='undefined'&&navigator.onLine===false)return;
+    if(_bhAgenda.busy){_bhAgenda.again=true;return;}
+    const now=new Date();
+    const snap=bhAgendaSnapshot(projects,sessions,localDateISO(now),now.toISOString());
+    const sig=bhAgendaSig(snap);
+    if(!force&&sig===last)return;
+    _bhAgenda.busy=true;
+    let r;
+    try{r=await bhAgendaPost((u,o)=>fetch(u,o),url,key,snap);}
+    finally{_bhAgenda.busy=false;}
+    clearTimeout(_bhAgenda.retry);_bhAgenda.retry=null;
+    if(r.ok){
+      try{localStorage.setItem(BH_AGENDA_SIG_KEY,sig);}catch(e){bhLog('agenda.sig',e,'the file may be sent again on the next change');}
+      bhAgendaSetStatus({at:Date.now(),ok:true,err:''});
+    }else{
+      bhLog('agenda.post',new Error(r.err));
+      bhAgendaSetStatus({at:Date.now(),ok:false,err:r.err});
+      _bhAgenda.retry=setTimeout(()=>{_bhAgenda.run&&_bhAgenda.run(false);},5*60*1000);
+    }
+    if(_bhAgenda.again){_bhAgenda.again=false;_bhAgenda.run&&_bhAgenda.run(false);}
+  },[]);
+  useEffect(()=>{_bhAgenda.run=run;return()=>{if(_bhAgenda.run===run)_bhAgenda.run=null;clearTimeout(_bhAgenda.retry);_bhAgenda.retry=null;};},[run]);
+  useEffect(()=>{
+    const t=setTimeout(()=>{run(false);},3000);
+    return()=>clearTimeout(t);
+  },[projects,sessions,fbUser,run]);
+  useEffect(()=>{
+    const on=()=>{run(false);};
+    window.addEventListener('online',on);
+    return()=>window.removeEventListener('online',on);
+  },[run]);
+};
+const AgendaExportCard=()=>{
+  const [cfg,setCfg]=useState(bhAgendaGetCfg);
+  const [st,setSt]=useState(_bhAgenda.status);
+  const [showSetup,setShowSetup]=useState(false);
+  const [msg,setMsg]=useState('');
+  useEffect(()=>{const f=()=>setSt(_bhAgenda.status);_bhAgenda.listeners.add(f);return()=>{_bhAgenda.listeners.delete(f);};},[]);
+  const saveAndSend=()=>{
+    const url=cfg.url.trim(),key=cfg.key.trim();
+    if(!BH_AGENDA_URL.test(url)){setMsg('Cole o endereço que termina em /exec (Implantar › App da Web).');return;}
+    if(!key){setMsg('Cole a chave que você pôs em KEY no script.');return;}
+    if(!bhAgendaSaveCfg(url,key)){setMsg('O navegador não deixou guardar o endereço.');return;}
+    setCfg({url,key});setMsg('Enviando…');
+    if(_bhAgenda.run)_bhAgenda.run(true);
+  };
+  const turnOff=()=>{bhAgendaSaveCfg('','');setCfg({url:'',key:''});setSt(null);_bhAgenda.status=null;setMsg('Desligado.');};
+  const on=!!bhAgendaGetCfg().url;
+  return(
+    <div style={{border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontWeight:600,fontSize:'.9rem',display:'flex',alignItems:'center',gap:6}}><Icon name="calendar" size={14}/> Agenda no Drive</div>
+      <div style={{fontSize:'.78rem',color:'var(--muted)',lineHeight:1.5}}>Mantém um único arquivo <code>boardhub-agenda.json</code> no seu Drive com nomes, datas, status e tempo de foco dos projetos e tarefas em aberto (nada de notas, imagens ou valores). Atualiza sozinho a cada mudança.</div>
+      <input className="input-box" aria-label="Endereço do Apps Script" placeholder="https://script.google.com/macros/s/…/exec" value={cfg.url} onChange={e=>setCfg({...cfg,url:e.target.value})}/>
+      <input className="input-box" type="password" aria-label="Chave" placeholder="Chave (KEY do script)" value={cfg.key} onChange={e=>setCfg({...cfg,key:e.target.value})}/>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-outline" onClick={saveAndSend}>{on?'Salvar e enviar agora':'Ligar e enviar'}</button>
+        {on&&<button className="btn btn-ghost" style={{color:'var(--muted)'}} onClick={turnOff}>Desligar</button>}
+        <button className="btn btn-ghost" style={{color:'var(--muted)'}} onClick={()=>setShowSetup(v=>!v)}>{showSetup?'Esconder passo a passo':'Como configurar'}</button>
+      </div>
+      {st&&<div role="status" style={{fontSize:'.78rem',color:st.ok?'var(--ok-fg)':'var(--danger-fg)'}}>{st.ok?'✓ Enviado às '+new Date(st.at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'Falhou: '+st.err+' (tento de novo sozinho)'}</div>}
+      {msg&&!st&&<div style={{fontSize:'.78rem',color:'var(--muted)'}}>{msg}</div>}
+      {showSetup&&(
+        <ol style={{fontSize:'.78rem',color:'var(--muted)',lineHeight:1.6,paddingLeft:18,margin:0}}>
+          <li>Abra script.google.com › Novo projeto e cole o código abaixo.</li>
+          <li>Configurações do projeto › Propriedades do script › adicione <code>KEY</code> com uma senha longa qualquer.</li>
+          <li>Implantar › Nova implantação › App da Web: executar como <strong>você</strong>, acesso <strong>Qualquer pessoa</strong>. Autorize o Drive.</li>
+          <li>Cole aqui o endereço /exec e a senha, e toque em Ligar.</li>
+          <li><textarea readOnly aria-label="Código do Apps Script" value={BH_AGENDA_SCRIPT} rows={8} style={{width:'100%',boxSizing:'border-box',fontFamily:'monospace',fontSize:'.7rem'}} onFocus={e=>e.target.select()}/></li>
+        </ol>
+      )}
+    </div>
+  );
+};
+
 // - SYNC HUB -
 const RequireRegisterSwitch=()=>{
   const on=useRequireRegister();
@@ -16679,6 +16887,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             {/* Once the account has it, every device follows it automatically: the
                 button only exists for an account that was never switched over. */}
             {!bhEntityModes.has(fbUser.uid)&&<button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>}
+            <AgendaExportCard/>
             {syncStatus==='error'&&(
               <button className="btn btn-danger" style={{width:'100%',justifyContent:'center'}} onClick={handleDiscardLocal} disabled={loading}>
                 <Icon name="cloud-download" size={14}/> Descartar locais e puxar da nuvem
@@ -18039,6 +18248,7 @@ const App=()=>{
     });
     return ()=>{alive=false;if(unsub)unsub();};
   },[]);
+  useBhAgendaExport(projects,pomoData?.rank?.sessions,fbUser);
 
   // Firestore real-time listener — fires instantly when any device saves
   // (v23: removed _isApplyingRemote — it was written in three places and read
