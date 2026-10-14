@@ -212,8 +212,8 @@ test('recent: focus per day and per project, tasks due in the window with their 
   const r = bhAgendaSnapshot(projects, [], TODAY, 'now', pomo).recent;
   assert.equal(r.windowDays, 14); assert.equal(r.from, '2026-10-01'); assert.equal(r.to, TODAY);
   assert.deepEqual(r.focus, [
-    { date: '2026-10-12', totalMinutes: 30, projects: { 1: 30 } },
-    { date: '2026-10-14', totalMinutes: 90, projects: { 1: 60, 2: 30 } },
+    { date: '2026-10-12', totalMinutes: 30, projects: { 1: 30 }, categories: {}, unfiledMinutes: 0 },
+    { date: '2026-10-14', totalMinutes: 90, projects: { 1: 60, 2: 30 }, categories: {}, unfiledMinutes: 0 },
   ]);
   assert.deepEqual(r.projectNames, { 1: 'Alpha', 2: 'Beta' });
   assert.deepEqual(r.dueInWindow.map(d => [d.dueDate, d.text, d.status]), [
@@ -232,4 +232,22 @@ test('task notes are exported (trimmed, capped) and project notes still are not'
   const n = Object.fromEntries(s.projects[0].tasks.map(t => [t.text, t.notes]));
   assert.equal(n.a, 'call the client'); assert.equal(n.b.length, 500); assert.equal(n.c, '');
   assert.ok(!JSON.stringify(s).includes('project note'));
+});
+
+test('recent: categories, unfiled time and ready-made totals', () => {
+  const pomo = {
+    categories: [{ id: 'f1', name: 'Estudos de cor' }, { id: 'f2', name: 'Gestos' }],
+    days: { '2026-10-14': 7200, '2026-10-13': 3600, '2026-10-05': 1800, '2026-09-01': 6000 },
+    dailyAllocations: {
+      '2026-10-14': { 'project:1': 1800, 'cat:f1': 3000, 'cat:f9': 600, none: 600 },
+      '2026-10-13': { 'cat:f2': 3600 },
+      '2026-10-05': { 'cat:f1': 1800 },
+    },
+  };
+  const r = bhAgendaSnapshot([P(1, 'Alpha')], [], TODAY, 'now', pomo).recent;
+  assert.deepEqual(r.categoryNames, { f1: 'Estudos de cor', f2: 'Gestos' });
+  assert.deepEqual(r.focus.find(f => f.date === '2026-10-14'), { date: '2026-10-14', totalMinutes: 120, projects: { 1: 30 }, categories: { f1: 50, f9: 10 }, unfiledMinutes: 30 });
+  assert.equal(r.totals.allTimeMinutes, 310);
+  assert.deepEqual(r.totals.last7, { minutes: 180, projects: { 1: 30 }, categories: { f1: 50, f9: 10, f2: 60 } });
+  assert.deepEqual(r.totals.previous7, { minutes: 30, projects: {}, categories: { f1: 30 } });
 });

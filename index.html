@@ -3879,22 +3879,42 @@ const bhAgendaFocus=(p,sessions)=>{
 const bhAgendaRecent=(projects,pomo,today,span)=>{
   const day=bhAgendaDay(today);
   if(!day)return null;
-  const from=new Date(Date.UTC(+day.slice(0,4),+day.slice(5,7)-1,+day.slice(8,10))-(span-1)*86400000).toISOString().slice(0,10);
+  const ms=d=>Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10));
+  const iso=t=>new Date(t).toISOString().slice(0,10);
+  const from=iso(ms(day)-(span-1)*86400000),last7From=iso(ms(day)-6*86400000),prev7From=iso(ms(day)-13*86400000);
   const live=(Array.isArray(projects)?projects:[]).filter(p=>p&&typeof p==='object'&&!p.deleted);
   const names={};live.forEach(p=>{names[String(p.id)]=bhAgendaText(p.title);});
+  // Categories are the Gallery folders the timer files time under ("cat:<id>").
+  const catNames={};
+  (pomo&&Array.isArray(pomo.categories)?pomo.categories:[]).forEach(c=>{if(c&&c.id!=null)catNames[String(c.id)]=bhAgendaText(c.name);});
   const alloc=pomo&&typeof pomo.dailyAllocations==='object'&&pomo.dailyAllocations?pomo.dailyAllocations:{};
   const days=pomo&&typeof pomo.days==='object'&&pomo.days?pomo.days:{};
+  const mins=v=>Math.round(Math.max(0,Number(v)||0)/60);
+  const allDays=[...new Set([...Object.keys(days),...Object.keys(alloc)])].filter(d=>BH_AGENDA_DAY.test(d)&&d<=day).sort();
   const focus=[];
-  [...new Set([...Object.keys(days),...Object.keys(alloc)])].filter(d=>BH_AGENDA_DAY.test(d)&&d>=from&&d<=day).sort().forEach(d=>{
-    const byProject={};
+  allDays.filter(d=>d>=from).forEach(d=>{
+    const byProject={},byCategory={};
     Object.entries(alloc[d]&&typeof alloc[d]==='object'?alloc[d]:{}).forEach(([k,v])=>{
-      const id=String(k).startsWith('project:')?String(k).slice(8):'';
-      const m=Math.round(Math.max(0,Number(v)||0)/60);
-      if(id&&names[id]!=null&&m>0)byProject[id]=m;
+      const m=mins(v);if(m<=0)return;
+      const key=String(k);
+      if(key.startsWith('project:')){const id=key.slice(8);if(names[id]!=null)byProject[id]=(byProject[id]||0)+m;}
+      else if(key.startsWith('cat:')){const id=key.slice(4);byCategory[id]=(byCategory[id]||0)+m;}
     });
-    const total=Math.round(Math.max(0,Number(days[d])||0)/60);
-    if(total>0||Object.keys(byProject).length)focus.push({date:d,totalMinutes:total,projects:byProject});
+    const total=mins(days[d]);
+    const filed=Object.values(byProject).reduce((a,b)=>a+b,0)+Object.values(byCategory).reduce((a,b)=>a+b,0);
+    if(total>0||filed>0)focus.push({date:d,totalMinutes:total,projects:byProject,categories:byCategory,unfiledMinutes:Math.max(0,total-filed)});
   });
+  // Sums are done here so the reader does not have to add up the days.
+  const sum=(fromD,toD)=>{
+    const r={minutes:0,projects:{},categories:{}};
+    focus.filter(f=>f.date>=fromD&&f.date<=toD).forEach(f=>{
+      r.minutes+=f.totalMinutes;
+      Object.entries(f.projects).forEach(([k,v])=>{r.projects[k]=(r.projects[k]||0)+v;});
+      Object.entries(f.categories).forEach(([k,v])=>{r.categories[k]=(r.categories[k]||0)+v;});
+    });
+    return r;
+  };
+  const allTimeMinutes=mins(allDays.reduce((a,d)=>a+Math.max(0,Number(days[d])||0),0));
   const due=[];
   live.forEach(p=>{
     const base={project:bhAgendaText(p.title),projectId:String(p.id)};
@@ -3909,7 +3929,9 @@ const bhAgendaRecent=(projects,pomo,today,span)=>{
     });
   });
   due.sort((a,b)=>bhAgendaCmp(a.dueDate,b.dueDate)||bhAgendaCmp(a.project,b.project)||bhAgendaCmp(a.text,b.text));
-  return{windowDays:span,from,to:day,projectNames:names,focus,dueInWindow:due};
+  return{windowDays:span,from,to:day,projectNames:names,categoryNames:catNames,
+    totals:{allTimeMinutes,last7:sum(last7From,day),previous7:sum(prev7From,iso(ms(last7From)-86400000))},
+    focus,dueInWindow:due};
 };
 const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
   const out=[],day=bhAgendaDay(today);
@@ -3939,7 +3961,7 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
   out.forEach(r=>{r.colorId=colors.get(r.id);});
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "notes" is the quick note typed on the task (first 500 characters). "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "notes" is the quick note typed on the task (first 500 characters). "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames, and per category id, see categoryNames; categories are the Gallery folders the timer files time under; unfiledMinutes = focus with no project or category), totals = ready-made sums (allTimeMinutes since the app started counting, last7 and previous7 with minutes, projects and categories), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
     recent:bhAgendaRecent(projects,pomo,day,14),
     projects:out};
 };
@@ -16616,7 +16638,7 @@ const useBhAgendaExport=(projects,pomoData,fbUser)=>{
   useEffect(()=>{
     const t=setTimeout(()=>{run(false);},3000);
     return()=>clearTimeout(t);
-  },[projects,sessions,pomoData?.days,pomoData?.dailyAllocations,fbUser,run]);
+  },[projects,sessions,pomoData?.days,pomoData?.dailyAllocations,pomoData?.categories,fbUser,run]);
   // Back online, or the tab is shown again (a new day makes "days left" stale).
   useEffect(()=>{
     const on=()=>{run(false);};
