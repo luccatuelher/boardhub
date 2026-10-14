@@ -151,3 +151,37 @@ test('an old linked post gets back what it showed: task images, then its own, in
   assert.deepEqual(bhLegacyPostImages(mini, { images: ['own.png'], imageOrder: ['own.png', 'f2.png'], hiddenImages: ['f1.png'] }), ['own.png', 'f2.png', 'inline.png', 'n1.png']);
   assert.deepEqual(bhLegacyPostImages({ frames: [] }, { images: ['own.png'] }), ['own.png']);
 });
+
+const { bhIsChildTask, bhGroupByParent, bhNormalizeTaskTree, bhNestedLabel, bhPromoteSubTasks } = load(['tasklinks']);
+
+test('children are placed right after their parent, orphans stay top-level, a grouped list is returned as is', () => {
+  const a = { id: 'a' }, b = { id: 'b' }, c1 = { id: 'c1', parentId: 'a' }, d = { id: 'd' }, c2 = { id: 'c2', parentId: 'a' }, orphan = { id: 'o', parentId: 'gone' };
+  assert.deepEqual(bhGroupByParent([c1, a, b, c2, d, orphan]).map(x => x.id), ['a', 'c1', 'c2', 'b', 'd', 'o']);
+  const grouped = [a, c1, c2, b];
+  assert.equal(bhGroupByParent(grouped), grouped);
+  assert.equal(bhGroupByParent([a, { id: 'x', parentId: 'x' }]).length, 2, 'a task is never its own child');
+  const project = { projectTasks: [c1, a], miniProjects: [c1, a] };
+  assert.deepEqual(bhNormalizeTaskTree(project).projectTasks.map(x => x.id), ['a', 'c1']);
+  const ok = { projectTasks: [a, c1], miniProjects: [a, c1] };
+  assert.equal(bhNormalizeTaskTree(ok), ok);
+  assert.equal(bhIsChildTask(orphan, new Set(['a'])), false);
+  assert.equal(bhNestedLabel(c1, new Set(['a', 'c1']), 'Rodada 1'), '   ↳ Rodada 1');
+  assert.equal(bhNestedLabel(a, new Set(['a']), 'Tarefa'), 'Tarefa');
+});
+
+test('sub-task folders of the earlier build become child tasks that take their notes', () => {
+  const project = { id: 'p', projectTasks: [{ id: 't1', text: 'Cena', status: 'Fazendo', startDate: '2026-10-01', dueDate: '2026-10-09' }],
+    miniProjects: [{ id: 't1', title: 'Cena', status: 'Em Andamento', innerNotes: [
+      { id: 'n1', title: 'solta' }, { id: 'n2', title: 'na rodada', subTaskId: 's1' }, { id: 'n3', title: 'órfã', subTaskId: 'gone' }],
+      subTasks: [{ id: 's1', title: 'Rodada 1', status: 'Concluído', createdAt: '01/10/2026' }] }] };
+  const out = bhPromoteSubTasks([project]);
+  const minis = out[0].miniProjects, tasks = out[0].projectTasks;
+  assert.deepEqual(minis.map(m => m.id), ['t1', 's1']);
+  assert.equal(minis[0].subTasks, undefined);
+  assert.deepEqual(minis[0].innerNotes.map(n => n.id), ['n1', 'n3']);
+  assert.equal(minis[0].innerNotes[1].subTaskId, undefined);
+  assert.deepEqual(minis[1].innerNotes.map(n => n.id), ['n2']);
+  assert.equal(minis[1].parentId, 't1');
+  assert.deepEqual(tasks.map(t => [t.id, t.parentId, t.status, t.startDate]), [['t1', undefined, 'Fazendo', '2026-10-01'], ['s1', 't1', 'Concluído', '2026-10-01']]);
+  assert.equal(bhPromoteSubTasks(out), out, 'nothing left to promote: same array');
+});

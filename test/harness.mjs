@@ -35,7 +35,7 @@ export const EXPECTED = {
   postmerge: ['bhStripPostDate', 'bhMergePosts'],
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
   imgclip: ['bhImgClipSrcOk', 'bhImgClipGet', 'bhImgClipSubscribe', 'bhImgClipHas', 'bhImgClipToggle', 'bhImgClipClear'],
-  tasklinks: ['bhHtmlMediaSrcs', 'bhUniqStrings', 'bhNoteMedia', 'bhTextToHTML', 'bhTaskPostLinks', 'bhLinkedPostView', 'bhLegacyPostImages', 'bhHtmlToText', 'bhPublishSessionNote', 'bhAppendImages', 'bhNoteImages', 'bhNotePostLinks', 'bhMaterializeNotes', 'bhRelinkNotes'],
+  tasklinks: ['bhHtmlMediaSrcs', 'bhUniqStrings', 'bhNoteMedia', 'bhTextToHTML', 'bhTaskPostLinks', 'bhLinkedPostView', 'bhIsChildTask', 'bhGroupByParent', 'bhNormalizeTaskTree', 'bhNestedLabel', 'bhPromoteSubTasks', 'bhLegacyPostImages', 'bhHtmlToText', 'bhPublishSessionNote', 'bhAppendImages', 'bhNoteImages', 'bhNotePostLinks', 'bhMaterializeNotes', 'bhRelinkNotes'],
   notetask: ['bhNoteContainers', 'bhNoteProjects', 'bhNoteTaskMatches', 'bhNoteTasks', 'bhNewNoteTask'],
   preload: ['bhPreloadWindow', 'bhPreloadBudget', 'bhPreloadFit'],
   fbimg: ['bhIsFirebaseImage'],
