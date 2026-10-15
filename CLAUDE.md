@@ -3,12 +3,10 @@
 - Pode commitar e dar push direto na `main`. Não precisa criar branch nem abrir PR, e não precisa pedir confirmação para isso.
 - Isso vale para todas as sessões (nuvem inclusive) e sobrepõe o padrão de "desenvolver em branch separado" quando a tarefa não pedir um branch específico.
 
-## Fluxo advisor/executor/subagentes
-- **Opus (advisor):** antes de implementar qualquer mudança não trivial, chame um subagente com `model: opus` para planejar e revisar a abordagem. Ao terminar, chame outro `model: opus` para revisar o diff e apontar bugs.
-- **Sonnet (executor):** você mesmo (modelo da sessão) implementa a mudança.
-- **Haiku 5.5 (subagentes):** delegue a subagentes com `model: haiku` as tarefas mecânicas, de baixo risco e bem delimitadas: buscar/mapear arquivos e ocorrências, ler e resumir código ou logs, rodar testes/lint/build e reportar o resultado, conferir links/textos/formatação, edições repetitivas em vários arquivos com instrução exata. Dê a cada um um escopo claro e peça resposta curta; você confere o resultado antes de usar.
-- Não use Haiku para decisões de design, lógica nova, segurança ou revisão de bugs — isso fica com Opus/Sonnet.
-- Pule o Opus em tarefas triviais: typo, tradução, renomear, ajuste de texto.
+## Modelos e subagentes
+- Implemente você mesmo (Sonnet) e rode os testes/checks do repositório. Sem etapa de planejamento com Opus por padrão.
+- Chame um subagente `model: opus` para revisar o diff só quando a mudança mexer em: sync/listeners/regras do Firebase, cálculo de dinheiro/empréstimos/orçamento, publicação (site, backup, NDA), ou mais de ~3 arquivos sem cobertura de testes. Planejamento com Opus só se o desenho for realmente incerto.
+- Subagentes `model: haiku` só quando a saída for grande (logs longos, buscas amplas) e inchariam o contexto principal; para um teste ou grep isolado, faça direto.
 
 ## Language
 - **Always write in English**, even when the owner writes in Portuguese. This is about how Claude communicates (replies, explanations, commit messages); do not translate the product's existing user-facing text unless asked.
