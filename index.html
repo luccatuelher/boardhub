@@ -17497,11 +17497,6 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
             <Field label="Ano">
               <input className="input-box" type="number" value={form.year||''} onChange={e=>set('year',e.target.value?Number(e.target.value):'')} placeholder={new Date().getFullYear()} min="1900" max="2099"/>
             </Field>
-            <Field label="Status">
-              <select className="input-box" value={form.active?'Ativo':'Inativo'} onChange={e=>set('active',e.target.value==='Ativo')} style={{cursor:'pointer'}}>
-                <option>Ativo</option><option>Inativo</option>
-              </select>
-            </Field>
           </div>
         </div>
         <div style={{marginBottom:12}}>
@@ -17588,17 +17583,18 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   // as the Social platform filter does.
   useEffect(()=>{if(activeYear!=='all'&&!years.includes(Number(activeYear)))setActiveYear('all');},[years,activeYear]);
 
-  const [mentorSort,setMentorSort]=useState(()=>{try{return localStorage.getItem('boardhub_mentors_sort')||'manual';}catch{return 'manual';}});
+  const [mentorSort,setMentorSort]=useState(()=>{try{const v=localStorage.getItem('boardhub_mentors_sort');return v==='name'||v==='year'?v:'manual';}catch{return 'manual';}});
   const changeMentorSort=v=>{setMentorSort(v);try{localStorage.setItem('boardhub_mentors_sort',v);}catch(e){bhLog('mentors.sort',e);}};
   const filteredMentors=mentors.filter(m=>!m.deleted&&
     (activeYear==='all'||String(m.year)===String(activeYear))&&
     (!search||bhSearchText(m.name,m.area,m.medium,m.notes).includes(bhFold(search).trim()))
   );
   const byMentorName=(a,b)=>String(a.name||'').localeCompare(String(b.name||''),'pt-BR',{sensitivity:'base'});
-  const visible=mentorSort==='name'?[...filteredMentors].sort(byMentorName)
+  // Main mentors always come first; each group keeps the chosen order (the sort is stable).
+  const mainFirst=list=>[...list].sort((a,b)=>(b.main?1:0)-(a.main?1:0));
+  const visible=mainFirst(mentorSort==='name'?[...filteredMentors].sort(byMentorName)
     :mentorSort==='year'?[...filteredMentors].sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0)||byMentorName(a,b))
-    :mentorSort==='main'?[...filteredMentors].sort((a,b)=>(b.main?1:0)-(a.main?1:0)||byMentorName(a,b))
-    :filteredMentors;
+    :filteredMentors);
   const dragIdxRef=useRef(null);
   const reorderMentors=(fromId,toId)=>{
     if(String(fromId)===String(toId))return;
@@ -17702,7 +17698,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
             placeholder="Buscar mentores..." aria-label="Buscar mentores" style={{paddingLeft:36,paddingRight:150}}/>
           <select value={mentorSort} onChange={e=>changeMentorSort(e.target.value)} aria-label="Ordenar mentores" className="gallery-sort-select"
             style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
-            <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="year">Ano (recentes)</option><option value="main">Principais primeiro</option>
+            <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="year">Ano (recentes)</option>
           </select>
         </div>
       )}
@@ -17747,7 +17743,6 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
               </div>
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-                <span style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',padding:'2px 6px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted-chip)'}}>{m.active?'Ativo':'Inativo'}</span>
                 {m.main&&<Icon name="star" size={11} style={{color:'var(--warn-fg)'}}/>}
               </div>
             </div>
@@ -17783,7 +17778,6 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 </div>
                 {m.notes&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:0,lineHeight:1.55,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{m.notes}</p>}
                 <div style={{marginTop:10,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:m.active?'var(--ok-bg)':'var(--neutral-bg)',color:m.active?'var(--ok-fg)':'var(--muted-chip)'}}>{m.active?'Ativo':'Inativo'}</span>
                   {m.main&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--warn-bg)',color:'var(--warn-fg)',display:'flex',alignItems:'center',gap:3}}><Icon name="star" size={9}/> Principal</span>}
                   {m.year&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--bg)',color:'var(--muted)'}}>{m.year}</span>}
                 </div>
