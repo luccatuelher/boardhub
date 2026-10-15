@@ -8,7 +8,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid}/boardhub/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      // Once `sync-v4` exists the account is on per-item sync and the legacy
+      // documents are frozen rollback inputs: a write from a stale client would be
+      // invisible to every other device. `rules-canary-v2` is never writable: the
+      // app tries to write it once, and a refusal tells it these rules are live
+      // (only then does it switch an account to per-item sync by itself).
+      allow write: if request.auth != null && request.auth.uid == uid
+        && docId != 'rules-canary-v2'
+        && !(docId in ['state', 'notes', 'gallery']
+             && exists(/databases/$(database)/documents/users/$(uid)/boardhub/sync-v4));
     }
     match /{document=**} {
       allow read, write: if false;

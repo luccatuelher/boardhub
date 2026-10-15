@@ -32,6 +32,14 @@ want the precompiled variant (it is also the prerequisite for a CSP without `'un
 - Security rules are versioned here: [`firestore.rules`](firestore.rules),
   [`storage.rules`](storage.rules) (deploy with `firebase deploy --only firestore:rules,storage`).
   Review them against your project before deploying; they were not run against the emulator.
+- **Per-item sync switches on by itself.** An account on the legacy documents (`state`, `notes`,
+  `gallery`) is moved to per-item sync (`sync-v4` + entity docs) automatically when it is safe:
+  nothing unsent, the device equals the last cloud state it saw, the deployed rules are the ones in
+  this repo (a canary write to `rules-canary-v2` must be refused), and the device has run this
+  version for 24 h. The legacy documents are never modified: they stay as the rollback copy, and
+  after activation the rules (and the legacy push transaction) refuse any further write to them.
+  Status and a manual fallback button are in **Sincronizar**. **Deploy the rules before expecting
+  activation:** `firebase deploy --only firestore:rules,storage`.
 - Storage download URLs carry a token and are readable by anyone who has the URL.
 - The bucket needs the CORS setting in [`cors.json`](cors.json): without it the browser can show
   the images but not read their bytes, so the local image cache, "Baixar todas as imagens" and

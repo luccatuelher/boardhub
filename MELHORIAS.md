@@ -132,6 +132,15 @@ Análise de `index.html` (commit `b0fc9a4`, out/2026), revisada por um consultor
 - **CSP.** Only meaningful on the precompiled `dist/` and needs the exact host list (Firebase, Imgur, Unsplash, embeds); not enabled.
 - Click-only `div`/`span` elements without role/tabIndex, unit tests for UI code, Prettier/ESLint, mixed PT/EN identifiers.
 
+## Status update (third pass, out/2026)
+
+**Done (verified on the Firebase Auth/Firestore/Storage emulators with the real index.html in headless Chromium; unit tests in `test/automigrate.test.mjs`):**
+- **Sync v4 is now automatic** per account (see README). Gate: `bhAutoMigrateDecision`; runner: `runEntityMigration(uid,{auto:true})` (no restore lock, any edit aborts before activation, lease doc `sync-v4-lease`, server-confirmed legacy mode, readback verification as before). Failures are counted per account in localStorage (`boardhub_v4_auto_<uid>`); a verification mismatch disables it.
+- **Legacy writes are refused after activation:** `pushState` reads `sync-v4` inside its transaction, and `firestore.rules` deny writes to `state|notes|gallery` once `sync-v4` exists. Fixes a pre-existing race where a legacy push after another device's activation was silently reverted.
+- Pack-time check of Firestore's 20-level nesting limit; orphan staged generations (not active/previous, older than 24 h) are deleted by `bhEntityCleanOrphans`.
+
+**Not done:** rollback from v4 to legacy (legacy docs miss every edit after activation); weekly cloud backup JSON in Storage (needs a `storage.rules` path); IndexedDB as primary state (a mirror was judged riskier than useful: browsers evict localStorage and IndexedDB together).
+
 ## Ordem sugerida de execução
 1. **Armazenamento local:** `storage.persist()`, evicção/limite no cache de mídia, separar `syncbase`/entidades, acabar com a cópia integral no localStorage, planejar estado primário no IndexedDB.
 2. **Tornar o sync v4 o padrão**, com detecção de clientes antigos e testes; política de retenção para `rank.sessions`/`pomoData.days`.

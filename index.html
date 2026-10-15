@@ -3782,8 +3782,20 @@ const bhEntityPack=state=>{
   };
   const fields={};for(const [key,value] of Object.entries(bhSyncState(state)))fields[key]=emit([key],pack(value,[key]));
   docs.set('v4_root',{value:{object:fields}});
-  for(const value of docs.values())if(bhJsonBytes(value)>850000)throw new Error('Entidade excede tamanho seguro; dados locais preservados.');
+  for(const value of docs.values()){
+    if(bhJsonBytes(value)>850000)throw new Error('Entidade excede tamanho seguro; dados locais preservados.');
+    // Firestore refuses maps/arrays nested deeper than 20 levels (the document root is level 0, hence 21 here), and the packing
+    // above roughly doubles the nesting of the state. Better to know before
+    // anything is written than to fail half way through staging.
+    if(bhNestDepth(value)>21)throw new Error('Entidade com aninhamento profundo demais; dados locais preservados.');
+  }
   return docs;
+};
+const bhNestDepth=(value,depth=1)=>{
+  if(!value||typeof value!=='object')return depth-1;
+  let max=depth;
+  for(const v of Array.isArray(value)?value:Object.values(value))if(v&&typeof v==='object')max=Math.max(max,bhNestDepth(v,depth+1));
+  return max;
 };
 const bhEntityUnpack=docs=>{
   const visiting=new Set();
@@ -4043,6 +4055,9 @@ const bhAgendaPost=async(fetchFn,url,key,snapshot)=>{
 
 const bhEntityChanges=(before,after)=>[...new Set([...before.keys(),...after.keys()])].filter(id=>!bhEqual(before.get(id),after.get(id))).map(id=>({id,before:before.get(id),after:after.get(id)}));
 const bhEntityAssert=uid=>{if(!_fbDb||_fbAuth?.currentUser?.uid!==uid)throw new Error('Conta alterada; operação cancelada.');};
+// A migration that stopped because the world moved (an edit, another device) is
+// not a fault: nothing was activated and trying again later is the right answer.
+const bhSoftError=message=>{const e=new Error(message);e.bhSoft=true;return e;};
 const bhEntityStage=async(state,uid,expected)=>{
   bhEntityAssert(uid);
   if(!await bhCapture(state,'schema-4'))throw new Error('Não foi possível criar backup antes da migração.');
@@ -4050,21 +4065,21 @@ const bhEntityStage=async(state,uid,expected)=>{
   const docs=bhEntityPack(cloud),generation=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
   const col=bhEntityCollection(uid),rows=[...docs];
   for(let i=0;i<rows.length;){
-    bhEntityAssert(uid);const batch=_fbDb.batch();let count=0,bytes=0;
+    bhEntityAssert(uid);expected.checkpoint?.();const batch=_fbDb.batch();let count=0,bytes=0;
     while(i<rows.length&&count<200){const [id,value]=rows[i],data={...value,_bhGeneration:generation,_entityId:id},size=bhJsonBytes(data);if(count&&bytes+size>4000000)break;batch.set(col.doc(generation+'_'+id),data);bhDiag.record('writeStarted',size,'entity-migration');bytes+=size;count++;i++;}
     await batch.commit();
   }
   // Read back every staged document before publishing the generation pointer.
   // Partial or failed staging is invisible and leaves legacy documents intact.
   const verified=new Map();
-  for(let i=0;i<rows.length;i+=8)await Promise.all(rows.slice(i,i+8).map(async([id,value])=>{bhEntityAssert(uid);bhDiag.record('readStarted',0,'entity-validation');const snap=await col.doc(generation+'_'+id).get({source:'server'});if(!snap.exists||!bhEqual(snap.data().value,value.value))throw new Error('Validação da migração falhou; formato anterior preservado.');verified.set(id,{value:snap.data().value});}));
-  if(!bhEqual(bhEntityUnpack(verified),bhSyncState(cloud)))throw new Error('Conteúdo da migração não confere.');
+  for(let i=0;i<rows.length;i+=8)await Promise.all(rows.slice(i,i+8).map(async([id,value])=>{bhEntityAssert(uid);expected.checkpoint?.();bhDiag.record('readStarted',0,'entity-validation');const snap=await col.doc(generation+'_'+id).get({source:'server'});if(!snap.exists||!bhEqual(snap.data().value,value.value))throw Object.assign(new Error('Validação da migração falhou; formato anterior preservado.'),{bhFatal:true});verified.set(id,{value:snap.data().value});}));
+  if(!bhEqual(bhEntityUnpack(verified),bhSyncState(cloud)))throw Object.assign(new Error('Conteúdo da migração não confere.'),{bhFatal:true});
   await _fbDb.runTransaction(async tx=>{
     bhEntityAssert(uid);const control=await tx.get(col.doc('sync-v4'));
-    if(expected.generation){if(control.data()?.generation!==expected.generation||control.data()?.commit!==expected.commit)throw new Error('Outro dispositivo alterou dados; tente novamente.');}
+    if(expected.generation){if(control.data()?.generation!==expected.generation||control.data()?.commit!==expected.commit)throw bhSoftError('Outro dispositivo alterou dados; tente novamente.');}
     else{
-      if(control.exists)throw new Error('Outro dispositivo já migrou; aguarde a sincronização.');
-      for(const id of ['state','notes','gallery']){const snap=await tx.get(col.doc(id));if(!bhEqual(snap.exists?snap.data():null,expected.legacy[id]))throw new Error('Dados antigos mudaram durante a migração; tente novamente.');}
+      if(control.exists)throw bhSoftError('Outro dispositivo já migrou; aguarde a sincronização.');
+      for(const id of ['state','notes','gallery']){const snap=await tx.get(col.doc(id));if(!bhEqual(snap.exists?snap.data():null,expected.legacy[id]))throw bhSoftError('Dados antigos mudaram durante a migração; tente novamente.');}
     }
     expected.assertCurrent?.();
     tx.set(col.doc('sync-v4'),{schema:4,generation,commit:generation,previousGeneration:expected.generation||null,entities:docs.size,validated:true,activatedAt:firebase.firestore.FieldValue.serverTimestamp()});
@@ -4116,6 +4131,76 @@ const bhEntityPush=async(state,uid)=>{
     tx.update(col.doc('sync-v4'),{commit,recent});written=true;
   });
   ackPacked();return written?commit:null;
+};
+// Automatic per-item sync. The account switches by itself once it is provably
+// safe: nothing unsent on this device, the device equals the last cloud state it
+// acknowledged (so the migration is a pure transcode of what the cloud already
+// holds), the Firestore rules that freeze the legacy documents are live, and the
+// device has been running this version for a day (time to update the others).
+// @bh-test-begin automigrate
+const BH_AUTO_MIGRATE={IDLE_MS:20000,SETTLE_MS:60000,SOAK_MS:24*3600*1000,MAX_ENTITIES:3000,MAX_HARD_FAILURES:2,SOFT_BACKOFF_MS:30*60000,HARD_BACKOFF_MS:6*3600*1000};
+// Returns {go:true} or {go:false,code,text}; `text` is shown (pt-BR) in Sincronizar.
+// `equalToBase` is a function because comparing a whole state is the one costly
+// check, so it runs last.
+const bhAutoMigrateDecision=i=>{
+  const no=(code,text)=>({go:false,code,text});
+  if(i.disabled)return no('disabled','Ativação automática desligada após uma falha de verificação. Use o botão abaixo ou avise o desenvolvedor.');
+  if(i.modeActive)return no('active','');
+  if(!i.signedIn)return no('signed-out','');
+  if(i.migrating)return no('running','Ativando a sincronização por item…');
+  if(!i.reconciled||!i.hasRemoteData)return no('not-ready','Aguardando a primeira sincronização.');
+  if(i.rulesOk===false)return no('rules','As regras do Firebase ainda não foram atualizadas (firebase deploy --only firestore:rules,storage); a ativação automática espera por isso.');
+  if(i.rulesOk==null)return no('rules-unknown','Verificando as regras do Firebase…');
+  if(i.now-i.firstSeenAt<BH_AUTO_MIGRATE.SOAK_MS)return no('soak','A sincronização por item será ativada automaticamente depois de 24 h com esta versão neste aparelho.');
+  if(i.now<i.retryAt)return no('backoff','Nova tentativa de ativação em alguns minutos.');
+  if(i.hardFailures>=BH_AUTO_MIGRATE.MAX_HARD_FAILURES)return no('failed','A ativação automática falhou duas vezes; use o botão abaixo.');
+  if(i.pending||i.blocked||i.needsChoice)return no('unsynced','Aguardando enviar as alterações pendentes.');
+  if(i.restoreBusy||i.pushBusy||i.pushActive)return no('busy','Aguardando o envio em andamento.');
+  if(!i.online||!i.visible)return no('offline','');
+  if(i.hasLocalMedia)return no('local-media','Há imagens só neste aparelho; envie-as (Enviar imagens locais) para ativar automaticamente.');
+  if(i.now-i.lastEditMs<BH_AUTO_MIGRATE.IDLE_MS)return no('editing','');
+  if(i.now-i.readySince<BH_AUTO_MIGRATE.SETTLE_MS)return no('settling','');
+  if(i.estimate==null)return no('estimate','');
+  if(i.estimate>BH_AUTO_MIGRATE.MAX_ENTITIES)return no('too-big','Dados grandes demais para a ativação automática ('+i.estimate+' registros); use o botão abaixo.');
+  if(!i.equalToBase())return no('differs','Aguardando o aparelho coincidir com a nuvem.');
+  return {go:true};
+};
+// @bh-test-end automigrate
+const _bhTabId=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
+const bhAutoLoad=uid=>{try{return JSON.parse(localStorage.getItem('boardhub_v4_auto_'+uid)||'{}')||{};}catch(e){return {};}};
+const bhAutoSave=(uid,patch)=>{try{localStorage.setItem('boardhub_v4_auto_'+uid,JSON.stringify({...bhAutoLoad(uid),...patch}));}catch(e){bhLog('autoMigrate.gravarContadores',e,'attempt counters not persisted');}};
+// When this device first ran a build that can switch accounts by itself.
+const bhV4FirstSeen=()=>{
+  try{let t=Number(localStorage.getItem('boardhub_v4_first_seen'));if(!t){t=Date.now();localStorage.setItem('boardhub_v4_first_seen',String(t));}return t;}
+  catch(e){return Date.now();}
+};
+// Rules canary: the deployed rules refuse writes to this document id; the old ones
+// accept them. A transaction is used so that offline never queues a stray write.
+const bhRulesCanary=async uid=>{
+  const key='boardhub_rules_v2_'+uid;
+  try{if(localStorage.getItem(key)==='1')return true;}catch(e){bhLog('rulesCanary.lerCache',e);}
+  const ref=bhEntityCollection(uid).doc('rules-canary-v2');
+  try{await _fbDb.runTransaction(async tx=>{tx.set(ref,{t:Date.now()});});}
+  catch(e){
+    if(e&&e.code==='permission-denied'&&_fbAuth?.currentUser?.uid===uid){try{localStorage.setItem(key,'1');}catch(err){bhLog('rulesCanary.gravarCache',err);}return true;}
+    return null; // unknown (offline, quota, signed out meanwhile…): decide nothing
+  }
+  try{await _fbDb.runTransaction(async tx=>{tx.delete(ref);});}catch(e){bhLog('rulesCanary.limpar',e,'the canary document was left behind; harmless');}
+  return false;
+};
+// Staged generations that never became active (a failed attempt, or the previous
+// generation after a re-stage) are dead weight. Delete only those older than
+// three days (generous: the age comes from the staging device's own clock), so a
+// device that is staging right now is never touched.
+const bhEntityCleanOrphans=async uid=>{
+  const col=bhEntityCollection(uid),control=await col.doc('sync-v4').get({source:'server'});
+  if(!control.exists)return 0;
+  const keep=[control.data().generation];if(control.data().previousGeneration)keep.push(control.data().previousGeneration);
+  const snap=await col.where('_bhGeneration','not-in',keep).limit(400).get({source:'server'});
+  const old=snap.docs.filter(d=>{const t=parseInt(String(d.data()._bhGeneration||'').split('_')[0],36);return Number.isFinite(t)&&Date.now()-t>72*3600*1000;});
+  for(let i=0;i<old.length;i+=400){bhEntityAssert(uid);const batch=_fbDb.batch();old.slice(i,i+400).forEach(d=>batch.delete(d.ref));await batch.commit();}
+  bhDiag.record('orphansDeleted',old.length,'entity-cleanup');
+  return old.length;
 };
 // Adapter keeps the existing UI/reconciliation contract while network updates
 // contain only changed entities. One legacy query, then one entity query.
@@ -4211,6 +4296,15 @@ const pushState=(state,uid,{migrateMedia=false}={})=>{
       didWrite=false;
       assertAccount();
       const ids=[...new Set(['state',...plan.map(p=>p.id)])],snapshots={};
+      // Once ANY device has switched the account to per-item sync, the legacy
+      // documents are frozen rollback inputs. A write here would be invisible to
+      // every other device and then silently reverted on this one. The control
+      // document is read inside the transaction, so this is decided by the
+      // server and not by a (possibly stale) listener cache.
+      bhDiag.record('readStarted',0,'transaction-control');
+      if((await tx.get(bhEntityCollection(uid).doc('sync-v4'))).exists){
+        const err=new Error('A sincronização por item foi ativada em outro aparelho; aguardando atualizar.');err.bhEntityActive=true;throw err;
+      }
       // Read before ANY write. Firestore retries on concurrent modification.
       for(const id of ids){bhDiag.record('readStarted',0,'transaction');snapshots[id]=await tx.get(refs[id]);}
       const main=snapshots.state.exists?snapshots.state.data():{};
@@ -16749,7 +16843,7 @@ const RequireRegisterSwitch=()=>{
   const on=useRequireRegister();
   return <BhSwitch checked={on} onChange={bhRequireRegisterSave} label="Registro de sessão obrigatório" style={{flexShrink:0}}/>;
 };
-const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled})=>{
+const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,autoMigrate,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled})=>{
   // Where the running JS came from: 'cache' (a compiled bundle reused) or 'babel'
   // (transpiled just now). Free diagnostics for P1-1.
   const bundleSource=(typeof window!=='undefined'&&window.__bhBundleCache&&window.__bhBundleCache.source)||'?';
@@ -17068,7 +17162,12 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
             </div>
             {/* Once the account has it, every device follows it automatically: the
                 button only exists for an account that was never switched over. */}
-            {!bhEntityModes.has(fbUser.uid)&&<button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>}
+            {bhEntityModes.has(fbUser.uid)
+              ?<div style={{fontSize:'.72rem',color:'var(--muted)',lineHeight:1.4}}>Sincronização por item ativa: só o que você muda é enviado.</div>
+              :<>
+                {autoMigrate?.text&&<div style={{fontSize:'.72rem',color:autoMigrate.code==='error'?'var(--danger-fg)':'var(--muted)',lineHeight:1.4}}>{autoMigrate.text}</div>}
+                <button className="btn btn-outline" disabled={loading} onClick={handleEntityMigration}>Ativar sincronização por item</button>
+              </>}
             {syncStatus==='error'&&(
               <button className="btn btn-danger" style={{width:'100%',justifyContent:'center'}} onClick={handleDiscardLocal} disabled={loading}>
                 <Icon name="cloud-download" size={14}/> Descartar locais e puxar da nuvem
@@ -19343,24 +19442,108 @@ const App=()=>{
     }
   },[fbUser]);
 
-  const migrateEntities=useCallback(async()=>{
-    const uid=fbUser?.uid;
-    if(!uid||!_didInitialReconcile.current)throw new Error('Aguarde o carregamento da conta.');
-    if(bhEntityModes.has(uid))throw new Error('A sincronização por item já está ativa.');
-    await bhWithRestore(async()=>{
-      const editGeneration=_editGen.current;
-      const snapshot=JSON.parse(JSON.stringify(_latestState.current));
-      const col=bhEntityCollection(uid),legacy={};
+  // Shared by the manual button (inside bhWithRestore: saves and pushes paused)
+  // and the automatic path (no lock: the user keeps typing, and any edit simply
+  // aborts the switch before it is activated; nothing is written to the legacy
+  // documents either way).
+  const runEntityMigration=async(uid,{auto=false}={})=>{
+    const editGeneration=_editGen.current;
+    const snapshot=JSON.parse(JSON.stringify(_latestState.current));
+    const col=bhEntityCollection(uid),legacy={};
+    let leaseRef=null;
+    if(auto){
+      // Server-confirmed legacy mode plus a lease, so two devices of one account
+      // do not both stage a full generation. The control document must stay
+      // absent until activation: its existence IS the "per-item" signal.
+      leaseRef=col.doc('sync-v4-lease');
+      await _fbDb.runTransaction(async tx=>{
+        if((await tx.get(col.doc('sync-v4'))).exists)throw bhSoftError('Outro dispositivo já migrou.');
+        const lease=await tx.get(leaseRef);
+        if(lease.exists&&lease.data().until>Date.now()&&lease.data().holder!==_bhTabId)throw bhSoftError('Outro aparelho está ativando a sincronização.');
+        tx.set(leaseRef,{holder:_bhTabId,until:Date.now()+15*60000});
+      });
+    }
+    try{
       for(const id of ['state','notes','gallery']){bhDiag.record('readStarted',0,'migration-source');const doc=await col.doc(id).get({source:'server'});legacy[id]=doc.exists?doc.data():null;}
       const remote={...(legacy.state||{}),notes:legacy.notes?.notes||legacy.state?.notes||[],galleryPosts:legacy.gallery?.galleryPosts||legacy.state?.galleryPosts||[]};
       if(bhStateHasData(remote)&&!await bhCapture(remote,'schema-4'))throw new Error('Não foi possível proteger os dados remotos.');
       const baseline=_bhSyncBases.get(uid);
       if(!baseline)throw new Error('Base de comparação indisponível; aguarde a sincronização.');
+      // A remote snapshot replaces the acknowledged base: staging against the old one is doomed, so stop early.
+      const changed=()=>_editGen.current!==editGeneration||_bhSyncBases.get(uid)!==baseline;
       const merged=bhMergeSync(baseline,bhSyncState(snapshot),bhSyncState(remote));
-      await bhEntityStage(merged,uid,{legacy,assertCurrent:()=>{if(_editGen.current!==editGeneration||!bhEqual(snapshot,_latestState.current))throw new Error('O conteúdo mudou durante a migração. A cópia anterior foi preservada; tente novamente com o timer pausado.');}});
+      await bhEntityStage(merged,uid,{legacy,
+        checkpoint:()=>{if(changed())throw bhSoftError('O conteúdo mudou durante a migração.');},
+        assertCurrent:()=>{if(changed()||!bhEqual(snapshot,_latestState.current))throw bhSoftError('O conteúdo mudou durante a migração. A cópia anterior foi preservada; tente novamente com o timer pausado.');}});
+    }finally{
+      if(leaseRef)_fbDb.runTransaction(async tx=>{const l=await tx.get(leaseRef);if(l.exists&&l.data().holder===_bhTabId)tx.delete(leaseRef);}).catch(e=>bhLog('autoMigrate.lease',e,'the lease expires on its own'));
+    }
+  };
+  const migrateEntities=useCallback(async()=>{
+    const uid=fbUser?.uid;
+    if(!uid||!_didInitialReconcile.current)throw new Error('Aguarde o carregamento da conta.');
+    if(bhEntityModes.has(uid))throw new Error('A sincronização por item já está ativa.');
+    await bhWithRestore(async()=>{
+      await runEntityMigration(uid);
       _hasPendingLocalEdit.current=false;
       setSyncTick(t=>t+1);
     });
+  },[fbUser?.uid]);
+
+  // Automatic activation. See bhAutoMigrateDecision for every condition; this
+  // effect only gathers the inputs, runs the migration and keeps the books
+  // (attempt counters survive reloads in localStorage).
+  const [autoV4,setAutoV4]=useState({code:'',text:''});
+  const _autoBusy=useRef(false);
+  useEffect(()=>{
+    if(!fbUser)return;
+    const uid=fbUser.uid;let alive=true,readySince=0,rulesOk=null,rulesAt=0,est={gen:-1,n:null},lastClean=0;
+    const show=(code,text)=>setAutoV4(v=>v.code===code&&v.text===text?v:{code,text});
+    const tick=async()=>{
+      if(!alive||_autoBusy.current)return;
+      _autoBusy.current=true;
+      try{await tickInner();}finally{_autoBusy.current=false;}
+    };
+    const tickInner=async()=>{
+      if(bhEntityModes.has(uid)){
+        show('active','');
+        if(Date.now()-lastClean>6*3600*1000&&!bhPersistenceBusy()){lastClean=Date.now();bhEntityCleanOrphans(uid).catch(e=>bhLog('entityCleanOrphans',e,'dead staged generations stay until the next attempt'));}
+        return;
+      }
+      const reconciled=_didInitialReconcile.current&&_hasRemoteData.current;
+      if(!reconciled)readySince=0;else if(!readySince)readySince=Date.now();
+      const latest=_latestState.current,base=_bhSyncBases.get(uid);
+      if(!latest||!base){show('not-ready','');return;}
+      if(reconciled&&navigator.onLine&&(rulesOk==null||(rulesOk===false&&Date.now()-rulesAt>10*60000))){rulesAt=Date.now();try{rulesOk=await bhRulesCanary(uid);}catch(e){bhLog('rulesCanary',e);rulesOk=null;}if(!alive)return;}
+      const st=bhAutoLoad(uid);
+      const pending=_hasPendingLocalEdit.current||(()=>{try{return localStorage.getItem(DIRTY_KEY)==='1';}catch{return true;}})();
+      // The size check packs the whole state: do it once per edit generation, and only when everything cheaper already agrees.
+      if(reconciled&&!pending&&est.gen!==_editGen.current){est={gen:_editGen.current,n:null};try{est.n=bhEntityPack(bhSyncState(latest)).size;}catch(e){bhLog('autoMigrate.estimativa',e,'automatic activation skipped for this state');est.n=Infinity;}}
+      const verdict=bhAutoMigrateDecision({
+        now:Date.now(),disabled:!!st.disabled,modeActive:false,signedIn:true,migrating:false,reconciled:_didInitialReconcile.current,hasRemoteData:_hasRemoteData.current,
+        rulesOk,firstSeenAt:bhV4FirstSeen(),retryAt:st.retryAt||0,hardFailures:st.hard||0,
+        pending,blocked:_syncBlockedRef.current,needsChoice:_baselineNeedsChoice.current,
+        restoreBusy:bhPersistenceBusy(),pushBusy:syncPumpBusyRef.current,pushActive:_bhPushActive.has(uid),
+        online:navigator.onLine,visible:document.visibilityState==='visible',
+        hasLocalMedia:collectIdbKeys(latest).size>0,lastEditMs:_lastEditMs.current,readySince,estimate:est.n,
+        equalToBase:()=>bhEqual(bhSyncState(latest),base)});
+      if(!verdict.go){show(verdict.code,verdict.text);return;}
+      show('running','Ativando a sincronização por item…');
+      try{
+        await runEntityMigration(uid,{auto:true});
+        bhAutoSave(uid,{hard:0,soft:0,retryAt:0});
+        show('active','');setSyncTick(t=>t+1);
+        setSyncNotice('A sincronização por item foi ativada automaticamente nesta conta. Os dados antigos continuam guardados na nuvem e uma cópia ficou no Histórico de Backups.');
+      }catch(e){
+        bhLog('autoMigrate',e,e&&e.bhSoft?'will retry later':'automatic activation failed');
+        if(e&&e.bhSoft)bhAutoSave(uid,{soft:(st.soft||0)+1,retryAt:Date.now()+Math.min(24*3600*1000,BH_AUTO_MIGRATE.SOFT_BACKOFF_MS*2**Math.min(st.soft||0,6))});
+        else if(e&&e.bhFatal)bhAutoSave(uid,{disabled:true});
+        else bhAutoSave(uid,{hard:(st.hard||0)+1,retryAt:Date.now()+BH_AUTO_MIGRATE.HARD_BACKOFF_MS});
+        show('error','A ativação automática não concluiu ('+(e&&e.message||'erro')+'). Seus dados continuam como estavam.');
+      }
+    };
+    const id=setInterval(tick,15000);const first=setTimeout(tick,5000);
+    return()=>{alive=false;clearInterval(id);clearTimeout(first);};
   },[fbUser?.uid]);
 
   // Escape hatch when pushes keep failing: archive the local edits to the
@@ -19562,7 +19745,7 @@ const App=()=>{
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
         {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
-        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/></ViewBoundary>}
+        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/></ViewBoundary>}
       </main>
     </div>
   );
