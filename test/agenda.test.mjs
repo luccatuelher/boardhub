@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { bhAgendaSnapshot, bhAgendaSig, bhAgendaPost, BH_AGENDA_URL } = load(['stable', 'agenda']);
+const { bhAgendaAutoCode, bhAgendaSnapshot, bhAgendaSig, bhAgendaPost, BH_AGENDA_URL } = load(['stable', 'agenda']);
 
 const TODAY = '2026-10-14';
 const T = (id, text, o = {}) => ({ id, text, status: 'Pendente', startDate: '2026-10-01', dueDate: '2026-10-20', notes: 'secret', ...o });
@@ -30,8 +30,8 @@ test('paused and late projects stay; undated tasks and empty undated projects go
 
 test('only the allow-listed fields leave the app', () => {
   const s = bhAgendaSnapshot([P(1, 'p', { projectTasks: [T(1, 't')] })], [], TODAY, 'now');
-  assert.deepEqual(Object.keys(s.projects[0]).sort(), ['client', 'colorId', 'daysElapsed', 'daysLeft', 'deadline', 'focusMinutes', 'id', 'overdue', 'startDate', 'status', 'tasks', 'title', 'type']);
-  assert.deepEqual(Object.keys(s.projects[0].tasks[0]).sort(), ['daysElapsed', 'daysLeft', 'dueDate', 'focusMinutes', 'id', 'notes', 'overdue', 'parent', 'startDate', 'status', 'text']);
+  assert.deepEqual(Object.keys(s.projects[0]).sort(), ['client', 'code', 'colorId', 'daysElapsed', 'daysLeft', 'deadline', 'deadlineTitle', 'focusMinutes', 'id', 'overdue', 'startDate', 'status', 'tasks', 'title', 'type']);
+  assert.deepEqual(Object.keys(s.projects[0].tasks[0]).sort(), ['calendarTitle', 'daysElapsed', 'daysLeft', 'dueDate', 'focusMinutes', 'id', 'notes', 'overdue', 'parent', 'startDate', 'status', 'text']);
   const json = JSON.stringify(s);
   for (const leak of ['private', 'data:x', '5000']) assert.ok(!json.includes(leak), leak);
 });
@@ -250,4 +250,49 @@ test('recent: categories, unfiled time and ready-made totals', () => {
   assert.equal(r.totals.allTimeMinutes, 310);
   assert.deepEqual(r.totals.last7, { minutes: 180, projects: { 1: 30 }, categories: { f1: 50, f9: 10, f2: 60 } });
   assert.deepEqual(r.totals.previous7, { minutes: 30, projects: {}, categories: { f1: 30 } });
+});
+
+test('auto codes for the real project names', () => {
+  const codes = { 'Story Curso - Movimento': 'SCM', 'Story Curso - Narrativa': 'SCN', 'TCC - Louros da caça': 'TCC', 'Comercial Nike Summer': 'CNS', "Graphic Novel 'Ecos'": 'GNE' };
+  for (const [title, code] of Object.entries(codes)) assert.equal(bhAgendaAutoCode(title), code, title);
+});
+
+test('auto code edge cases', () => {
+  assert.equal(bhAgendaAutoCode('Ecos'), 'ECO');
+  assert.equal(bhAgendaAutoCode('Graphic Novel'), 'GNR');
+  assert.equal(bhAgendaAutoCode('Série Documental — Amazônia'), 'SDA');
+  assert.equal(bhAgendaAutoCode('de da do'), 'DDD');
+  assert.equal(bhAgendaAutoCode('NIKE SUMMER'), 'NSI');
+  assert.equal(bhAgendaAutoCode('2026'), '2026');
+  assert.equal(bhAgendaAutoCode('🎬'), 'PRJ');
+  assert.equal(bhAgendaAutoCode(''), 'PRJ');
+  assert.equal(bhAgendaAutoCode(null), 'PRJ');
+});
+
+test('calendar titles carry the project code, once', () => {
+  const s = bhAgendaSnapshot([P(1, 'Story Curso - Movimento', { projectTasks: [T(1, 'Atividade 3'), T(2, '(scm) Already')] })], [], TODAY, 'now');
+  const p = s.projects[0];
+  assert.equal(p.code, 'SCM');
+  assert.equal(p.deadlineTitle, '(SCM) Entrega: Story Curso - Movimento');
+  assert.deepEqual(p.tasks.map(t => t.calendarTitle), ['(scm) Already', '(SCM) Atividade 3']);
+  assert.equal(p.tasks[1].text, 'Atividade 3');
+});
+
+test('codes are unique: older project keeps it, newer gets a number, overrides win', () => {
+  const a = P(1700000000001, 'Story Curso - Movimento'), b = P(1700000000002, 'Sao Carlos Museu');
+  let s = bhAgendaSnapshot([b, a], [], TODAY, 'now');
+  const by = Object.fromEntries(s.projects.map(p => [p.id, p.code]));
+  assert.deepEqual(by, { 1700000000001: 'SCM', 1700000000002: 'SCM2' });
+  s = bhAgendaSnapshot([a, { ...b, agendaCode: 'scm' }], [], TODAY, 'now');
+  assert.deepEqual(Object.fromEntries(s.projects.map(p => [p.id, p.code])), { 1700000000001: 'SCM2', 1700000000002: 'SCM' });
+  s = bhAgendaSnapshot([{ ...a, agendaCode: 's-c!m' }, { ...b, agendaCode: 'x' }], [], TODAY, 'now');
+  assert.deepEqual(Object.fromEntries(s.projects.map(p => [p.id, p.code])), { 1700000000001: 'SCM', 1700000000002: 'SCM2' });
+});
+
+test('changing an override changes the signature; input is not mutated', () => {
+  const a = [P(1, 'p')], copy = JSON.stringify(a);
+  const x = bhAgendaSnapshot(a, [], TODAY, 't'), y = bhAgendaSnapshot([{ ...a[0], agendaCode: 'ZZ' }], [], TODAY, 't');
+  assert.notEqual(bhAgendaSig(x), bhAgendaSig(y));
+  assert.equal(y.projects[0].code, 'ZZ');
+  assert.equal(JSON.stringify(a), copy);
 });

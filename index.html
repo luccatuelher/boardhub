@@ -3845,6 +3845,46 @@ const bhAgendaColors=ids=>{
   });
   return out;
 };
+// Calendar prefix: a short code per project, "(SCM) Roteiro V2". Derived from the
+// title (initials, accents folded, small words dropped; an all-caps first word such
+// as "TCC" is kept whole) unless the project carries its own agendaCode.
+const BH_AGENDA_STOP=new Set(['de','da','do','das','dos','d','e','em','no','na','nos','nas','o','a','os','as','um','uma','para','por','com','the','of','and','an','in','on','for','to','y','del','la','el']);
+const bhAgendaFold=v=>String(v==null?'':v).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const bhAgendaCleanCode=v=>{const c=bhAgendaFold(v).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5);return c.length>=2?c:'';};
+const bhAgendaAutoCode=title=>{
+  const words=bhAgendaFold(title).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if(!words.length)return 'PRJ';
+  const kept=words.filter(w=>!BH_AGENDA_STOP.has(w.toLowerCase()));
+  const use=kept.length?kept:words;
+  if(!use.some(w=>/[A-Za-z]/.test(w)))return use.join('').slice(0,4);
+  const first=use[0];
+  const allCaps=!/[a-z]/.test(use.join(''));
+  let code;
+  if(/^[A-Z]{2,4}$/.test(first)&&!allCaps){
+    code=first;
+    if(code.length<3&&use[1])code+=use[1][0].toUpperCase();
+  }else{
+    code=use.slice(0,4).map(w=>w[0]).join('').toUpperCase();
+    if(code.length<3)code=(code+first.slice(1).toUpperCase()).slice(0,3);
+  }
+  code=code.replace(/[^A-Z0-9]/g,'');
+  return code.length>=2?code:(code+'PRJ').slice(0,3);
+};
+// Unique among the open projects: overrides claim their code first, then the older
+// project keeps a clash and the newer one gets a number (SCM2).
+const bhAgendaCodes=rows=>{
+  const born=id=>+((String(id).match(/\d{10,}/)||['0'])[0]);
+  const order=[...rows].sort((a,b)=>born(a.id)-born(b.id)||bhAgendaCmp(String(a.id),String(b.id)));
+  const out=new Map(),used=new Set();
+  const take=(id,base)=>{
+    let c=base,n=1;
+    while(used.has(c)){n++;c=base.slice(0,Math.max(1,5-String(n).length))+n;}
+    used.add(c);out.set(id,c);
+  };
+  order.forEach(r=>{if(r.override)take(r.id,r.override);});
+  order.forEach(r=>{if(!r.override)take(r.id,bhAgendaAutoCode(r.title));});
+  return out;
+};
 // Whole days from a to b (YYYY-MM-DD both), null when either is missing.
 const bhAgendaDays=(a,b)=>{
   if(!a||!b)return null;
@@ -3958,10 +3998,18 @@ const bhAgendaSnapshot=(projects,sessions,today,generatedAt,pomo)=>{
     out.push(row);
   });
   const colors=bhAgendaColors(out.map(r=>r.id));
-  out.forEach(r=>{r.colorId=colors.get(r.id);});
+  const over=new Map((Array.isArray(projects)?projects:[]).filter(p=>p&&typeof p==='object'&&p.id!=null).map(p=>[String(p.id),bhAgendaCleanCode(p.agendaCode)]));
+  const codes=bhAgendaCodes(out.map(r=>({id:r.id,title:r.title,override:over.get(r.id)||''})));
+  out.forEach(r=>{
+    r.colorId=colors.get(r.id);
+    r.code=codes.get(r.id);
+    const tag='('+r.code+') ';
+    r.deadlineTitle=tag+'Entrega: '+r.title;
+    r.tasks.forEach(t=>{t.calendarTitle=t.text.toUpperCase().startsWith(tag.trim().toUpperCase())?t.text:tag+t.text;});
+  });
   out.sort((a,b)=>bhAgendaCmp(a.deadline||'9999',b.deadline||'9999')||bhAgendaCmp(a.title,b.title)||bhAgendaCmp(a.id,b.id));
   return{schema:1,generatedAt:String(generatedAt||''),today:day,
-    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "notes" is the quick note typed on the task (first 500 characters). "colorId" is the Google Calendar event color (1-11) assigned to the project. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames, and per category id, see categoryNames; categories are the Gallery folders the timer files time under; unfiledMinutes = focus with no project or category), totals = ready-made sums (allTimeMinutes since the app started counting, last7 and previous7 with minutes, projects and categories), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
+    readme:'Open projects and tasks only (done/cancelled/deleted are left out; a missing item means nothing to do). Dates are local YYYY-MM-DD. daysElapsed = days since the start date, daysLeft = days until the due date (negative = overdue), both as of "today" (recompute from the dates if today differs). focusMinutes = Pomodoro time logged (project: sessions filed under the project; can be lower than the project screen, which also counts gallery-linked time). "parent" is the task a sub-task belongs to. "notes" is the quick note typed on the task (first 500 characters). "colorId" is the Google Calendar event color (1-11) assigned to the project. "code" is the short project prefix; use "calendarTitle" (tasks) and "deadlineTitle" (project deadline) as the calendar event titles. "recent" covers the last 14 days for reviews: focus = minutes per day (and per project id, see projectNames, and per category id, see categoryNames; categories are the Gallery folders the timer files time under; unfiledMinutes = focus with no project or category), totals = ready-made sums (allTimeMinutes since the app started counting, last7 and previous7 with minutes, projects and categories), dueInWindow = tasks/projects whose due date fell in the window with their status, done ones included (the app does not record when something was finished). generatedAt is when this file was written.',
     recent:bhAgendaRecent(projects,pomo,day,14),
     projects:out};
 };
@@ -10047,6 +10095,7 @@ const bhDuplicateProject=p0=>{
     startDate:'',deadline:'',timelineEvents:[],taskTrash:[],paid:false,shotsDone:0,
     // The Gallery link brings the category's time into a project: a copy would show it twice.
     galleryFolder:'',gallerySection:'',galleryPost:'',
+    agendaCode:'', // the copy gets its own calendar code
     // fromNote (a task raised from a note) stays with the original: a copy would list twice on the note.
     projectTasks:sourceTasks.map(({fromNote,...t})=>({...t,...(t.parentId!=null&&idMap.has(String(t.parentId))?{parentId:idMap.get(String(t.parentId))}:{}),id:idMap.get(String(t.id)),status:'Pendente',startDate:'',dueDate:''})),
     // Focus sessions are a record of work done on the original, not template
@@ -11576,6 +11625,11 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     </div>
                     <input type="date" value={local.deadline} onChange={e=>upd('deadline',e.target.value)} onClick={e=>{try{e.currentTarget.showPicker();}catch{/*silent-ok: showPicker throws where unsupported or without user activation; the native date input still works*/}}} style={{position:'absolute',inset:0,opacity:0,cursor:'pointer',width:'100%',height:'100%'}}/>
                   </label>
+                </div>
+                <div>
+                  <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginBottom:6}}>Código na agenda</div>
+                  <input className="input-box" value={local.agendaCode||''} maxLength={5} onChange={e=>upd('agendaCode',e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''))} placeholder={bhAgendaAutoCode(local.title)} aria-label="Código do projeto na agenda" style={{width:'100%',boxSizing:'border-box'}}/>
+                  <div style={{fontSize:'.68rem',color:'var(--muted)',marginTop:4,lineHeight:1.4}}>Aparece como prefixo nos eventos do Google Agenda, ex.: ({(local.agendaCode||'').length>=2?local.agendaCode:bhAgendaAutoCode(local.title)}) Tarefa. Mínimo 2 caracteres; vazio = automático. Se outro projeto usar o mesmo código, entra um número.</div>
                 </div>
                 {(()=>{const di=deadlineInfo(local.deadline);return di&&local.status==='Em Andamento'?(
                   <div style={{fontSize:'.72rem',fontWeight:700,textAlign:'center',padding:'5px 8px',borderRadius:8,background:di.bg,color:di.color}}>
