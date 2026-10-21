@@ -6677,6 +6677,33 @@ const bhMergeFocusDays=(data,days)=>{
   for(const [k,v] of Object.entries(days)){const n=Number(v);if(Number.isFinite(n)&&n>(Number(mine[k])||0))(out||(out={...mine}))[k]=n;}
   return out?{...data,days:out}:data;
 };
+// FUTURE DECAY REPAIR. Decay is charged for every finished weekday, so a
+// device whose clock was moved forward settles days that have not happened and
+// syncs the loss. Setting the clock back does not undo it: the charge lives in
+// decayApplied/decayLoss/points. Any day not before today is not finished, so
+// its charge is given back (the real loss, decayLoss, else the tier) and the
+// entry removed; the real date charges it properly later. futureRefunded
+// remembers the days already returned, so a stale copy that brings an entry back
+// through sync is dropped without refunding twice.
+const rankVoidFutureDecay=(value,now=new Date())=>{
+  const today=rankDateKey(now),ledger=value.decayApplied||{},loss=value.decayLoss||{};
+  const done=value.futureRefunded&&typeof value.futureRefunded==='object'&&!Array.isArray(value.futureRefunded)?value.futureRefunded:{};
+  const future=k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&k>=today;
+  const keys=[...new Set([...Object.keys(ledger),...Object.keys(loss)])].filter(future);
+  const notices=(value.notices||[]).filter(n=>n&&!(n.type==='decay'&&typeof n.throughDate==='string'&&n.throughDate>=today));
+  if(!keys.length&&notices.length===(value.notices||[]).length)return value;
+  const decayApplied={...ledger},decayLoss={...loss},futureRefunded={...done};
+  let back=0;
+  keys.sort().forEach(k=>{
+    if(!done[k]){
+      const took=loss[k]!==undefined?Number(loss[k]):Number(ledger[k]);
+      back+=Math.max(0,Number.isFinite(took)?took:0);
+      futureRefunded[k]=true;
+    }
+    delete decayApplied[k];delete decayLoss[k];
+  });
+  return {...value,points:Math.min(RANK_MAX,(Number(value.points)||0)+back),decayApplied,decayLoss,futureRefunded,notices};
+};
 const pomoRankMaintain=(data,now=new Date())=>{
   const base=pomoNormalize(data,now);
   const current=rankSeasonForDate(now);
@@ -6715,6 +6742,7 @@ const pomoRankMaintain=(data,now=new Date())=>{
       rank=rankDefault(now,rank.history,rank.sessions,rank.notices);
     }
   }
+  rank=rankVoidFutureDecay(rank,now);
   const yesterday=rankDateAdd(rankDateKey(now),-1);
   if(rank.startedOn<=yesterday){
     const beforePoints=rank.points,beforePosition=rankPosition(rank.points);

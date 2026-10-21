@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
 const R = load(['date', 'stable', 'sync', 'rank']);
-const { rankReconcileDecay, rankDecayForSeconds, rankDefault, rankSeasonForDate, pomoRankMaintain, pomoMergeProgress, pomoNormalize, rankPosition, RANK_MAX } = R;
+const { rankReconcileDecay, rankVoidFutureDecay, rankDecayForSeconds, rankDefault, rankSeasonForDate, pomoRankMaintain, pomoMergeProgress, pomoNormalize, rankPosition, RANK_MAX } = R;
 
 const NOW = new Date('2026-10-08T12:00:00'); // Thursday
 // pomoMergeProgress/pomoNormalize read the system clock; pin it.
@@ -199,4 +199,30 @@ test('keep-local reconcile: the cloud focus log is taken before decay, so no sta
   const out = pomoRankMaintain(merged, NOW);
   assert.equal(out.rank.points, 2000);
   assert.ok(!(out.rank.notices || []).some(n => n.type === 'decay'));
+});
+
+test('future decay repair: gives back days settled by a clock moved forward', () => {
+  const v = rank({
+    points: 455,
+    decayApplied: { '2026-10-07': 250, '2026-10-08': 250, '2026-10-09': 250 },
+    decayLoss: { '2026-10-07': 250, '2026-10-08': 250, '2026-10-09': 200 },
+    notices: [{ id: 'decay-2026-10-09', type: 'decay', throughDate: '2026-10-09', loss: 700 }],
+  });
+  const out = rankVoidFutureDecay(v, NOW);
+  assert.equal(out.points, 455 + 250 + 200);
+  assert.deepEqual(Object.keys(out.decayApplied), ['2026-10-07']);
+  assert.deepEqual(Object.keys(out.decayLoss), ['2026-10-07']);
+  assert.equal(out.notices.length, 0);
+  // an entry brought back by a stale sync copy is dropped without a second refund
+  const again = rankVoidFutureDecay({ ...out, decayApplied: { ...out.decayApplied, '2026-10-08': 250 } }, NOW);
+  assert.equal(again.points, out.points);
+  assert.equal(again.decayApplied['2026-10-08'], undefined);
+  // nothing to repair: same object back
+  assert.equal(rankVoidFutureDecay(out, NOW), out);
+});
+
+test('future decay repair: pomoRankMaintain never keeps decay for today or later', () => {
+  const v = rank({ points: 800, startedOn: '2026-10-05', decayApplied: { '2026-10-08': 250 }, decayLoss: { '2026-10-08': 250 } });
+  const out = pomoRankMaintain({ days: {}, rank: v }, NOW);
+  assert.equal(out.rank.decayApplied['2026-10-08'], undefined);
 });
