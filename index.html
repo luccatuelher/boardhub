@@ -600,6 +600,7 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .quick-capture input{flex:1;border:none;outline:none;background:transparent;font-family:'Alegreya Sans',sans-serif;font-size:.9rem;color:var(--text);}
 .quick-capture input::placeholder{color:var(--border-2);}
 .card-project{position:relative;overflow:hidden;transition:all .2s cubic-bezier(.4,0,.2,1);}
+.gallery-period-alt{background:color-mix(in srgb,var(--text) 3.5%,transparent);border-radius:12px;padding:10px 12px 2px;margin-left:-12px;margin-right:-12px}
 .card-project:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(var(--ink),.08)!important;}
 .card-project:active{transform:translateY(0);}
 .streak-dot-0{background:var(--border);}.streak-dot-1{background:var(--ok-bg);}.streak-dot-2{background:var(--ok-line);}.streak-dot-3{background:var(--ok-strong);}.streak-dot-4{background:var(--ok-fg);}
@@ -9390,9 +9391,9 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
       {/* Main grid - fills remaining height */}
       <div className="dashboard-main-grid" style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:isSmall?10:14,flex:1,minHeight:0,overflow:isMobile?'visible':'hidden'}}>
         {/* LEFT: projects + recent notes */}
-        <div className="dashboard-column dashboard-column-left" style={{display:'flex',flexDirection:'column',gap:isSmall?7:10,minWidth:0,overflow:isMobile?'visible':'auto',paddingRight:isMobile?0:2}}>
+        <div className="dashboard-column dashboard-column-left" style={{display:'flex',flexDirection:'column',gap:isSmall?7:10,minWidth:0,overflow:isMobile?'visible':'hidden',paddingRight:isMobile?0:2}}>
           {/* Projetos ativos */}
-          <div className="dashboard-project-pane" style={isMobile?{display:'flex',flexDirection:'column'}:{/* Sized to its content up to the old fixed height: with one or two active projects the pane no longer leaves a blank block that pushes the recent notes off the bottom. */flex:'0 1 auto',maxHeight:isSmall?'clamp(185px,29vh,230px)':'clamp(230px,34vh,320px)',minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div className="dashboard-project-pane" style={isMobile?{display:'flex',flexDirection:'column'}:{/* Sized to its content up to the old fixed height, and it shrinks together with the notes pane so the left column never needs a scrollbar. */flex:'0 1 auto',maxHeight:isSmall?'clamp(185px,29vh,230px)':'clamp(230px,34vh,320px)',minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7}}>
               <span className="label label-section"><StaveGlyph name="half"/>Em andamento</span>
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('projects')}>Ver todos <Icon name="arrow-right" size={10}/></button>
@@ -9409,13 +9410,13 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                 <Icon name="plus" size={12}/> Criar Projeto
               </button>
             </div>}
-            <div className="dashboard-project-list" style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:'auto',paddingRight:2}}>
+            <div className="dashboard-project-list" style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:isMobile?'auto':'hidden',paddingRight:2}}>
               {active.slice(0,4).map(p=>{
                 const pt=p.projectTasks||[];const total=pt.length;const done=pt.filter(t=>t.status==='Concluído').length;
                 const pct=total>0?Math.round((done/total)*100):0;const r=10;const c=2*Math.PI*r;const offset=c-(pct/100)*c;
                 return(
                 <div key={p.id} className="card card-project card-click" onClick={()=>onSelectProject?.(p)}
-                  {...keyActivate(()=>onSelectProject?.(p),'Abrir projeto '+(p.title||''))} style={{padding:isSmall?'7px 10px':'9px 12px',display:'flex',alignItems:'center',gap:10}}>
+                  {...keyActivate(()=>onSelectProject?.(p),'Abrir projeto '+(p.title||''))} style={{padding:isSmall?'7px 10px':'9px 12px',display:'flex',alignItems:'center',gap:10,minHeight:isMobile?undefined:34}}>
                     <BgImg src={p.cover} style={{width:28,height:28,borderRadius:6,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</div>
@@ -9441,7 +9442,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
             </div>
           </div>
           {/* Notas fixadas (até 4, como os projetos): ocupam o espaço que sobra na coluna. */}
-          <div className="dashboard-notes-pane" style={isMobile?undefined:{flex:'1 0 auto',display:'flex',flexDirection:'column',minHeight:0}}>
+          <div className="dashboard-notes-pane" style={isMobile?undefined:{flex:'1 1 auto',display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7,flexShrink:0}}>
               <span className="label label-section"><StaveGlyph name="eighth"/>Notas Fixadas</span>
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('ideas')}>Ver todas <Icon name="arrow-right" size={10}/></button>
@@ -9449,8 +9450,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
             {recentNotes.length===0&&<div className="card" style={{padding:'20px 12px',textAlign:'center',color:'var(--muted)',fontSize:'.82rem',display:'flex',flexDirection:'column',alignItems:'center',gap:6,flex:1,justifyContent:'center'}}>
               <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas, pastas ou categorias em Anotações para vê-las aqui.</span>
             </div>}
-            <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0}}>
-              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'7px 10px':'10px 12px',flex:'1 1 auto',maxHeight:isSmall?74:104,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
+            <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:isMobile?'visible':'hidden'}}>
+              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'7px 10px':'10px 12px',flex:'1 1 auto',minHeight:isMobile?undefined:34,overflow:'hidden',maxHeight:isSmall?74:104,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
                   <Icon name={n._recentKind==='category'?'layers-3':n._recentKind==='folder'?'folder':'pin'} size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
                   <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title||'Sem título'}</div>
@@ -13751,13 +13752,13 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
       ) : (
         <>
           {grouped.length===0&&<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={filtering?'search-x':'image'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{filtering?'Nenhum post encontrado.':trash?'Lixeira vazia.':'Pasta vazia.'}</div>}
-          {(()=>{let budget=renderLimit;hasMoreRef.current=false;return grouped.map(([period,periodPosts])=>{
+          {(()=>{let budget=renderLimit;hasMoreRef.current=false;return grouped.map(([period,periodPosts],gi)=>{
             if(budget<=0){hasMoreRef.current=true;return null;}
             const visiblePosts=periodPosts.slice(0,budget);
             budget-=visiblePosts.length;
             if(visiblePosts.length<periodPosts.length)hasMoreRef.current=true;
             return(
-            <div key={period||'__all'} style={{marginBottom:isMobile?16:'clamp(16px,3vh,36px)'}}>
+            <div key={period||'__all'} className={period&&gi%2===1?'gallery-period-alt':undefined} style={{marginBottom:isMobile?16:'clamp(16px,3vh,36px)'}}>
               {period&&<div style={{borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:16}}><span className="label label-section"><StaveGlyph name="quarter"/>{period}<span className="gallery-section-count">{periodPosts.length}</span></span></div>}
               <div className="gallery-grid" style={{gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
                 {visiblePosts.map(post=>renderPostCard(post,{manual:false}))}
