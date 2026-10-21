@@ -868,7 +868,7 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
   .dashboard-main-grid{grid-template-columns:minmax(0,.84fr) minmax(0,1.16fr)!important;gap:10px!important;flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;align-items:stretch}
   .dashboard-column{height:auto!important;min-height:0!important;overflow:hidden!important;padding-right:0!important}
   .dashboard-project-list,.dashboard-activity-list{overflow:hidden!important}
-  .dashboard-project-pane{flex:0 1 auto!important;height:auto!important;max-height:174px!important;min-height:0!important}
+  .dashboard-project-pane{flex:3 1 0!important;height:auto!important;max-height:none!important;min-height:0!important}
   .dashboard-activity-pane{flex-basis:198px!important;height:198px!important;min-height:198px!important}
   .dashboard-mentors{margin-top:4px!important;padding-bottom:1px}
   .dashboard-mentors .card{min-width:0}
@@ -890,7 +890,7 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
   .dashboard-main-grid{grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr)!important;gap:12px!important;flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;align-items:stretch}
   .dashboard-column{height:auto!important;min-height:0!important;overflow:hidden!important;padding-right:0!important}
   .dashboard-project-list,.dashboard-activity-list{overflow:hidden!important}
-  .dashboard-project-pane{flex:0 1 auto!important;height:auto!important;max-height:172px!important;min-height:0!important}
+  .dashboard-project-pane{flex:3 1 0!important;height:auto!important;max-height:none!important;min-height:0!important}
   .dashboard-activity-pane{flex:1 1 180px!important;height:auto!important;min-height:145px!important}
   .dashboard-mentors{margin-top:6px!important;padding-bottom:2px}.dashboard-mentors .card{min-width:0}.dashboard-mentor-cover{height:38px!important}
 }
@@ -901,7 +901,7 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
   .rank-panel-emblem .rank-badge{width:168px!important;height:168px!important}
   .dashboard-main-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)!important;gap:18px!important}
   .dashboard-activity-pane{flex-basis:clamp(250px,29vh,320px)!important;height:clamp(250px,29vh,320px)!important;min-height:250px!important}
-  .dashboard-project-pane{flex:0 1 auto!important;height:auto!important;max-height:clamp(250px,29vh,320px)!important;min-height:0!important}
+  .dashboard-project-pane{flex:3 1 0!important;height:auto!important;max-height:none!important;min-height:0!important}
   .dashboard-mentor-cover{height:76px!important}
 }
 @media(min-width:2560px) and (min-height:1400px){
@@ -912,7 +912,7 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
   .rank-panel-main{padding:24px 30px 18px}.rank-panel-footer{padding:16px 30px}.rank-panel-title span{font-size:2.65rem}.rank-panel-title strong{font-size:1.95rem}
   .dashboard-main-grid{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr)!important;gap:24px!important}
   .dashboard-activity-pane{flex-basis:clamp(330px,28vh,430px)!important;height:clamp(330px,28vh,430px)!important;min-height:330px!important}
-  .dashboard-project-pane{flex:0 1 auto!important;height:auto!important;max-height:clamp(330px,28vh,430px)!important;min-height:0!important}
+  .dashboard-project-pane{flex:3 1 0!important;height:auto!important;max-height:none!important;min-height:0!important}
   .dashboard-mentor-cover{height:108px!important}
 }
 @media(prefers-reduced-motion:reduce){.rank-promotion,.rank-promotion-aura,.rank-promotion-mark,.rank-promotion-copy{animation:none}.rank-progress-track span{transition:none}}
@@ -1324,7 +1324,7 @@ const _purgeTrash=s=>{
     const t=new Date(x.deletedAt).getTime();
     return !Number.isFinite(t)||now-t<TRASH_TTL_MS;
   }):arr;
-  ['projects','clients','mentors','notes','socialPosts','galleryPosts','galleryFolders']
+  ['projects','clients','mentors','notes','socialPosts','galleryPosts','galleryFolders','studies']
     .forEach(k=>{if(s[k])s[k]=prune(s[k],k);});
   return s;
 };
@@ -1840,7 +1840,7 @@ const BH_PROTECTED_REASONS=new Set(['remoto-concorrente','concurrent-superseded'
 const bhStateHasData=s=>{
   if(!s)return false;
   const ne=a=>Array.isArray(a)&&a.length>0;
-  return ne(s.projects)||ne(s.clients)||ne(s.mentors)||ne(s.notes)||ne(s.tasks)||ne(s.socialPosts)||ne(s.socialTemplates)||ne(s.galleryPosts)||ne(s.galleryFolders)||ne(s.noteGroups)||!!s.identity||Object.keys(s.pomoData?.days||{}).length>0||ne(s.pomoData?.rank?.sessions)||Number(s.pomoData?.rank?.points)>0;
+  return ne(s.projects)||ne(s.clients)||ne(s.mentors)||ne(s.notes)||ne(s.tasks)||ne(s.socialPosts)||ne(s.socialTemplates)||ne(s.galleryPosts)||ne(s.galleryFolders)||ne(s.noteGroups)||ne(s.studies)||!!s.identity||Object.keys(s.pomoData?.days||{}).length>0||ne(s.pomoData?.rank?.sessions)||Number(s.pomoData?.rank?.points)>0;
 };
 const bhSig=s=>{ // cheap content hash (djb2) for dedup — volatile-free copy
   const str=bhStableStringify(bhCanonicalState(s));
@@ -3494,13 +3494,13 @@ const getGalleryRef=uid=>{
 // was device-local and silently emptied by the next remote echo. Doc size is
 // bounded by the 30-day auto-purge (_purgeTrash) instead of by stripping.
 // Push splits state across 3 documents to stay under Firestore's 1MB/doc limit:
-//   state  → projects, clients, mentors, tasks, socialPosts, pomoData, identity, noteGroups, galleryFolders
+//   state  → projects, clients, mentors, tasks, socialPosts, pomoData, identity, noteGroups, galleryFolders, studies
 //   notes  → notes array (can be 500KB+ with rich text)
 //   gallery → galleryPosts array (300KB+ with metadata)
 let _fbPushChain=Promise.resolve();
 const _bhPushActive=new Set();
 // @bh-test-begin sync
-const BH_SYNC_FIELDS=['projects','clients','mentors','tasks','socialPosts','socialTemplates','pomoData','identity','noteGroups','galleryFolders','notes','galleryPosts'];
+const BH_SYNC_FIELDS=['projects','clients','mentors','tasks','socialPosts','socialTemplates','pomoData','identity','noteGroups','galleryFolders','notes','galleryPosts','studies'];
 const _bhSyncBases=new Map();
 const bhSyncState=state=>Object.fromEntries(BH_SYNC_FIELDS.filter(k=>state?.[k]!==undefined).map(k=>[k,state[k]]));
 const bhEqual=(a,b)=>bhStableStringify(a)===bhStableStringify(b);
@@ -3525,6 +3525,10 @@ const bhJsonBytes=value=>bhUtf8Bytes(JSON.stringify(value)??'');
 // payload), so it is kept as is instead of being serialized a second time.
 const bhSyncAck=(uid,state,{owned=false}={})=>{
   const value=owned?bhSyncState(state):JSON.parse(JSON.stringify(bhSyncState(state)));
+  // `studies` starts as [] locally while a cloud without it has no such field. Recorded as [] in the
+  // base, the first study would read as a concurrent deletion and never be pushed. An empty list and
+  // a missing one mean the same thing here, so an empty one is left out of the base.
+  if(Array.isArray(value.studies)&&value.studies.length===0)delete value.studies;
   _bhSyncBases.set(uid,value);
   // A durable three-way baseline distinguishes offline edits from unchanged
   // stale fields after a reload. It is local-only and namespaced by account.
@@ -6067,7 +6071,7 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       const entries=n.type==='project'?(n.entries||[]).filter(e=>e&&!e.deleted).map(e=>({title:e.title,icon:'file-text',meta:(n.title||'Pasta')+' · '+bhSearchPreview(e.content).slice(0,50),action:()=>onSelectNote?.({kind:'entry',id:e.id,folderId:n.id}),type:'Nota',haystack:bhSearchText(n.title,e.title,e.content)})):[];
       return own.concat(entries);
     }),
-    ...(mentors||[]).filter(m=>!m.deleted).map(m=>({title:m.name,icon:'graduation-cap',meta:m.area,action:()=>bhOpenItem('mentors',m.id,onNavigate),type:'Mentor',haystack:bhSearchText(m.name,m.area)})),
+    ...(mentors||[]).filter(m=>!m.deleted).map(m=>({title:m.name,icon:'graduation-cap',meta:m.area,action:()=>bhOpenItem('mentors',m.id,onNavigate),type:'Inspiração',haystack:bhSearchText(m.name,m.area)})),
     ...(clients||[]).filter(c=>c&&!c.deleted&&c.kind!=='category').map(c=>({title:c.name,icon:'users',meta:c.company,action:()=>bhOpenItem('clients',c.id,onNavigate),type:'Contato',haystack:bhSearchText(c.name,c.company)})),
     ...(galleryPosts||[]).filter(g=>!g.deleted).map(g=>({title:g.title,icon:'image',meta:bhSearchPreview(g.content).slice(0,50),action:()=>onSelectGalleryPost?.(g),type:isProjectScopedPost(g)?'Projeto':'Galeria',haystack:bhSearchText(g.title,g.content)})),
   ],[projects,notes,mentors,clients,galleryPosts,onNavigate,onSelectProject,onSelectNote,onSelectGalleryPost,onOpenProjectItem]);
@@ -6079,7 +6083,8 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       {title:'Projetos',icon:'folder-open',action:()=>onNavigate('projects'),type:'Navegar'},
       {title:'Galeria',icon:'image',action:()=>onNavigate('gallery'),type:'Navegar'},
       {title:'Anotações',icon:'notebook-pen',action:()=>onNavigate('ideas'),type:'Navegar'},
-      {title:'Mentores',icon:'graduation-cap',action:()=>onNavigate('mentors'),type:'Navegar'},
+      {title:'Estudos',icon:'clapperboard',action:()=>onNavigate('studies'),type:'Navegar'},
+      {title:'Inspirações',icon:'graduation-cap',action:()=>onNavigate('mentors'),type:'Navegar'},
       {title:'Social Media',icon:'share-2',action:()=>onNavigate('social'),type:'Navegar'},
       {title:'Contatos',icon:'users',action:()=>onNavigate('clients'),type:'Navegar'},
       {title:'Sincronizar',icon:'refresh-cw',action:()=>onNavigate('sync'),type:'Navegar'},
@@ -6119,7 +6124,7 @@ const CommandPalette=({projects,notes,mentors,clients,galleryPosts,onNavigate,on
       <div className="cmd-palette" onKeyDown={onKey}>
         <div className="cmd-input-wrap">
           <Icon name="search" size={18} style={{color:'var(--muted)',flexShrink:0}}/>
-          <input ref={inputRef} className="cmd-input" placeholder="Buscar projetos, notas, mentores..." value={query} onChange={e=>setQuery(e.target.value)} role="combobox" aria-label="Buscar" aria-autocomplete="list" aria-expanded="true" aria-controls="cmd-results" aria-activedescendant={results[activeIdx]?'cmd-opt-'+activeIdx:undefined}/>
+          <input ref={inputRef} className="cmd-input" placeholder="Buscar projetos, notas, inspirações..." value={query} onChange={e=>setQuery(e.target.value)} role="combobox" aria-label="Buscar" aria-autocomplete="list" aria-expanded="true" aria-controls="cmd-results" aria-activedescendant={results[activeIdx]?'cmd-opt-'+activeIdx:undefined}/>
           <span className="cmd-kbd">ESC</span>
         </div>
         <div className="cmd-results" id="cmd-results" role="listbox" aria-label="Resultados">
@@ -6152,7 +6157,8 @@ const NAV_ITEMS=[
   {id:'projects', icon:'folder-open',     label:'Projetos'},
   {id:'gallery',  icon:'image',           label:'Galeria'},
   {id:'ideas',    icon:'notebook-pen',       label:'Anotações'},
-  {id:'mentors',  icon:'graduation-cap',  label:'Mentores'},
+  {id:'studies',  icon:'clapperboard',    label:'Estudos'},
+  {id:'mentors',  icon:'graduation-cap',  label:'Inspirações'},
   {id:'social',   icon:'share-2',         label:'Social'},
   {id:'clients',  icon:'users',           label:'Contatos'},
   {id:'sync',     icon:'refresh-cw',      label:'Sincronizar'},
@@ -6335,7 +6341,8 @@ const TAB_ITEMS=[
   {id:'gallery',  icon:'image',           label:'Galeria'},
 ];
 const MORE_ITEMS=[
-  {id:'mentors',  icon:'graduation-cap',  label:'Mentores'},
+  {id:'studies',  icon:'clapperboard',    label:'Estudos'},
+  {id:'mentors',  icon:'graduation-cap',  label:'Inspirações'},
   {id:'social',   icon:'share-2',         label:'Social Media'},
   {id:'clients',  icon:'users',           label:'Contatos'},
   {id:'sync',     icon:'refresh-cw',      label:'Sincronizar'},
@@ -9378,6 +9385,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const taskToNote=task=>{const n={id:bhNewId(),type:'note',parentId:null,title:task.text,content:'',date:new Date().toLocaleDateString('pt-BR'),deleted:false};setNotes(p=>[n,...p]);setTasks(p=>p.map(t=>t.id===task.id?{...t,noteId:n.id}:t));};
 
   const isSmall = !isMobile && typeof window !== 'undefined' && window.innerHeight < 800;
+  // Too short for a preview line under each pinned note; the 4 titles still fit.
+  const isTight = isSmall && window.innerHeight < 700;
   const content=(
     <div className="dashboard-shell fade-up" style={{maxWidth:960,margin:'0 auto',width:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - 48px)',display:'flex',flexDirection:'column',overflow:'auto',gap:0}}>
       {/* Header */}
@@ -9393,8 +9402,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
         {/* LEFT: projects + recent notes */}
         <div className="dashboard-column dashboard-column-left" style={{display:'flex',flexDirection:'column',gap:isSmall?7:10,minWidth:0,overflow:isMobile?'visible':'hidden',paddingRight:isMobile?0:2}}>
           {/* Projetos ativos */}
-          <div className="dashboard-project-pane" style={isMobile?{display:'flex',flexDirection:'column'}:{/* Sized to its content up to the old fixed height, and it shrinks together with the notes pane so the left column never needs a scrollbar. */flex:'0 1 auto',maxHeight:isSmall?'clamp(185px,29vh,230px)':'clamp(230px,34vh,320px)',minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7}}>
+          <div className="dashboard-project-pane" style={isMobile?{display:'flex',flexDirection:'column'}:{/* Sized to its content up to the old fixed height, and it shrinks together with the notes pane so the left column never needs a scrollbar. */flex:'3 1 0',minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7,flexShrink:0}}>
               <span className="label label-section"><StaveGlyph name="half"/>Em andamento</span>
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('projects')}>Ver todos <Icon name="arrow-right" size={10}/></button>
             </div>
@@ -9416,8 +9425,8 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
                 const pct=total>0?Math.round((done/total)*100):0;const r=10;const c=2*Math.PI*r;const offset=c-(pct/100)*c;
                 return(
                 <div key={p.id} className="card card-project card-click" onClick={()=>onSelectProject?.(p)}
-                  {...keyActivate(()=>onSelectProject?.(p),'Abrir projeto '+(p.title||''))} style={{padding:isSmall?'7px 10px':'9px 12px',display:'flex',alignItems:'center',gap:10,minHeight:isMobile?undefined:34}}>
-                    <BgImg src={p.cover} style={{width:28,height:28,borderRadius:6,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
+                  {...keyActivate(()=>onSelectProject?.(p),'Abrir projeto '+(p.title||''))} style={{padding:isSmall?'3px 10px':'7px 12px',display:'flex',alignItems:'center',gap:10,...(isMobile?null:{flex:'1 1 0',minHeight:isSmall?34:40,maxHeight:isSmall?64:88})}}>
+                    <BgImg src={p.cover} style={{width:isSmall?28:34,height:isSmall?28:34,borderRadius:6,flexShrink:0,backgroundSize:'cover',backgroundPosition:'center',backgroundColor:'var(--bg)'}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</div>
                       <div style={{fontSize:'.66rem',color:'var(--muted)',display:'flex',alignItems:'center',gap:6}}>
@@ -9442,7 +9451,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
             </div>
           </div>
           {/* Notas fixadas (até 4, como os projetos): ocupam o espaço que sobra na coluna. */}
-          <div className="dashboard-notes-pane" style={isMobile?undefined:{flex:'1 1 auto',display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+          <div className="dashboard-notes-pane" style={isMobile?undefined:{flex:'2 1 0',display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?5:7,flexShrink:0}}>
               <span className="label label-section"><StaveGlyph name="eighth"/>Notas Fixadas</span>
               <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('ideas')}>Ver todas <Icon name="arrow-right" size={10}/></button>
@@ -9451,14 +9460,14 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas, pastas ou categorias em Anotações para vê-las aqui.</span>
             </div>}
             <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:isMobile?'visible':'hidden'}}>
-              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'7px 10px':'10px 12px',flex:'1 1 auto',minHeight:isMobile?undefined:34,overflow:'hidden',maxHeight:isSmall?74:104,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
+              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'3px 10px':'7px 12px',flex:isMobile?'1 1 auto':'1 1 0',minHeight:isMobile?undefined:isTight?28:isSmall?40:46,overflow:'hidden',maxHeight:isSmall?64:84,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
                   <Icon name={n._recentKind==='category'?'layers-3':n._recentKind==='folder'?'folder':'pin'} size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
                   <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title||'Sem título'}</div>
                   {n._recentWhere&&<span title={'Pasta: '+n._recentWhere} style={{flex:'0 1 auto',maxWidth:'40%',fontSize:'.6rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n._recentWhere}</span>}
                   <button type="button" className="dashboard-unpin" title="Desafixar" aria-label={'Desafixar '+(n.title||'nota')} onClick={e=>{e.stopPropagation();unpinRecent(n);}}><Icon name="x" size={11}/></button>
                 </div>
-                <div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:isSmall?1:3,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{n._recentPreview||'Sem conteúdo'}</div>
+                <div style={{fontSize:'.68rem',color:'var(--muted)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:1,WebkitBoxOrient:'vertical',overflow:'hidden',...(isTight?{display:'none'}:null)}}>{n._recentPreview||'Sem conteúdo'}</div>
               </div>)}
             </div>
           </div>
@@ -9514,11 +9523,11 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
         </div>
       </div>
 
-      {/* - Mentores Principais - */}
+      {/* - Inspirações Principais - */}
       {!isMobile&&mentors.filter(m=>!m.deleted&&m.main).length>0&&(
         <div className="dashboard-mentors" style={{marginTop:isSmall?8:12,flexShrink:0}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSmall?6:8}}>
-            <span className="label label-section" style={{display:'flex',alignItems:'center',gap:5}}><Icon name="graduation-cap" size={11}/> Mentores Principais</span>
+            <span className="label label-section" style={{display:'flex',alignItems:'center',gap:5}}><Icon name="graduation-cap" size={11}/> Inspirações Principais</span>
             <button className="btn btn-outline" style={{padding:'3px 7px',fontSize:'.7rem'}} onClick={()=>setView('mentors')}>Ver todos <Icon name="arrow-right" size={10}/></button>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:isSmall?7:10}}>
@@ -10666,7 +10675,7 @@ const AddMentorInline=({onAdd})=>{
   if(!open)return(
     <button onClick={()=>setOpen(true)} className="btn btn-ghost"
       style={{padding:'4px 10px',fontSize:'.75rem',color:'var(--muted)',border:'1px dashed var(--border)',borderRadius:8,width:'100%',justifyContent:'center',gap:6}}>
-      <Icon name="plus" size={12}/> Adicionar mentor
+      <Icon name="plus" size={12}/> Adicionar inspiração
     </button>
   );
   const save=()=>{
@@ -10678,10 +10687,10 @@ const AddMentorInline=({onAdd})=>{
   return(
     <div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 0',flexWrap:'wrap'}}>
       <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&save()} autoFocus
-        placeholder="Nome do mentor..." className="input-box" style={{flex:2,minWidth:120,fontSize:'.8rem',padding:'6px 10px'}}/>
+        placeholder="Nome da inspiração..." className="input-box" style={{flex:2,minWidth:120,fontSize:'.8rem',padding:'6px 10px'}}/>
       <input value={area} onChange={e=>setArea(e.target.value)} onKeyDown={e=>e.key==='Enter'&&save()}
         placeholder="Área (ex: Narrativa)" className="input-box" style={{flex:2,minWidth:100,fontSize:'.8rem',padding:'6px 10px'}}/>
-      <button onClick={save} className="btn btn-dark" style={{padding:'6px 12px',fontSize:'.78rem'}} title="Salvar mentor" aria-label="Salvar mentor"><Icon name="check" size={12}/></button>
+      <button onClick={save} className="btn btn-dark" style={{padding:'6px 12px',fontSize:'.78rem'}} title="Salvar inspiração" aria-label="Salvar inspiração"><Icon name="check" size={12}/></button>
       <button onClick={()=>{setOpen(false);setName('');setArea('');}} className="btn btn-ghost" style={{padding:'6px 8px'}}><Icon name="x" size={12}/></button>
     </div>
   );
@@ -11095,7 +11104,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const PROJECT_TABS=['Visão Geral','Narrativa','Tarefas','Pesquisa','Mentores'];
+const PROJECT_TABS=['Visão Geral','Narrativa','Tarefas','Pesquisa','Inspirações'];
 const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
@@ -12047,14 +12056,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
         </div>
       )}
 
-      {tab==='Mentores'&&(
+      {tab==='Inspirações'&&(
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
           <div className="card" style={{padding:'20px 24px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
               <span className="label label-section"><StaveGlyph name="slur"/>Vincular Referências</span>
             </div>
             {globalMentors.filter(m=>!m.deleted).length===0
-              ?<p style={{fontSize:'.82rem',color:'var(--muted)',margin:'0 0 12px'}}>Nenhum mentor ainda. Adicione um abaixo.</p>
+              ?<p style={{fontSize:'.82rem',color:'var(--muted)',margin:'0 0 12px'}}>Nenhuma inspiração ainda. Adicione uma abaixo.</p>
               :(
                 <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
                   {globalMentors.filter(m=>!m.deleted).map(m=>{
@@ -17306,8 +17315,9 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const counts=[
     {label:'Projetos',value:(appState.projects||[]).filter(p=>!p.deleted).length},
     {label:'Contatos',value:(appState.clients||[]).filter(c=>c&&!c.deleted&&c.kind!=='category').length},
-    {label:'Mentores',value:(appState.mentors||[]).filter(m=>!m.deleted).length},
+    {label:'Inspirações',value:(appState.mentors||[]).filter(m=>!m.deleted).length},
     {label:'Notas',value:(appState.notes||[]).filter(n=>!n.deleted).length},
+    {label:'Estudos',value:(appState.studies||[]).filter(n=>n&&!n.deleted).length},
     {label:'Atividades',value:(appState.tasks||[]).length},
     // "Posts" counted only Social posts while the backup rows below say
     // "posts" for Gallery studies — two different numbers under one word.
@@ -17674,7 +17684,7 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
   // something changed; "Cancelar" stays an explicit, unasked discard.
   const initialRef=useRef(JSON.stringify(mentor));
   const requestClose=async()=>{
-    if(JSON.stringify(form)!==initialRef.current&&!await bhConfirm({message:'Descartar as alterações deste mentor?',confirmLabel:'Descartar',cancelLabel:'Continuar editando',danger:true}))return;
+    if(JSON.stringify(form)!==initialRef.current&&!await bhConfirm({message:'Descartar as alterações desta inspiração?',confirmLabel:'Descartar',cancelLabel:'Continuar editando',danger:true}))return;
     onClose();
   };
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -17716,9 +17726,9 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
   const {boxRef,trapTab}=useModalLayer(requestClose);
   return ReactDOM.createPortal(
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&requestClose()}>
-      <div className="modal" style={{maxWidth:580}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={form.name||'Mentor'} onKeyDown={trapTab}>
+      <div className="modal" style={{maxWidth:580}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={form.name||'Inspiração'} onKeyDown={trapTab}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:24}}>
-          <h2 className="serif" style={{fontSize:'1.6rem',fontWeight:400,margin:0}}>{form.name||'Mentor'}</h2>
+          <h2 className="serif" style={{fontSize:'1.6rem',fontWeight:400,margin:0}}>{form.name||'Inspiração'}</h2>
           <button className="btn btn-ghost" onClick={requestClose} style={{padding:6}} title="Fechar" aria-label="Fechar"><Icon name="x" size={18}/></button>
         </div>
         <div style={{display:'flex',gap:16,alignItems:'flex-start',marginBottom:14}}>
@@ -17744,9 +17754,9 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
           <button onClick={()=>set('main',!form.main)}
             style={{display:'inline-flex',alignItems:'center',gap:8,padding:'6px 14px',borderRadius:10,border:'1.5px solid '+(form.main?'var(--warn-fg)':'var(--border)'),background:form.main?'var(--warn-bg)':'transparent',color:form.main?'var(--warn-fg)':'var(--muted)',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.82rem',fontWeight:600,transition:'all .15s'}}>
             <Icon name="star" size={14}/>
-            {form.main?'Mentor Principal (ativo)':'Marcar como Principal'}
+            {form.main?'Inspiração Principal (ativa)':'Marcar como Principal'}
           </button>
-          <p style={{fontSize:'.72rem',color:'var(--muted)',margin:'4px 0 0 2px'}}>Ate 3 mentores principais aparecem na pagina inicial.</p>
+          <p style={{fontSize:'.72rem',color:'var(--muted)',margin:'4px 0 0 2px'}}>Até 3 inspirações principais aparecem na página inicial.</p>
         </div>
         <Field label="Notas e Estudos">
           <textarea className="input-box" rows={2} value={form.notes||''} onChange={e=>set('notes',e.target.value)}
@@ -17860,7 +17870,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(dragIdxRef.current!=null&&String(dragIdxRef.current)!==String(id)){reorderMentors(dragIdxRef.current,id);dragIdxRef.current=null;}},
   });
   const add=()=>{
-    const n={id:bhNewId(),name:'Novo Mentor',area:'',medium:'',year:currentYear,notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
+    const n={id:bhNewId(),name:'Nova Inspiração',area:'',medium:'',year:currentYear,notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
     setMentors(p=>[n,...p]);
     setSelected(n);
   };
@@ -17868,7 +17878,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   const save=form=>{
     if(form.main){
       const mainCount=mentors.filter(m=>!m.deleted&&m.main&&m.id!==form.id).length;
-      if(mainCount>=3){bhAlert('Você já tem 3 mentores principais.');return;}
+      if(mainCount>=3){bhAlert('Você já tem 3 inspirações principais.');return;}
     }
     setMentors(p=>p.map(m=>String(m.id)===String(form.id)?{...m,...form}:m));
     setSelected(null);
@@ -17902,7 +17912,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
       {selectedFresh&&<MentorModal key={selectedFresh.id} mentor={selectedFresh} onClose={()=>setSelected(null)} onSave={save} onDelete={del}/>}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{flex:1,minWidth:0}}>
-          <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="q12"/>Mentores</h1>
+          <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="q12"/>Inspirações</h1>
           {!isMobile&&<p style={{color:'var(--muted)',fontSize:'.85rem',margin:0}}>Referencias, influencias e guias de estudo.</p>}
         </div>
         <div style={{display:'flex',gap:8}}>
@@ -17913,7 +17923,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
         </div>
       </div>
       {trash&&<>
-        <TrashBanner label="Mentores" onExit={()=>setTrash(false)}/>
+        <TrashBanner label="Inspirações" onExit={()=>setTrash(false)}/>
         <div className="card" style={{overflow:'hidden',borderRadius:12}}>
           {trashed.map(m=>(
             <div key={m.id} className="compact-row" style={{cursor:'default'}}>
@@ -17925,8 +17935,8 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
               </div>
               <div style={{display:'flex',gap:5,flexShrink:0}}>
-                <button onClick={()=>restore(m.id)} className="btn btn-outline" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Restaurar" aria-label={'Restaurar '+(m.name||'mentor')}><Icon name="refresh-cw" size={11}/></button>
-                <button onClick={()=>hardDelete(m.id)} className="btn btn-danger" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Excluir permanentemente" aria-label={'Excluir permanentemente '+(m.name||'mentor')}><Icon name="trash-2" size={11}/></button>
+                <button onClick={()=>restore(m.id)} className="btn btn-outline" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Restaurar" aria-label={'Restaurar '+(m.name||'inspiração')}><Icon name="refresh-cw" size={11}/></button>
+                <button onClick={()=>hardDelete(m.id)} className="btn btn-danger" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Excluir permanentemente" aria-label={'Excluir permanentemente '+(m.name||'inspiração')}><Icon name="trash-2" size={11}/></button>
               </div>
             </div>
           ))}
@@ -17936,8 +17946,8 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
         <div style={{position:'relative',marginBottom:16}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)}
-            placeholder="Buscar mentores..." aria-label="Buscar mentores" style={{paddingLeft:36,paddingRight:150}}/>
-          <select value={mentorSort} onChange={e=>changeMentorSort(e.target.value)} aria-label="Ordenar mentores" className="gallery-sort-select"
+            placeholder="Buscar inspirações..." aria-label="Buscar inspirações" style={{paddingLeft:36,paddingRight:150}}/>
+          <select value={mentorSort} onChange={e=>changeMentorSort(e.target.value)} aria-label="Ordenar inspirações" className="gallery-sort-select"
             style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
             <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="year">Ano (recentes)</option>
           </select>
@@ -17961,7 +17971,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
       {!trash&&visible.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)'}}>
           <Icon name="book-open" size={36} style={{marginBottom:12,opacity:.3}}/>
-          <p style={{fontSize:'.9rem',margin:0}}>{search?'Nenhum mentor encontrado.':'Adicione seu primeiro mentor acima.'}</p>
+          <p style={{fontSize:'.9rem',margin:0}}>{search?'Nenhuma inspiração encontrada.':'Adicione sua primeira inspiração acima.'}</p>
         </div>
       )}
       {!trash&&(isMobile?(
@@ -17989,14 +17999,14 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
             </div>
           ))}
           {visible.length>listLimit&&<ListMoreSentinel key={listLimit} onMore={moreMentors}/>}
-          {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum mentor.</div>}
+          {visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhuma inspiração.</div>}
         </div>
       ):(
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
         {visible.slice(0,listLimit).map((m,idx)=>{
           const photos=(m.photos||[]).filter(Boolean);
           return(
-            <div key={m.id} {...dp(m.id)} style={{padding:0,overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>setSelected(m)} {...keyActivate(()=>setSelected(m),'Abrir mentor '+(m.name||''))}>
+            <div key={m.id} {...dp(m.id)} style={{padding:0,overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>setSelected(m)} {...keyActivate(()=>setSelected(m),'Abrir inspiração '+(m.name||''))}>
               <span className="drag-handle" style={{position:'absolute',top:8,right:8,color:'white',lineHeight:0,zIndex:5,filter:'drop-shadow(0 1px 2px rgba(0,0,0,.4))'}}><Icon name="grip-vertical" size={13}/></span>
               {photos.length>0
                 ?<div style={{height:90,display:'grid',gridTemplateColumns:'repeat('+Math.min(photos.length,4)+',1fr)',gap:1,background:'var(--border)'}}>
@@ -18033,6 +18043,200 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   );
 });
 
+// - STUDIES (estudos de cinematics: obras analisadas como objeto de estudo) -
+// @bh-test-begin studies
+const BH_STUDY_KINDS=['Filme','Série','Animação','Curta','Cinemática de jogo','Videoclipe','Comercial','Outro'];
+// New studies carry every field so the editor never meets undefined; `refs` is a
+// free-length list of image URLs (visual references / frame grabs).
+const bhNewStudy=(over={},newId=bhNewId)=>({id:newId(),title:'',kind:'Filme',year:'',studio:'',artists:'',language:'',breakdown:'',analysis:'',links:'',refs:[],deleted:false,...over});
+const bhStudyFold=v=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const bhStudyMatches=(study,query)=>{
+  const q=bhStudyFold(query).trim();
+  if(!q)return true;
+  return bhStudyFold([study?.title,study?.kind,study?.year,study?.studio,study?.artists,study?.language,study?.breakdown,study?.analysis].join(' ')).includes(q);
+};
+// Live studies only, filtered by kind/search, newest year first (unknown years last), then by title.
+const bhStudyList=(studies,{query='',kind='all',sort='recent'}={})=>{
+  const byTitle=(a,b)=>String(a.title||'').localeCompare(String(b.title||''),'pt-BR',{sensitivity:'base'});
+  const list=(Array.isArray(studies)?studies:[]).filter(s=>s&&!s.deleted&&(kind==='all'||s.kind===kind)&&bhStudyMatches(s,query));
+  if(sort==='title')return list.sort(byTitle);
+  if(sort==='manual')return list;
+  return list.sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0)||byTitle(a,b));
+};
+// @bh-test-end studies
+const StudyModal=({study,onClose,onSave,onDelete})=>{
+  const [form,setForm]=useState({...study,refs:Array.isArray(study.refs)?study.refs:[]});
+  const initialRef=useRef(JSON.stringify(form));
+  const requestClose=async()=>{
+    if(JSON.stringify(form)!==initialRef.current&&!await bhConfirm({message:'Descartar as alterações deste estudo?',confirmLabel:'Descartar',cancelLabel:'Continuar editando',danger:true}))return;
+    onClose();
+  };
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const fileRef=useRef();
+  const addFiles=async files=>{
+    for(const file of Array.from(files||[])){
+      if(!/^image\//.test(file.type))continue;
+      try{const url=await uploadImage(file);setForm(f=>({...f,refs:[...(f.refs||[]),url]}));}
+      catch(err){bhLog('study.ref',err,'a referência');await bhAlert(bhUploadErrorText(err,'Não foi possível enviar a imagem. Tente novamente.'));}
+    }
+  };
+  const removeRef=idx=>setForm(f=>({...f,refs:(f.refs||[]).filter((_,i)=>i!==idx)}));
+  const {boxRef,trapTab}=useModalLayer(requestClose);
+  const ta=(k,label,placeholder,rows=3)=>(
+    <Field label={label}>
+      <textarea className="input-box" rows={rows} value={form[k]||''} onChange={e=>set(k,e.target.value)} placeholder={placeholder} style={{resize:'vertical',lineHeight:1.7}}/>
+    </Field>
+  );
+  return ReactDOM.createPortal(
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&requestClose()}>
+      <div className="modal" style={{maxWidth:680}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={form.title||'Estudo'} onKeyDown={trapTab}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20}}>
+          <h2 className="serif" style={{fontSize:'1.6rem',fontWeight:400,margin:0}}>{form.title||'Novo estudo'}</h2>
+          <button className="btn btn-ghost" onClick={requestClose} style={{padding:6}} title="Fechar" aria-label="Fechar"><Icon name="x" size={18}/></button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px',gap:10}}>
+            <Field label="Obra"><input className="input-box" value={form.title||''} onChange={e=>set('title',e.target.value)} placeholder="Ex: Spider-Verse" style={{fontWeight:600}}/></Field>
+            <Field label="Tipo"><select className="input-box" value={form.kind||'Filme'} onChange={e=>set('kind',e.target.value)}>{BH_STUDY_KINDS.map(k=><option key={k} value={k}>{k}</option>)}</select></Field>
+            <Field label="Ano"><input className="input-box" type="number" min="1880" max="2099" value={form.year||''} onChange={e=>set('year',e.target.value?Number(e.target.value):'')}/></Field>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <Field label="Estúdio"><input className="input-box" value={form.studio||''} onChange={e=>set('studio',e.target.value)} placeholder="Quem produziu"/></Field>
+            <Field label="Artistas"><input className="input-box" value={form.artists||''} onChange={e=>set('artists',e.target.value)} placeholder="Direção, arte, fotografia..."/></Field>
+          </div>
+          {ta('language','Linguagem visual','Cor, luz, câmera, composição, ritmo, texturas...')}
+          {ta('breakdown','Breakdown','Cena a cena: o que acontece, planos, transições, o que chamou atenção...',5)}
+          {ta('analysis','Minha análise','Como eu vejo: por que funciona, o que levo para os meus projetos...',5)}
+          <Field label="Links"><input className="input-box" value={form.links||''} onChange={e=>set('links',e.target.value)} placeholder="https://... (separe com vírgula)"/></Field>
+          <div>
+            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Referências visuais</span>
+            <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(110px,1fr))',gap:8}}>
+              {form.refs.map((img,idx)=>(
+                <div key={imgKey(img,idx,form.refs)} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)'}}>
+                  <Img src={img} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                  <button onClick={()=>removeRef(idx)} title="Remover imagem" aria-label={'Remover referência '+(idx+1)} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,.55)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><Icon name="x" size={10}/></button>
+                </div>
+              ))}
+              <button onClick={()=>fileRef.current.click()} style={{aspectRatio:'1',borderRadius:10,border:'1.5px dashed var(--border)',background:'transparent',cursor:'pointer',color:'var(--muted)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:'.7rem'}}>
+                <Icon name="image-plus" size={18}/><span>Adicionar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',paddingTop:12,marginTop:16,borderTop:'1px solid var(--border)'}}>
+          <button className="btn btn-danger" onClick={onDelete} title="Mover para a lixeira"><Icon name="trash-2" size={14}/> Lixeira</button>
+          <div style={{display:'flex',gap:8}}>
+            <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-dark" onClick={()=>onSave(form)}><Icon name="check" size={14}/> Salvar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  , document.body);
+};
+const StudiesHub=React.memo(({studies,setStudies,isMobile})=>{
+  const [selected,setSelected]=useState(null);
+  const [search,setSearch]=useState('');
+  const [kind,setKind]=useState('all');
+  const [trash,setTrash]=useState(false);
+  const [sort,setSort]=useState(()=>{try{const v=localStorage.getItem('boardhub_studies_sort');return v==='title'||v==='recent'?v:'recent';}catch{return 'recent';}});
+  const changeSort=v=>{setSort(v);try{localStorage.setItem('boardhub_studies_sort',v);}catch(e){bhLog('studies.sort',e);}};
+  const visible=useMemo(()=>bhStudyList(studies,{query:search,kind,sort}),[studies,search,kind,sort]);
+  const trashed=studies.filter(s=>s&&s.deleted);
+  const liveCount=studies.filter(s=>s&&!s.deleted).length;
+  const kindsUsed=useMemo(()=>BH_STUDY_KINDS.filter(k=>studies.some(s=>s&&!s.deleted&&s.kind===k)),[studies]);
+  useEffect(()=>{if(kind!=='all'&&!kindsUsed.includes(kind))setKind('all');},[kind,kindsUsed]);
+  useEffect(()=>{if(trash&&trashed.length===0)setTrash(false);},[trash,trashed.length]);
+  // A new study is only a draft until saved, so cancelling leaves no empty card behind.
+  const add=()=>setSelected(bhNewStudy());
+  const save=form=>{setStudies(p=>p.some(s=>String(s.id)===String(form.id))?p.map(s=>String(s.id)===String(form.id)?{...s,...form}:s):[form,...p]);setSelected(null);};
+  const del=()=>{const id=selected.id;setStudies(p=>p.map(s=>String(s.id)===String(id)?{...s,deleted:true,deletedAt:new Date().toISOString()}:s));setSelected(null);};
+  const restore=id=>setStudies(p=>p.map(s=>String(s.id)===String(id)?{...s,deleted:false,deletedAt:null}:s));
+  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'}))setStudies(p=>p.filter(s=>String(s.id)!==String(id)));};
+  const selectedFresh=selected?studies.find(s=>s.id===selected.id)||selected:null;
+  const [listLimit,setListLimit]=useState(BH_LIST_STEP);
+  useEffect(()=>{setListLimit(BH_LIST_STEP);},[search,kind,sort,trash]);
+  return(
+    <div className="fade-up" style={{maxWidth:'100%',boxSizing:'border-box',height:isMobile?'auto':'calc(100vh - clamp(32px,5vh,80px))',overflowY:isMobile?'visible':'auto'}}>
+      {selectedFresh&&<StudyModal key={selectedFresh.id} study={selectedFresh} onClose={()=>setSelected(null)} onSave={save} onDelete={del}/>}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:isMobile?'center':'flex-start',marginBottom:isMobile?10:14,gap:10,flexWrap:'wrap',flexShrink:0}}>
+        <div style={{flex:1,minWidth:0}}>
+          <h1 className="serif stave-title" style={{fontSize:isMobile?'1.75rem':'clamp(1.6rem,2.8vh,2.6rem)',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2}}><StaveTitleNotes fig="q12"/>Estudos</h1>
+          {!isMobile&&<p style={{color:'var(--muted)',fontSize:'.85rem',margin:0}}>Obras como objeto de estudo: estúdio, artistas, referências visuais e breakdowns.</p>}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {(trashed.length>0||trash)&&<button onClick={()=>setTrash(t=>!t)} className={`btn ${trash?'btn-danger':'btn-outline'}`}><Icon name="trash-2" size={13}/>{trash?'Sair':'Lixeira'}{!trash&&` (${trashed.length})`}</button>}
+          {!trash&&<button className="btn btn-dark" onClick={add}><Icon name="plus" size={14}/> Novo estudo</button>}
+        </div>
+      </div>
+      {trash&&<>
+        <TrashBanner label="Estudos" onExit={()=>setTrash(false)}/>
+        <div className="card" style={{overflow:'hidden',borderRadius:12}}>
+          {trashed.map(s=>(
+            <div key={s.id} className="compact-row" style={{cursor:'default'}}>
+              <div className="compact-row-info">
+                <div className="compact-row-title">{s.title||'Sem título'}</div>
+                <div className="compact-row-meta">{s.kind}{s.studio?' · '+s.studio:''}{s.year?' · '+s.year:''}</div>
+              </div>
+              <div style={{display:'flex',gap:5,flexShrink:0}}>
+                <button onClick={()=>restore(s.id)} className="btn btn-outline" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Restaurar" aria-label={'Restaurar '+(s.title||'estudo')}><Icon name="refresh-cw" size={11}/></button>
+                <button onClick={()=>hardDelete(s.id)} className="btn btn-danger" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Excluir permanentemente" aria-label={'Excluir permanentemente '+(s.title||'estudo')}><Icon name="trash-2" size={11}/></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>}
+      {!trash&&liveCount>0&&(
+        <div style={{position:'relative',marginBottom:12}}>
+          <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
+          <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar estudos..." aria-label="Buscar estudos" style={{paddingLeft:36,paddingRight:150}}/>
+          <select value={sort} onChange={e=>changeSort(e.target.value)} aria-label="Ordenar estudos" className="gallery-sort-select" style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
+            <option value="recent">Ano (recentes)</option><option value="title">Título A–Z</option>
+          </select>
+        </div>
+      )}
+      {!trash&&kindsUsed.length>1&&(
+        <div style={{display:'flex',borderBottom:'1px solid var(--border)',marginBottom:16,overflowX:'auto'}}>
+          {['all',...kindsUsed].map(k=>(
+            <button key={k} onClick={()=>setKind(k)} className="tab-btn" style={{color:kind===k?'var(--text)':'var(--muted)',borderBottom:kind===k?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>{k==='all'?'Todos':k}</button>
+          ))}
+        </div>
+      )}
+      {!trash&&liveCount===0&&(
+        <div style={{textAlign:'center',padding:'48px 20px',color:'var(--muted)'}}>
+          <Icon name="clapperboard" size={28}/>
+          <p style={{fontSize:'.9rem',margin:'10px 0 0'}}>Nenhum estudo ainda. Adicione uma obra para analisar.</p>
+        </div>
+      )}
+      {!trash&&liveCount>0&&visible.length===0&&<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Nenhum estudo encontrado.</div>}
+      {!trash&&visible.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+          {visible.slice(0,listLimit).map(s=>{
+            const refs=(s.refs||[]).filter(Boolean);
+            return(
+              <div key={s.id} className="card card-click" style={{padding:0,overflow:'hidden',cursor:'pointer'}} onClick={()=>setSelected(s)} {...keyActivate(()=>setSelected(s),'Abrir estudo '+(s.title||''))}>
+                {refs.length>0
+                  ?<div style={{height:90,display:'grid',gridTemplateColumns:'repeat('+Math.min(refs.length,4)+',1fr)',gap:1,background:'var(--border)'}}>
+                    {refs.slice(0,4).map((img,i,list)=><Img key={imgKey(img,i,list)} src={img} style={{width:'100%',height:90,objectFit:'cover',display:'block'}}/>)}
+                  </div>
+                  :<div style={{height:90,background:'linear-gradient(135deg,var(--bg) 0%,var(--border) 100%)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--border-2)'}}><Icon name="clapperboard" size={30}/></div>}
+                <div style={{padding:'14px 16px'}}>
+                  <div style={{fontWeight:600,fontSize:'.9rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.title||'Sem título'}</div>
+                  <div style={{fontSize:'.73rem',color:'var(--muted)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{[s.kind,s.studio,s.year].filter(Boolean).join(' · ')}</div>
+                  {s.artists&&<div style={{fontSize:'.73rem',color:'var(--muted)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.artists}</div>}
+                  {s.analysis&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:'8px 0 0',lineHeight:1.55,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{s.analysis}</p>}
+                </div>
+              </div>
+            );
+          })}
+          {visible.length>listLimit&&<div style={{gridColumn:'1/-1'}}><ListMoreSentinel key={listLimit} onMore={()=>setListLimit(l=>l+BH_LIST_STEP)}/></div>}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // - APP -
 
 // - QUICK CAPTURE -
@@ -18064,7 +18268,7 @@ const ShortcutsModal=({onClose})=>{
     ['Ctrl / ⌘ + K','Busca global (paleta de comandos)'],
     ['N','Captura rápida: nova nota'],
     ['T','Captura rápida: nova atividade'],
-    ['1 – 8','Ir para a seção (Visão Geral … Sincronizar)'],
+    ['1 – 9','Ir para a seção (Visão Geral … Sincronizar)'],
     ['Ctrl / ⌘ + V','Colar imagem no post, frames da tarefa ou pesquisa abertos'],
     ['Ctrl / ⌘ + Enter','Salvar o post em Social'],
     ['F2','Renomear a pasta da Galeria em foco'],
@@ -18226,7 +18430,7 @@ const App=()=>{
       if(k==='n'){e.preventDefault();setQuickCaptureType('note');setShowQuickCapture(true);return;}
       if(k==='t'){e.preventDefault();setQuickCaptureType('task');setShowQuickCapture(true);return;}
       if(e.key==='?'){e.preventDefault();setShowShortcuts(v=>!v);return;}
-      if(/^[1-8]$/.test(e.key)){const item=NAV_ITEMS[Number(e.key)-1];if(item){e.preventDefault();navigateRef.current?.(item.id);}}
+      if(/^[1-9]$/.test(e.key)){const item=NAV_ITEMS[Number(e.key)-1];if(item){e.preventDefault();navigateRef.current?.(item.id);}}
     };
     window.addEventListener('keydown',onKD);
     return()=>window.removeEventListener('keydown',onKD);
@@ -18346,6 +18550,7 @@ const App=()=>{
   const [galleryFolders,setGalleryFolders]=useState(()=>bhRecordArray(persisted?.galleryFolders,DEFAULT_GALLERY_FOLDERS));
   const DEFAULT_NOTE_GROUPS=[{id:'notes',label:'Notas',icon:'file-text'},{id:'projects',label:'Mini Projetos',icon:'folder-open'}];
   const [noteGroups,setNoteGroups]=useState(()=>bhRecordArray(persisted?.noteGroups,DEFAULT_NOTE_GROUPS));
+  const [studies,setStudies]=useState(()=>bhRecordArray(persisted?.studies));
   const [pomoData,setPomoData]=useState(()=>{
     const fast=pomoLoad();
     return pomoSyncGalleryCategories(pomoRankMaintain(persisted?.pomoData?pomoMergeProgress(fast,persisted.pomoData):fast),galleryFolders);
@@ -18797,7 +19002,7 @@ const App=()=>{
     const nonEmpty=arr=>Array.isArray(arr)&&arr.length>0;
     return nonEmpty(persisted.projects)||nonEmpty(persisted.clients)||nonEmpty(persisted.mentors)||
            nonEmpty(persisted.notes)||nonEmpty(persisted.tasks)||nonEmpty(persisted.socialPosts)||nonEmpty(persisted.socialTemplates)||
-           nonEmpty(persisted.galleryPosts)||nonEmpty(persisted.noteGroups);
+           nonEmpty(persisted.galleryPosts)||nonEmpty(persisted.noteGroups)||nonEmpty(persisted.studies);
   })());
   // Which account this device has already completed a sync with ('' = none).
   const _deviceSyncedUid=useRef((()=>{try{return localStorage.getItem(SYNCED_UID_KEY)||'';}catch{return '';}})());
@@ -19125,7 +19330,7 @@ const App=()=>{
           if(!listenerAlive)return;
           if(generation!==_editGen.current){setSyncDetail('O conteúdo mudou durante a troca de conta. Salve um backup e tente novamente.');setSyncStatus('error');return;}
           _remoteApplyId.current++;
-          setProjects([]);setClients([]);setMentors([]);setNotes([]);setTasks([]);setSocialPosts([]);setSocialTemplatesState([]);setGalleryPosts([]);setGalleryFolders(DEFAULT_GALLERY_FOLDERS);setNoteGroups(DEFAULT_NOTE_GROUPS);setPomoData(pomoEmpty());saveIdentity(null);setIdentity(null);
+          setProjects([]);setClients([]);setMentors([]);setNotes([]);setTasks([]);setSocialPosts([]);setSocialTemplatesState([]);setGalleryPosts([]);setGalleryFolders(DEFAULT_GALLERY_FOLDERS);setNoteGroups(DEFAULT_NOTE_GROUPS);setStudies([]);setPomoData(pomoEmpty());saveIdentity(null);setIdentity(null);
           _hasPendingLocalEdit.current=false;
           setSyncNotice('Esta conta ainda não tinha dados. O conteúdo local da conta anterior foi guardado no Histórico de Backups e uma área vazia foi aberta para esta conta.');
         }else if(_localHadRealDataAtBoot.current&&(_bootDirty.current||_hasPendingLocalEdit.current)){_hasPendingLocalEdit.current=true;setSyncTick(t=>t+1);}
@@ -19176,7 +19381,7 @@ const App=()=>{
     // and user edits are always separate renders.
     const isRemoteTrigger=_remoteApplyId.current!==_lastSeenApplyId.current;
     _lastSeenApplyId.current=_remoteApplyId.current;
-    const state={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
+    const state={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,studies,identity};
     if(bhPersistenceBusy())return;
     if(isRemoteTrigger&&fbUser?.uid){
       // Rank upkeep run on the cloud's copy as it arrived (decay, refund,
@@ -19235,13 +19440,13 @@ const App=()=>{
       if(!_didInitialReconcile.current)_applyMergedRef.current?.();
     },2500);
     return ()=>{clearTimeout(timer);};
-  },[projects,clients,mentors,notes,tasks,socialPosts,socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity,syncTick,saveLocal]);
+  },[projects,clients,mentors,notes,tasks,socialPosts,socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,studies,identity,syncTick,saveLocal]);
 
   // Flush the current state to localStorage the moment the tab is hidden or closed.
   // Without this, adding content and immediately leaving could lose it to the auto-save
   // debounce window (the save hadn't fired yet).
   const _latestState=useRef(null);
-  _latestState.current={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
+  _latestState.current={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,studies,identity};
   // Moves the old "Sessões de foco" posts into their projects' tasks
   // (bhMigrateProjectFocusPosts). Signed in, it waits for the first cloud
   // reconcile, so it works on the account's data rather than a stale local
@@ -19297,6 +19502,7 @@ const App=()=>{
     if(take('galleryPosts'))setGalleryPosts(repairProjectFocusPostScopes(bhRecordArray(data.galleryPosts).map(normalizeFocusPostCopy),nextPomo?.rank?.sessions));
     if(take('galleryFolders'))setGalleryFolders(nextFolders);
     if(take('noteGroups'))setNoteGroups(bhRecordArray(data.noteGroups));
+    if(take('studies'))setStudies(bhRecordArray(data.studies));
     if(pomoOk){setPomoData(nextPomo);set++;}
     if(!skip?.has('identity')&&(data.identity===null||data.identity&&typeof data.identity.hubName==='string')){saveIdentity(data.identity);setIdentity(data.identity);set++;}
     return set;
@@ -19813,6 +20019,7 @@ const App=()=>{
     setProjects(SEED.projects);setClients(SEED.clients);setMentors(SEED.mentors);
     setNotes(SEED.notes);setTasks(SEED.tasks);setSocialPosts(SEED.socialPosts);setSocialTemplatesState(socialTemplates);setGalleryPosts(SEED.galleryPosts);setGalleryFolders(DEFAULT_GALLERY_FOLDERS);
     setNoteGroups(DEFAULT_NOTE_GROUPS);
+    setStudies([]);
     setPomoData(pomoEmpty());
     navigate('dashboard');
     _hasPendingLocalEdit.current=true;_editGen.current++;_lastEditMs.current=Date.now();
@@ -19820,7 +20027,7 @@ const App=()=>{
     });}catch(e){await bhAlert(e.message||'Reset cancelado.');}finally{setRestoreBusy(false);}
   };
 
-  const appState={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,identity};
+  const appState={projects,clients,mentors,notes,tasks,socialPosts,socialTemplates:socialTemplatesState,galleryPosts,galleryFolders,pomoData,noteGroups,studies,identity};
 
   // When importing data: store inline media in IDB, including data URLs nested
   // inside rich-note HTML, and replace them with lightweight idb:// references.
@@ -19863,10 +20070,10 @@ const App=()=>{
     // was expected passed the check and crashed every .filter() downstream.
     // Mirrors the isArr guards the remote listener already applied.
     if(!data||typeof data!=='object'||Array.isArray(data))return false;
-    for(const key of ['projects','clients','mentors','notes','tasks','socialPosts','socialTemplates','galleryPosts','galleryFolders','noteGroups']){
+    for(const key of ['projects','clients','mentors','notes','tasks','socialPosts','socialTemplates','galleryPosts','galleryFolders','noteGroups','studies']){
       if(data[key]!==undefined&&!Array.isArray(data[key]))throw new Error('Backup inválido: '+key+' não é uma lista.');
     }
-    if(!['projects','clients','mentors','notes','tasks','socialPosts','socialTemplates','galleryPosts','galleryFolders','noteGroups'].some(k=>Array.isArray(data[k]))&&!data.pomoData)return false;
+    if(!['projects','clients','mentors','notes','tasks','socialPosts','socialTemplates','galleryPosts','galleryFolders','noteGroups','studies'].some(k=>Array.isArray(data[k]))&&!data.pomoData)return false;
     const importUid=_activeUidRef.current;
     const ingested=await ingestImages(data);
     for(const key of collectIdbKeys(ingested))if(!await idbGet(key))throw new Error('Backup contém mídia local ausente. Restauração cancelada sem remover referências.');
@@ -19889,6 +20096,7 @@ const App=()=>{
     if(A(ingested.socialTemplates)){setSocialTemplatesState(current=>bhMergeTemplates(current,bhRecordArray(ingested.socialTemplates),{incomingWins}));applied++;}
     if(A(ingested.galleryPosts)){setGalleryPosts(current=>repairProjectFocusPostScopes(bhMergeRecords(current,bhRecordArray(ingested.galleryPosts).map(normalizeFocusPostCopy),{incomingWins}),pomoData?.rank?.sessions));applied++;}
     if(A(ingested.galleryFolders)){setGalleryFolders(current=>bhMergeRecords(current,bhRecordArray(ingested.galleryFolders),{incomingWins}));applied++;}
+    if(A(ingested.studies)){setStudies(current=>bhMergeRecords(current,bhRecordArray(ingested.studies),{incomingWins}));applied++;}
     if(A(ingested.noteGroups)){setNoteGroups(current=>bhMergeRecords(current,bhRecordArray(ingested.noteGroups),{incomingWins}));applied++;}
     if(ingested.pomoData&&typeof ingested.pomoData==='object'&&!A(ingested.pomoData)&&ingested.pomoData.days){setPomoData(current=>pomoMergeProgress(current,ingested.pomoData));applied++;}
     if(ingested.identity&&typeof ingested.identity.hubName==='string'){saveIdentity(ingested.identity);setIdentity(ingested.identity);applied++;}
@@ -19923,6 +20131,7 @@ const App=()=>{
     setGalleryFolders(current=>rehydrateIdbRefs(current,map));
     setPomoData(current=>rehydrateIdbRefs(current,map));
     setNoteGroups(current=>rehydrateIdbRefs(current,map));
+    setStudies(current=>rehydrateIdbRefs(current,map));
     return true;
   },[]);
 
@@ -19977,7 +20186,8 @@ const App=()=>{
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
-        {view==='mentors'        &&<ViewBoundary key="mentors" name="Mentores" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
+        {view==='studies'        &&<ViewBoundary key="studies" name="Estudos" onHome={()=>navigate('dashboard')}><StudiesHub studies={studies} setStudies={setStudies} isMobile={isMobile}/></ViewBoundary>}
+        {view==='mentors'        &&<ViewBoundary key="mentors" name="Inspirações" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
         {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
         {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/></ViewBoundary>}

@@ -23,7 +23,7 @@ const END = /^\s*\/\/ @bh-test-end (\S+)\s*$/;
 export const EXPECTED = {
   date: ['localDateISO', 'bhNewId', 'bhIdTime'],
   stable: ['bhCanonicalState', 'bhStableStringify'],
-  sync: ['bhEqual', 'bhMergeSync', 'bhSyncRankPoints', 'bhSyncPlan', 'bhSplitState', 'bhUtf8Bytes'],
+  sync: ['bhSyncAck', '_bhSyncBases', 'bhEqual', 'bhMergeSync', 'bhSyncRankPoints', 'bhSyncPlan', 'bhSplitState', 'bhUtf8Bytes'],
   entity: ['bhEntityPack', 'bhEntityUnpack', 'bhNestDepth'],
   automigrate: ['BH_AUTO_MIGRATE', 'bhAutoMigrateDecision'],
   agenda: ['bhAgendaAutoCode', 'bhAgendaSnapshot', 'bhAgendaRecent', 'bhAgendaSig', 'bhAgendaPost', 'BH_AGENDA_URL'],
@@ -52,6 +52,7 @@ export const EXPECTED = {
   preloadall: ['bhPreloadAllPosts', 'bhPreloadList', 'bhImageIsLocal', 'bhImageHdSettled'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   narrative: ['BH_NARRATIVE_STAGES', 'BH_NARRATIVE_TEMPLATES', 'bhNarrativeTemplate', 'bhNarrativeNormalize', 'bhNarrativeSetField', 'bhNarrativeSetTemplate', 'bhNarrativeSetBeat', 'bhNarrativeCopyOutline', 'bhNarrativeFilled', 'bhNarrativeProgress'],
+  studies: ['BH_STUDY_KINDS', 'bhNewStudy', 'bhStudyMatches', 'bhStudyList'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 
