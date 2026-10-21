@@ -9553,13 +9553,249 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   return <>{content}{showAllTasks&&<AllTasksModal tasks={tasks} initialFilter={taskFilter} onClose={()=>setShowAllTasks(false)} onToggle={toggleTask} onRemove={removeTask} onEdit={editTask} onClearDone={()=>setTasks(p=>p.filter(t=>!t.done))}/>}</>;
 });
 
+// ===== NARRATIVA (narrative tab) =====
+// @bh-test-begin narrative
+// Narrative stages for a project (macro) or an animatic/task (micro): logline ->
+// synopsis -> argument -> outline (two passes) -> final script. Stored ADDITIVELY
+// as `narrative` on the project or on a miniProjects entry; absent until the
+// first edit, so old data and sync v4 are untouched:
+//   {tpl, logline, synopsis, argument, script, outline1:{beatId:text}, outline2:{...}, updatedAt}
+// Outline text is keyed by beat id (ids are unique across templates), so
+// switching template never drops what was written for another one.
+// To add a model: append an entry to BH_NARRATIVE_TEMPLATES (unique ids, beat ids
+// prefixed with the template id). Nothing else needs to change.
+const BH_NARRATIVE_STAGES=[
+  {key:'logline',label:'Logline',hint:'Uma ou duas frases: quem quer o quê, e o que atrapalha.',rows:2},
+  {key:'synopsis',label:'Sinopse',hint:'A história inteira em um parágrafo, do começo ao fim.',rows:5},
+  {key:'argument',label:'Argumento',hint:'A história contada em prosa, com os personagens, o conflito e a virada.',rows:10},
+];
+const bhBeats=(prefix,list)=>list.map(([id,label,hint])=>({id:prefix+'.'+id,label,hint}));
+const BH_NARRATIVE_TEMPLATES=[
+  {id:'three-act',name:'Três atos',author:'Syd Field',note:'A base de tudo: apresentação, confronto e resolução.',beats:bhBeats('three-act',[
+    ['setup','Ato 1 · Apresentação','Mundo, personagem, o que falta.'],
+    ['plot1','Ponto de virada 1','O evento que empurra o personagem para a história.'],
+    ['confront-a','Ato 2A · Confronto','Tentativas e primeiras consequências.'],
+    ['midpoint','Ponto médio','Revelação ou reviravolta que muda o jogo.'],
+    ['confront-b','Ato 2B · Confronto','A pressão aumenta; tudo parece perdido.'],
+    ['plot2','Ponto de virada 2','A decisão final que leva ao clímax.'],
+    ['resolution','Ato 3 · Resolução','Clímax e novo equilíbrio.']])},
+  {id:'save-the-cat',name:'Save the Cat',author:'Blake Snyder',note:'15 batidas com posição precisa; ótimo para roteiros de longa duração.',beats:bhBeats('stc',[
+    ['opening','Imagem de abertura','Retrato do "antes".'],
+    ['theme','Tema declarado','Alguém sugere a lição da história.'],
+    ['setup','Apresentação','O mundo e o que precisa mudar.'],
+    ['catalyst','Catalisador','O evento que quebra o equilíbrio.'],
+    ['debate','Debate','Será que ele vai?'],
+    ['break2','Entrada no Ato 2','A decisão de entrar no novo mundo.'],
+    ['b-story','História B','Quem traz o tema (relação secundária).'],
+    ['fun','Diversão e jogos','A promessa da premissa.'],
+    ['midpoint','Ponto médio','Falsa vitória ou falsa derrota.'],
+    ['bad-guys','Os vilões se aproximam','Pressão externa e interna.'],
+    ['all-lost','Tudo está perdido','O momento mais baixo.'],
+    ['dark-night','Noite escura da alma','A lição finalmente se assenta.'],
+    ['break3','Entrada no Ato 3','A solução aparece.'],
+    ['finale','Final','O plano em ação.'],
+    ['final-image','Imagem final','Retrato do "depois".']])},
+  {id:'mckee',name:'Story (McKee)',author:'Robert McKee',note:'Estrutura por incidente, complicações e crise; foco em desejo e conflito.',beats:bhBeats('mckee',[
+    ['inciting','Incidente incitante','Desequilibra a vida do protagonista e cria o desejo.'],
+    ['object','Objeto de desejo','O que ele quer, consciente e inconsciente.'],
+    ['complications','Complicações progressivas','Cada tentativa gera mais risco e oposição.'],
+    ['turning','Pontos de virada','Mudanças de valor que viram a cena.'],
+    ['crisis','Crise','O dilema: a escolha mais difícil.'],
+    ['climax','Clímax','A ação que resolve a crise.'],
+    ['resolution','Resolução','As consequências e o novo valor.']])},
+  {id:'hero-journey',name:'Jornada do Herói',author:'Joseph Campbell / Christopher Vogler',note:'12 etapas míticas; funciona bem com fantasia e aventura.',beats:bhBeats('hero',[
+    ['ordinary','Mundo comum','A vida antes da aventura.'],
+    ['call','Chamado à aventura','O desafio chega.'],
+    ['refusal','Recusa do chamado','Medo e dúvida.'],
+    ['mentor','Encontro com o mentor','Conselho, presente ou treino.'],
+    ['threshold','Travessia do limiar','Entrada no mundo especial.'],
+    ['tests','Testes, aliados e inimigos','Aprendendo as regras.'],
+    ['approach','Aproximação da caverna','Preparação para o grande teste.'],
+    ['ordeal','Provação','Confronto com a morte, real ou simbólica.'],
+    ['reward','Recompensa','A conquista.'],
+    ['road-back','Caminho de volta','Consequências e perseguição.'],
+    ['resurrection','Ressurreição','O teste final, transformado.'],
+    ['elixir','Retorno com o elixir','O que ele traz ao mundo comum.']])},
+  {id:'story-circle',name:'Story Circle',author:'Dan Harmon',note:'8 passos em círculo; ideal para episódios curtos e animações.',beats:bhBeats('circle',[
+    ['you','1 · Uma personagem em sua zona de conforto',''],
+    ['need','2 · Mas ela precisa de algo',''],
+    ['go','3 · Entra numa situação desconhecida',''],
+    ['search','4 · Adapta-se a ela',''],
+    ['find','5 · Consegue o que queria',''],
+    ['take','6 · Paga um preço alto por isso',''],
+    ['return','7 · Volta à situação inicial',''],
+    ['change','8 · Já transformada','']])},
+  {id:'freytag',name:'Pirâmide de Freytag',author:'Gustav Freytag',note:'Estrutura clássica de drama em cinco partes.',beats:bhBeats('freytag',[
+    ['exposition','Exposição','Contexto, personagens, tom.'],
+    ['rising','Ação ascendente','O conflito cresce.'],
+    ['climax','Clímax','O ponto de maior tensão e virada.'],
+    ['falling','Ação descendente','Consequências do clímax.'],
+    ['denouement','Desfecho','Resolução final.']])},
+  {id:'kishotenketsu',name:'Kishōtenketsu',author:'Tradição japonesa / chinesa',note:'4 partes sem conflito central; bom para curtas contemplativos.',beats:bhBeats('kisho',[
+    ['ki','Ki · Introdução','Apresenta personagens e cenário.'],
+    ['sho','Shō · Desenvolvimento','Aprofunda sem grandes mudanças.'],
+    ['ten','Ten · Reviravolta','Um elemento inesperado, sem relação aparente.'],
+    ['ketsu','Ketsu · Conclusão','Reconcilia os elementos e revela o sentido.']])},
+  {id:'story-spine',name:'Story Spine',author:'Kenn Adams / Pixar',note:'Frases-guia curtas; perfeito para um animatic isolado.',beats:bhBeats('spine',[
+    ['once','Era uma vez…',''],
+    ['everyday','Todo dia…',''],
+    ['until','Até que um dia…',''],
+    ['because1','Por causa disso…',''],
+    ['because2','Por causa disso…',''],
+    ['until-finally','Até que finalmente…',''],
+    ['ever-since','E desde então…','']])},
+  {id:'sequences',name:'Oito sequências',author:'Frank Daniel',note:'Dois atos e meio divididos em oito blocos de cerca de 12 minutos.',beats:bhBeats('seq',[
+    ['s1','Sequência 1 · Situação e incidente',''],
+    ['s2','Sequência 2 · Reação e decisão',''],
+    ['s3','Sequência 3 · Primeira tentativa',''],
+    ['s4','Sequência 4 · Complicações / ponto médio',''],
+    ['s5','Sequência 5 · Segunda tentativa',''],
+    ['s6','Sequência 6 · Crise e derrota aparente',''],
+    ['s7','Sequência 7 · Último esforço',''],
+    ['s8','Sequência 8 · Clímax e resolução','']])},
+];
+const bhNarrativeTemplate=id=>BH_NARRATIVE_TEMPLATES.find(t=>t.id===id)||null;
+const bhNarrativeStr=v=>typeof v==='string'?v:'';
+const bhNarrativeMap=v=>{
+  const out={};
+  if(v&&typeof v==='object'&&!Array.isArray(v))for(const k of Object.keys(v))if(typeof v[k]==='string')out[k]=v[k];
+  return out;
+};
+// Always returns a complete, valid narrative whatever is stored (undefined, partial, junk).
+const bhNarrativeNormalize=n=>{
+  const o=n&&typeof n==='object'&&!Array.isArray(n)?n:{};
+  return{
+    tpl:bhNarrativeTemplate(o.tpl)?o.tpl:'',
+    logline:bhNarrativeStr(o.logline),synopsis:bhNarrativeStr(o.synopsis),argument:bhNarrativeStr(o.argument),script:bhNarrativeStr(o.script),
+    outline1:bhNarrativeMap(o.outline1),outline2:bhNarrativeMap(o.outline2),
+    updatedAt:typeof o.updatedAt==='string'?o.updatedAt:'',
+  };
+};
+const bhNarrativeStamp=n=>({...n,updatedAt:new Date().toISOString()});
+const bhNarrativeSetField=(n,key,text)=>{
+  if(!['logline','synopsis','argument','script'].includes(key))return bhNarrativeNormalize(n);
+  return bhNarrativeStamp({...bhNarrativeNormalize(n),[key]:bhNarrativeStr(text)});
+};
+const bhNarrativeSetTemplate=(n,tplId)=>bhNarrativeStamp({...bhNarrativeNormalize(n),tpl:bhNarrativeTemplate(tplId)?tplId:''});
+// pass 1 or 2; beat ids from another template are rejected so the map stays clean.
+const bhNarrativeSetBeat=(n,pass,beatId,text)=>{
+  const cur=bhNarrativeNormalize(n);
+  const key=pass===2?'outline2':'outline1';
+  if(!BH_NARRATIVE_TEMPLATES.some(t=>t.beats.some(b=>b.id===beatId)))return cur;
+  return bhNarrativeStamp({...cur,[key]:{...cur[key],[beatId]:bhNarrativeStr(text)}});
+};
+// Starts the second outline from the first, only filling beats still empty in the second.
+const bhNarrativeCopyOutline=n=>{
+  const cur=bhNarrativeNormalize(n),tpl=bhNarrativeTemplate(cur.tpl);
+  if(!tpl)return cur;
+  const next={...cur.outline2};
+  for(const b of tpl.beats)if(!(next[b.id]||'').trim()&&(cur.outline1[b.id]||'').trim())next[b.id]=cur.outline1[b.id];
+  return bhNarrativeStamp({...cur,outline2:next});
+};
+const bhNarrativeFilled=(n,pass)=>{
+  const cur=bhNarrativeNormalize(n),tpl=bhNarrativeTemplate(cur.tpl);
+  if(!tpl)return{done:0,total:0};
+  const map=pass===2?cur.outline2:cur.outline1;
+  return{done:tpl.beats.filter(b=>(map[b.id]||'').trim()).length,total:tpl.beats.length};
+};
+// How many of the 5 stages have text (outline counts when either pass has any beat).
+const bhNarrativeProgress=n=>{
+  const cur=bhNarrativeNormalize(n);
+  const outlineHas=[cur.outline1,cur.outline2].some(m=>Object.values(m).some(t=>t.trim()));
+  return[cur.logline,cur.synopsis,cur.argument,outlineHas?'x':'',cur.script].filter(t=>t.trim()).length;
+};
+// @bh-test-end narrative
+
+// - NARRATIVE TAB (UI for the narrative region above) -
+const NarrativeTextarea=({value,onChange,rows,placeholder,label})=>(
+  <textarea className="input-box" aria-label={label} rows={rows} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{resize:'vertical',lineHeight:1.7,width:'100%',boxSizing:'border-box'}}/>
+);
+const NarrativeTemplatePicker=({value,onChange})=>{
+  const tpl=bhNarrativeTemplate(value);
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+      <select className="input-box" aria-label="Modelo narrativo" value={value||''} onChange={e=>onChange(e.target.value)} style={{cursor:'pointer'}}>
+        <option value="">Sem modelo (livre)</option>
+        {BH_NARRATIVE_TEMPLATES.map(t=><option key={t.id} value={t.id}>{t.name} — {t.author}</option>)}
+      </select>
+      {tpl&&<span style={{fontSize:'.76rem',color:'var(--muted)'}}>{tpl.note}</span>}
+    </div>
+  );
+};
+// `store` is {get(): narrative|undefined, set(narrative)}; the same panel serves the
+// project and any animatic, which is how the macro/micro split works.
+const NarrativePanel=({narrative,onChange,scopeLabel})=>{
+  const n=bhNarrativeNormalize(narrative);
+  const tpl=bhNarrativeTemplate(n.tpl);
+  const [pass,setPass]=useState(1);
+  const filled=bhNarrativeFilled(n,pass);
+  const section=(key,title,sub,children,right)=>(
+    <div key={key} className="card" style={{padding:'clamp(14px,2vh,24px)',display:'flex',flexDirection:'column',gap:10}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
+        <span className="label label-section">{title}</span>{right}
+      </div>
+      {sub&&<span style={{fontSize:'.76rem',color:'var(--muted)'}}>{sub}</span>}
+      {children}
+    </div>
+  );
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      {section('tpl','Modelo narrativo',scopeLabel,<NarrativeTemplatePicker value={n.tpl} onChange={v=>onChange(cur=>bhNarrativeSetTemplate(cur,v))}/>)}
+      {BH_NARRATIVE_STAGES.map(s=>section(s.key,s.label,s.hint,
+        <NarrativeTextarea label={s.label} rows={s.rows} value={n[s.key]} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,s.key,v))} placeholder={s.label+'…'}/>))}
+      {section('outline','Esboço',tpl?'Uma batida por etapa do modelo escolhido. O 2º esboço refina o 1º.':'Escolha um modelo acima para ter as etapas do esboço.',
+        tpl&&<>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            {[1,2].map(p=><button key={p} className={`btn ${pass===p?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={pass===p} onClick={()=>setPass(p)}>{p}º esboço</button>)}
+            {pass===2&&<button className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={()=>onChange(cur=>bhNarrativeCopyOutline(cur))} title="Preenche as etapas vazias do 2º esboço com o 1º"><Icon name="copy" size={12}/> Partir do 1º</button>}
+          </div>
+          {tpl.beats.map(b=>(
+            <div key={b.id} style={{display:'flex',flexDirection:'column',gap:4}}>
+              <div style={{fontSize:'.84rem',fontWeight:600}}>{b.label}{b.hint&&<span style={{fontWeight:400,color:'var(--muted)',fontSize:'.76rem'}}> — {b.hint}</span>}</div>
+              <NarrativeTextarea label={b.label+' ('+pass+'º esboço)'} rows={2} value={(pass===2?n.outline2:n.outline1)[b.id]||''} onChange={v=>onChange(cur=>bhNarrativeSetBeat(cur,pass,b.id,v))} placeholder="…"/>
+            </div>
+          ))}
+        </>,
+        tpl&&<span style={{fontSize:'.74rem',color:'var(--muted)'}}>{filled.done}/{filled.total}</span>)}
+      {section('script','Roteiro final','O texto definitivo.',
+        <NarrativeTextarea label="Roteiro final" rows={16} value={n.script} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,'script',v))} placeholder="Roteiro final…"/>)}
+    </div>
+  );
+};
+const NarrativeTab=({project,onProject,onMini,isMobile})=>{
+  const minis=project.miniProjects||[];
+  const [scope,setScope]=useState('project');
+  useEffect(()=>{if(scope!=='project'&&!minis.some(m=>String(m.id)===scope))setScope('project');},[minis,scope]);
+  const mini=scope==='project'?null:minis.find(m=>String(m.id)===scope)||null;
+  const narrative=mini?mini.narrative:project.narrative;
+  const chip=(key,label,n)=>(
+    <button key={key} className={`btn ${(mini?String(mini.id):'project')===key?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem',maxWidth:isMobile?'100%':220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
+      onClick={()=>setScope(key)}>{label}{bhNarrativeProgress(n)>0?` · ${bhNarrativeProgress(n)}/5`:''}</button>
+  );
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}} role="group" aria-label="Nível da narrativa">
+        {chip('project','Projeto',project.narrative)}
+        {minis.map(m=>chip(String(m.id),m.title||'Tarefa',m.narrative))}
+      </div>
+      <NarrativePanel key={mini?String(mini.id):'project'} narrative={narrative}
+        scopeLabel={mini?'Esta tarefa/animatic: «'+(mini.title||'Tarefa')+'»':'O projeto inteiro (nível macro). Escolha uma tarefa acima para o nível de animatic.'}
+        onChange={fn=>mini?onMini(mini.id,fn):onProject(fn)}/>
+    </div>
+  );
+};
+const NarrativeStartPicker=({value,onChange})=>(
+  <Field label="Modelo narrativo (opcional)"><NarrativeTemplatePicker value={value} onChange={onChange}/></Field>
+);
+
 // - NEW PROJECT MODAL -
 const NewProjectModal=({onSave,onClose,isMobile})=>{
   const [form,setForm]=useState({title:'',client:'',type:'work',status:'Em Andamento',startDate:'',deadline:'',notes:'',cover:'',budget:'',paid:false,shotsDone:0,shotsTotal:0,mentors:[],researchImages:[],researchNotes:[],projectTasks:[],timelineEvents:[],deleted:false});
+  const [narrativeTpl,setNarrativeTpl]=useState('');
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const coverRef=useRef();
   const handleCover=e=>bhPickImage(e,url=>set('cover',url),'a capa');
-  const save=()=>{if(!form.title.trim())return;onSave({...form,unitValue:form.budget,budget:bhProjectTotal(form.budget,0),id:bhNewId(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
+  const save=()=>{if(!form.title.trim())return;onSave({...form,...(narrativeTpl?{narrative:bhNarrativeSetTemplate(undefined,narrativeTpl)}:{}),unitValue:form.budget,budget:bhProjectTotal(form.budget,0),id:bhNewId(),cover:form.cover||'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200'});};
   return(
     <Modal title="Novo Projeto" onClose={onClose} width={isMobile?'100%':520}>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
@@ -9580,6 +9816,7 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
           <Field label="Início"><input className="input-box" type="date" value={form.startDate} onChange={e=>set('startDate',e.target.value)}/></Field>
           <Field label="Deadline"><input className="input-box" type="date" value={form.deadline} onChange={e=>set('deadline',e.target.value)}/></Field>
         </div>
+        <NarrativeStartPicker value={narrativeTpl} onChange={setNarrativeTpl}/>
         <Field label="Notas iniciais"><textarea className="input-box" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Briefing, referências..." style={{resize:'none',lineHeight:1.7}}/></Field>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:4}}>
           <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
@@ -10858,6 +11095,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
+const PROJECT_TABS=['Visão Geral','Narrativa','Tarefas','Pesquisa','Mentores'];
 const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
@@ -11587,13 +11825,13 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       {/* Tabs */}
       {isMobile?(
         <div className="seg-tabs">
-          {['Visão Geral','Tarefas','Pesquisa','Mentores'].map(t=>(
+          {PROJECT_TABS.map(t=>(
             <button key={t} onClick={()=>setTab(t)} aria-current={tab===t?'true':undefined} className={`seg-tab ${tab===t?'active':''}`}>{t}</button>
           ))}
         </div>
       ):(
         <div style={{display:'flex',borderBottom:'1px solid var(--border)',marginBottom:20}}>
-          {['Visão Geral','Tarefas','Pesquisa','Mentores'].map(t=>(
+          {PROJECT_TABS.map(t=>(
             <button key={t} onClick={()=>setTab(t)} className="tab-btn" style={{color:tab===t?'var(--text)':'var(--muted)',borderBottom:tab===t?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>{t}</button>
           ))}
         </div>
@@ -11860,6 +12098,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
           )}
         </div>
       )}
+
+      {tab==='Narrativa'&&<NarrativeTab project={local} isMobile={isMobile} onProject={fn=>upd('narrative',fn)} onMini={(id,fn)=>mapMini(id,m=>({...m,narrative:fn(m.narrative)}))}/>}
 
       {tab==='Tarefas'&&(
         <div style={{display:'flex',gap:16,flexDirection:isMobile?'column':'row'}}>

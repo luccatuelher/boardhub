@@ -51,6 +51,7 @@ export const EXPECTED = {
   imgur: ['BH_IMGUR_RE', 'bhCollectImgur'],
   preloadall: ['bhPreloadAllPosts', 'bhPreloadList', 'bhImageIsLocal', 'bhImageHdSettled'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
+  narrative: ['BH_NARRATIVE_STAGES', 'BH_NARRATIVE_TEMPLATES', 'bhNarrativeTemplate', 'bhNarrativeNormalize', 'bhNarrativeSetField', 'bhNarrativeSetTemplate', 'bhNarrativeSetBeat', 'bhNarrativeCopyOutline', 'bhNarrativeFilled', 'bhNarrativeProgress'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 
