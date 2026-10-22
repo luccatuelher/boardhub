@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const N = load(['narrative']);
+const N = load(['narrative'], { stubs: { bhNewId: (p = '') => p + Math.random().toString(36).slice(2) } });
 
 test('template catalogue: unique ids, beat ids unique across templates and prefixed by their template', () => {
   const tpls = N.BH_NARRATIVE_TEMPLATES;
@@ -65,4 +65,21 @@ test('progress counts logline, synopsis, argument, outline (either pass) and scr
   n = N.bhNarrativeSetBeat(N.bhNarrativeSetTemplate(n, 'mckee'), 2, 'mckee.crisis', 'c');
   assert.equal(N.bhNarrativeProgress(n), 3);
   assert.equal(N.bhNarrativeProgress(N.bhNarrativeSetField(n, 'synopsis', '   ')), 3, 'whitespace does not count');
+});
+
+test('board: add, edit, move, remove; junk is dropped; counts as outline progress', () => {
+  let n = N.bhNarrativeBoardAdd(undefined, 'Abertura');
+  n = N.bhNarrativeBoardAdd(n, 'Virada', { x: 300.4, y: -5 });
+  assert.equal(n.board.length, 2);
+  const [a, b] = n.board;
+  assert.notEqual(a.id, b.id);
+  assert.deepEqual([b.x, b.y], [300, 0]);
+  n = N.bhNarrativeBoardEdit(n, a.id, 'Abertura 2');
+  n = N.bhNarrativeBoardMove(n, a.id, 55.6, 120);
+  assert.deepEqual(n.board[0], { id: a.id, text: 'Abertura 2', x: 56, y: 120 });
+  assert.ok(N.bhNarrativeProgress(n) >= 1);
+  n = N.bhNarrativeBoardRemove(n, a.id);
+  assert.equal(n.board.length, 1);
+  assert.deepEqual(N.bhNarrativeNormalize({ board: [null, 5, { id: 'k', text: 3, x: 'a' }, { text: 'sem id' }] }).board, [{ id: 'k', text: '', x: 0, y: 0 }]);
+  assert.deepEqual(N.bhNarrativeNormalize(undefined).board, []);
 });

@@ -9596,7 +9596,9 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
 // synopsis -> argument -> outline (two passes) -> final script. Stored ADDITIVELY
 // as `narrative` on the project or on a miniProjects entry; absent until the
 // first edit, so old data and sync v4 are untouched:
-//   {tpl, logline, synopsis, argument, script, outline1:{beatId:text}, outline2:{...}, updatedAt}
+//   {tpl, logline, synopsis, argument, script, outline1:{beatId:text}, outline2:{...},
+//    board:[{id,text,x,y}], updatedAt}
+// `board` is the free-form outline (sticky notes dragged around, like a Miro board).
 // Outline text is keyed by beat id (ids are unique across templates), so
 // switching template never drops what was written for another one.
 // To add a model: append an entry to BH_NARRATIVE_TEMPLATES (unique ids, beat ids
@@ -9698,6 +9700,9 @@ const bhNarrativeMap=v=>{
   if(v&&typeof v==='object'&&!Array.isArray(v))for(const k of Object.keys(v))if(typeof v[k]==='string')out[k]=v[k];
   return out;
 };
+const bhBoardPos=v=>Number.isFinite(v)?Math.max(0,Math.round(v)):0;
+const bhNarrativeBoard=v=>Array.isArray(v)?v.filter(c=>c&&typeof c==='object'&&(typeof c.id==='string'||typeof c.id==='number'))
+  .map(c=>({id:String(c.id),text:bhNarrativeStr(c.text),x:bhBoardPos(c.x),y:bhBoardPos(c.y)})):[];
 // Always returns a complete, valid narrative whatever is stored (undefined, partial, junk).
 const bhNarrativeNormalize=n=>{
   const o=n&&typeof n==='object'&&!Array.isArray(n)?n:{};
@@ -9705,6 +9710,7 @@ const bhNarrativeNormalize=n=>{
     tpl:bhNarrativeTemplate(o.tpl)?o.tpl:'',
     logline:bhNarrativeStr(o.logline),synopsis:bhNarrativeStr(o.synopsis),argument:bhNarrativeStr(o.argument),script:bhNarrativeStr(o.script),
     outline1:bhNarrativeMap(o.outline1),outline2:bhNarrativeMap(o.outline2),
+    board:bhNarrativeBoard(o.board),
     updatedAt:typeof o.updatedAt==='string'?o.updatedAt:'',
   };
 };
@@ -9720,6 +9726,24 @@ const bhNarrativeSetBeat=(n,pass,beatId,text)=>{
   const key=pass===2?'outline2':'outline1';
   if(!BH_NARRATIVE_TEMPLATES.some(t=>t.beats.some(b=>b.id===beatId)))return cur;
   return bhNarrativeStamp({...cur,[key]:{...cur[key],[beatId]:bhNarrativeStr(text)}});
+};
+// Board cards: new ones land on a 4-column grid unless a position is given.
+const bhNarrativeBoardAdd=(n,text,pos)=>{
+  const cur=bhNarrativeNormalize(n),i=cur.board.length;
+  const card={id:bhNewId('c'),text:bhNarrativeStr(text),x:bhBoardPos(pos?pos.x:(i%4)*190+8),y:bhBoardPos(pos?pos.y:Math.floor(i/4)*150+8)};
+  return bhNarrativeStamp({...cur,board:[...cur.board,card]});
+};
+const bhNarrativeBoardEdit=(n,id,text)=>{
+  const cur=bhNarrativeNormalize(n);
+  return bhNarrativeStamp({...cur,board:cur.board.map(c=>c.id===String(id)?{...c,text:bhNarrativeStr(text)}:c)});
+};
+const bhNarrativeBoardMove=(n,id,x,y)=>{
+  const cur=bhNarrativeNormalize(n);
+  return bhNarrativeStamp({...cur,board:cur.board.map(c=>c.id===String(id)?{...c,x:bhBoardPos(x),y:bhBoardPos(y)}:c)});
+};
+const bhNarrativeBoardRemove=(n,id)=>{
+  const cur=bhNarrativeNormalize(n);
+  return bhNarrativeStamp({...cur,board:cur.board.filter(c=>c.id!==String(id))});
 };
 // Starts the second outline from the first, only filling beats still empty in the second.
 const bhNarrativeCopyOutline=n=>{
@@ -9738,7 +9762,7 @@ const bhNarrativeFilled=(n,pass)=>{
 // How many of the 5 stages have text (outline counts when either pass has any beat).
 const bhNarrativeProgress=n=>{
   const cur=bhNarrativeNormalize(n);
-  const outlineHas=[cur.outline1,cur.outline2].some(m=>Object.values(m).some(t=>t.trim()));
+  const outlineHas=cur.board.some(c=>c.text.trim())||[cur.outline1,cur.outline2].some(m=>Object.values(m).some(t=>t.trim()));
   return[cur.logline,cur.synopsis,cur.argument,outlineHas?'x':'',cur.script].filter(t=>t.trim()).length;
 };
 // @bh-test-end narrative
@@ -9759,47 +9783,111 @@ const NarrativeTemplatePicker=({value,onChange})=>{
     </div>
   );
 };
-// `store` is {get(): narrative|undefined, set(narrative)}; the same panel serves the
-// project and any animatic, which is how the macro/micro split works.
-const NarrativePanel=({narrative,onChange,scopeLabel})=>{
+// Sticky-note board: drag a card by its grip (mouse, pen or touch; the rest of the
+// board still scrolls on touch), type in it, delete it. Positions commit on release.
+const NarrativeBoard=({cards,onAdd,onEdit,onMove,onRemove})=>{
+  const [drag,setDrag]=useState(null); // {id,x,y}
+  const ref=useRef(null);
+  const start=(c,e)=>{
+    e.preventDefault();
+    try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}
+    ref.current={id:c.id,sx:e.clientX,sy:e.clientY,ox:c.x,oy:c.y};
+    setDrag({id:c.id,x:c.x,y:c.y});
+  };
+  const move=e=>{
+    const d=ref.current;if(!d)return;
+    setDrag({id:d.id,x:Math.max(0,d.ox+e.clientX-d.sx),y:Math.max(0,d.oy+e.clientY-d.sy)});
+  };
+  const end=e=>{
+    const d=ref.current;if(!d)return;
+    ref.current=null;
+    const x=Math.max(0,d.ox+e.clientX-d.sx),y=Math.max(0,d.oy+e.clientY-d.sy);
+    setDrag(null);
+    if(e.type!=='pointercancel'&&(x!==d.ox||y!==d.oy))onMove(d.id,x,y);
+  };
+  const pos=c=>drag&&drag.id===c.id?drag:c;
+  const W=190,H=140;
+  const width=Math.max(600,...cards.map(c=>pos(c).x+W+24)),height=Math.max(360,...cards.map(c=>pos(c).y+H+24));
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      <div><button className="btn btn-outline" style={{padding:'4px 12px',fontSize:'.78rem'}} onClick={onAdd}><Icon name="plus" size={12}/> Nova nota</button></div>
+      <div style={{overflow:'auto',maxHeight:'70vh',border:'1px dashed var(--border)',borderRadius:10,background:'var(--surface)'}}>
+        <div style={{position:'relative',width,height}}>
+          {cards.length===0&&<span style={{position:'absolute',left:16,top:14,fontSize:'.8rem',color:'var(--muted)'}}>Crie notas e arraste para organizar as batidas.</span>}
+          {cards.map(c=>{const p=pos(c),active=drag&&drag.id===c.id;return(
+            <div key={c.id} style={{position:'absolute',left:p.x,top:p.y,width:W-14,height:H-14,background:'#F6E27A',color:'#1C1917',borderRadius:6,boxShadow:active?'0 8px 20px rgba(0,0,0,.35)':'0 2px 6px rgba(0,0,0,.25)',display:'flex',flexDirection:'column',zIndex:active?5:1}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'2px 4px',background:'rgba(0,0,0,.08)',borderRadius:'6px 6px 0 0'}}>
+                <span role="button" aria-label="Arrastar nota" title="Arraste para mover" onPointerDown={e=>start(c,e)} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+                  style={{cursor:'grab',touchAction:'none',display:'flex',padding:'4px 10px',flex:1}}><Icon name="grip-vertical" size={12}/></span>
+                <button type="button" aria-label="Remover nota" title="Remover" onClick={()=>onRemove(c.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#1C1917',padding:'4px',display:'flex'}}><Icon name="x" size={12}/></button>
+              </div>
+              <textarea aria-label="Texto da nota" value={c.text} onChange={e=>onEdit(c.id,e.target.value)} placeholder="Batida…"
+                style={{flex:1,resize:'none',border:'none',outline:'none',background:'transparent',color:'#1C1917',padding:'6px 8px',fontFamily:'inherit',fontSize:'.84rem',lineHeight:1.4}}/>
+            </div>);})}
+        </div>
+      </div>
+    </div>
+  );
+};
+const NarrativeSection=({title,sub,right,children})=>(
+  <div className="card" style={{padding:'clamp(14px,2vh,24px)',display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
+      <span className="label label-section">{title}</span>{right}
+    </div>
+    {sub&&<span style={{fontSize:'.76rem',color:'var(--muted)'}}>{sub}</span>}
+    {children}
+  </div>
+);
+// "Narrativa": pick a model and fill its empty beat slots.
+// `onChange` receives an updater (cur=>next); the same panel serves the project and any animatic.
+const NarrativePanel=({narrative,onChange,scopeLabel,isMobile})=>{
   const n=bhNarrativeNormalize(narrative);
   const tpl=bhNarrativeTemplate(n.tpl);
   const [pass,setPass]=useState(1);
   const filled=bhNarrativeFilled(n,pass);
-  const section=(key,title,sub,children,right)=>(
-    <div key={key} className="card" style={{padding:'clamp(14px,2vh,24px)',display:'flex',flexDirection:'column',gap:10}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
-        <span className="label label-section">{title}</span>{right}
-      </div>
-      {sub&&<span style={{fontSize:'.76rem',color:'var(--muted)'}}>{sub}</span>}
-      {children}
-    </div>
-  );
   return(
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
-      {section('tpl','Modelo narrativo',scopeLabel,<NarrativeTemplatePicker value={n.tpl} onChange={v=>onChange(cur=>bhNarrativeSetTemplate(cur,v))}/>)}
-      {BH_NARRATIVE_STAGES.map(s=>section(s.key,s.label,s.hint,
-        <NarrativeTextarea label={s.label} rows={s.rows} value={n[s.key]} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,s.key,v))} placeholder={s.label+'…'}/>))}
-      {section('outline','Esboço',tpl?'Uma batida por etapa do modelo escolhido. O 2º esboço refina o 1º.':'Escolha um modelo acima para ter as etapas do esboço.',
-        tpl&&<>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-            {[1,2].map(p=><button key={p} className={`btn ${pass===p?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={pass===p} onClick={()=>setPass(p)}>{p}º esboço</button>)}
-            {pass===2&&<button className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={()=>onChange(cur=>bhNarrativeCopyOutline(cur))} title="Preenche as etapas vazias do 2º esboço com o 1º"><Icon name="copy" size={12}/> Partir do 1º</button>}
-          </div>
+      <NarrativeSection title="Modelo narrativo" sub={scopeLabel}><NarrativeTemplatePicker value={n.tpl} onChange={v=>onChange(cur=>bhNarrativeSetTemplate(cur,v))}/></NarrativeSection>
+      {tpl&&<NarrativeSection title={tpl.name} sub="Preencha cada etapa do modelo. O 2º esboço refina o 1º."
+        right={<span style={{fontSize:'.74rem',color:'var(--muted)'}}>{filled.done}/{filled.total}</span>}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          {[1,2].map(p=><button key={p} className={`btn ${pass===p?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={pass===p} onClick={()=>setPass(p)}>{p}º esboço</button>)}
+          {pass===2&&<button className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={()=>onChange(cur=>bhNarrativeCopyOutline(cur))} title="Preenche as etapas vazias do 2º esboço com o 1º"><Icon name="copy" size={12}/> Partir do 1º</button>}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>
           {tpl.beats.map(b=>(
-            <div key={b.id} style={{display:'flex',flexDirection:'column',gap:4}}>
-              <div style={{fontSize:'.84rem',fontWeight:600}}>{b.label}{b.hint&&<span style={{fontWeight:400,color:'var(--muted)',fontSize:'.76rem'}}> — {b.hint}</span>}</div>
-              <NarrativeTextarea label={b.label+' ('+pass+'º esboço)'} rows={2} value={(pass===2?n.outline2:n.outline1)[b.id]||''} onChange={v=>onChange(cur=>bhNarrativeSetBeat(cur,pass,b.id,v))} placeholder="…"/>
+            <div key={b.id} style={{display:'flex',flexDirection:'column',gap:4,padding:10,border:'1px solid var(--border)',borderRadius:10}}>
+              <div style={{fontSize:'.84rem',fontWeight:600}}>{b.label}</div>
+              {b.hint&&<div style={{fontWeight:400,color:'var(--muted)',fontSize:'.74rem'}}>{b.hint}</div>}
+              <NarrativeTextarea label={b.label+' ('+pass+'º esboço)'} rows={3} value={(pass===2?n.outline2:n.outline1)[b.id]||''} onChange={v=>onChange(cur=>bhNarrativeSetBeat(cur,pass,b.id,v))} placeholder="…"/>
             </div>
           ))}
-        </>,
-        tpl&&<span style={{fontSize:'.74rem',color:'var(--muted)'}}>{filled.done}/{filled.total}</span>)}
-      {section('script','Roteiro final','O texto definitivo.',
-        <NarrativeTextarea label="Roteiro final" rows={16} value={n.script} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,'script',v))} placeholder="Roteiro final…"/>)}
+        </div>
+      </NarrativeSection>}
     </div>
   );
 };
-const NarrativeTab=({project,onProject,onMini,isMobile})=>{
+// "História": logline, synopsis, argument, the sticky-note outline board and the final script.
+const StoryPanel=({narrative,onChange})=>{
+  const n=bhNarrativeNormalize(narrative);
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      {BH_NARRATIVE_STAGES.map(s=><NarrativeSection key={s.key} title={s.label} sub={s.hint}>
+        <NarrativeTextarea label={s.label} rows={s.rows} value={n[s.key]} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,s.key,v))} placeholder={s.label+'…'}/></NarrativeSection>)}
+      <NarrativeSection title="Escaleta" sub="Um quadro de notas: escreva as batidas e arraste para reorganizar.">
+        <NarrativeBoard cards={n.board}
+          onAdd={()=>onChange(cur=>bhNarrativeBoardAdd(cur,''))}
+          onEdit={(id,t)=>onChange(cur=>bhNarrativeBoardEdit(cur,id,t))}
+          onMove={(id,x,y)=>onChange(cur=>bhNarrativeBoardMove(cur,id,x,y))}
+          onRemove={id=>onChange(cur=>bhNarrativeBoardRemove(cur,id))}/>
+      </NarrativeSection>
+      <NarrativeSection title="Roteiro final" sub="O texto definitivo.">
+        <NarrativeTextarea label="Roteiro final" rows={16} value={n.script} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,'script',v))} placeholder="Roteiro final…"/></NarrativeSection>
+    </div>
+  );
+};
+// `view` is 'narrativa' (model + beat slots) or 'historia' (the written stages + board).
+const NarrativeTab=({project,onProject,onMini,isMobile,view})=>{
   const minis=project.miniProjects||[];
   const [scope,setScope]=useState('project');
   useEffect(()=>{if(scope!=='project'&&!minis.some(m=>String(m.id)===scope))setScope('project');},[minis,scope]);
@@ -9809,15 +9897,17 @@ const NarrativeTab=({project,onProject,onMini,isMobile})=>{
     <button key={key} className={`btn ${(mini?String(mini.id):'project')===key?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem',maxWidth:isMobile?'100%':220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
       onClick={()=>setScope(key)}>{label}{bhNarrativeProgress(n)>0?` · ${bhNarrativeProgress(n)}/5`:''}</button>
   );
+  const onChange=fn=>mini?onMini(mini.id,fn):onProject(fn);
   return(
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}} role="group" aria-label="Nível da narrativa">
         {chip('project','Projeto',project.narrative)}
         {minis.map(m=>chip(String(m.id),m.title||'Tarefa',m.narrative))}
       </div>
-      <NarrativePanel key={mini?String(mini.id):'project'} narrative={narrative}
-        scopeLabel={mini?'Esta tarefa/animatic: «'+(mini.title||'Tarefa')+'»':'O projeto inteiro (nível macro). Escolha uma tarefa acima para o nível de animatic.'}
-        onChange={fn=>mini?onMini(mini.id,fn):onProject(fn)}/>
+      {view==='historia'
+        ?<StoryPanel key={'h'+(mini?String(mini.id):'project')} narrative={narrative} onChange={onChange}/>
+        :<NarrativePanel key={'n'+(mini?String(mini.id):'project')} narrative={narrative} isMobile={isMobile} onChange={onChange}
+          scopeLabel={mini?'Esta tarefa/animatic: «'+(mini.title||'Tarefa')+'»':'O projeto inteiro (nível macro). Escolha uma tarefa acima para o nível de animatic.'}/>}
     </div>
   );
 };
@@ -11132,7 +11222,7 @@ const projectTaskNamed=(tasks,minis)=>{
   });
 };
 
-const PROJECT_TABS=['Visão Geral','Narrativa','Tarefas','Pesquisa','Inspirações'];
+const PROJECT_TABS=['Visão Geral','Narrativa','História','Tarefas','Pesquisa','Inspirações'];
 const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
@@ -11789,9 +11879,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 {projectTodaySecs>0&&<span style={{opacity:.72,fontWeight:500}}>· {pomoFmtSecs(projectTodaySecs)} hoje</span>}
               </div>
             </div>
-            <select value={local.status} onChange={e=>{e.stopPropagation();upd('status',e.target.value);}} aria-label="Status do projeto" style={{background:'white',color:'#1C1917',colorScheme:'light',border:'none',borderRadius:20,padding:isMobile?'5px 10px':'7px 14px',fontFamily:'Alegreya Sans,sans-serif',fontWeight:600,fontSize:'.8rem',cursor:'pointer',outline:'none',pointerEvents:'all',flexShrink:0}}>
+<div style={{display:'flex',gap:8,flexShrink:0,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                        <select value={local.type==='personal'?'personal':'work'} onChange={e=>{e.stopPropagation();upd('type',e.target.value);}} aria-label="Tipo do projeto" style={{background:'white',color:'#1C1917',colorScheme:'light',border:'none',borderRadius:20,padding:isMobile?'5px 10px':'7px 14px',fontFamily:'Alegreya Sans,sans-serif',fontWeight:600,fontSize:'.8rem',cursor:'pointer',outline:'none',pointerEvents:'all',flexShrink:0}}>
+              <option value="work">Trabalho</option><option value="personal">Pessoal</option>
+            </select>
+                        <select value={local.status} onChange={e=>{e.stopPropagation();upd('status',e.target.value);}} aria-label="Status do projeto" style={{background:'white',color:'#1C1917',colorScheme:'light',border:'none',borderRadius:20,padding:isMobile?'5px 10px':'7px 14px',fontFamily:'Alegreya Sans,sans-serif',fontWeight:600,fontSize:'.8rem',cursor:'pointer',outline:'none',pointerEvents:'all',flexShrink:0}}>
               <option>Em Andamento</option><option>Pausado</option><option>Concluído</option><option>Cancelado</option>
             </select>
+            </div>
           </div>
         </div>
       </div>
@@ -12136,7 +12231,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
         </div>
       )}
 
-      {tab==='Narrativa'&&<NarrativeTab project={local} isMobile={isMobile} onProject={fn=>upd('narrative',fn)} onMini={(id,fn)=>mapMini(id,m=>({...m,narrative:fn(m.narrative)}))}/>}
+      {(tab==='Narrativa'||tab==='História')&&<NarrativeTab view={tab==='História'?'historia':'narrativa'} project={local} isMobile={isMobile} onProject={fn=>upd('narrative',fn)} onMini={(id,fn)=>mapMini(id,m=>({...m,narrative:fn(m.narrative)}))}/>}
 
       {tab==='Tarefas'&&(
         <div style={{display:'flex',gap:16,flexDirection:isMobile?'column':'row'}}>
