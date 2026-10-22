@@ -18244,7 +18244,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
 const BH_STUDY_KINDS=['Filme','Série','Animação','Curta','Cinemática de jogo','Videoclipe','Comercial','Outro'];
 // New studies carry every field so the editor never meets undefined; `refs` is a
 // free-length list of image URLs (visual references / frame grabs).
-const bhNewStudy=(over={},newId=bhNewId)=>({id:newId(),title:'',kind:'Filme',year:'',studio:'',artists:'',language:'',breakdown:'',analysis:'',links:'',refs:[],team:[],deleted:false,...over});
+const bhNewStudy=(over={},newId=bhNewId)=>({id:newId(),title:'',kind:'Filme',year:'',studio:'',artists:'',language:'',breakdown:'',analysis:'',links:'',refs:[],analysisImages:[],team:[],deleted:false,...over});
 // `team` rows are {id,role,name}. Old studies only have the free-text `artists`, so opening one
 // splits that text into rows (name only, nothing dropped); `artists` stays as a derived summary
 // ("Role: Name, ...") so cards, search and older clients keep working.
@@ -18275,11 +18275,11 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
     onClose();
   };
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const fileRef=useRef();
-  const addFiles=async files=>{
+  const fileRefs=useRef({});
+  const addFiles=async(key,files)=>{
     for(const file of Array.from(files||[])){
       if(!/^image\//.test(file.type))continue;
-      try{const url=await uploadImage(file);setForm(f=>({...f,refs:[...(f.refs||[]),url]}));}
+      try{const url=await uploadImage(file);setForm(f=>({...f,[key]:[...(f[key]||[]),url]}));}
       catch(err){bhLog('study.ref',err,'a referência');await bhAlert(bhUploadErrorText(err,'Não foi possível enviar a imagem. Tente novamente.'));}
     }
   };
@@ -18287,7 +18287,24 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
   const addRow=()=>setForm(f=>({...f,team:[...f.team,{id:bhNewId(),role:'',name:''}]}));
   const removeRow=id=>setForm(f=>({...f,team:f.team.filter(r=>r.id!==id)}));
   const saveForm=()=>{const team=form.team.filter(r=>r.role.trim()||r.name.trim()).map(r=>({...r,role:r.role.trim(),name:r.name.trim()}));onSave({...form,team,artists:bhStudyTeamSummary(team)});};
-  const removeRef=idx=>setForm(f=>({...f,refs:(f.refs||[]).filter((_,i)=>i!==idx)}));
+  const removeImg=(key,idx)=>setForm(f=>({...f,[key]:(f[key]||[]).filter((_,i)=>i!==idx)}));
+  const imgGrid=(key,label)=>{const list=form[key]||[];return(
+          <div>
+            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>{label}</span>
+            <input ref={el=>{fileRefs.current[key]=el;}} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{addFiles(key,e.target.files);e.target.value='';}}/>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8}}>
+              {list.map((img,idx)=>(
+                <div key={imgKey(img,idx,list)} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)'}}>
+                  <Img src={img} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                  <button onClick={()=>removeImg(key,idx)} title="Remover imagem" aria-label={'Remover referência '+(idx+1)} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,.55)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><Icon name="x" size={10}/></button>
+                </div>
+              ))}
+              <button onClick={()=>fileRefs.current[key]?.click()} style={{aspectRatio:'1',borderRadius:10,border:'1.5px dashed var(--border)',background:'transparent',cursor:'pointer',color:'var(--muted)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:'.7rem'}}>
+                <Icon name="image-plus" size={18}/><span>Adicionar</span>
+              </button>
+            </div>
+          </div>
+  );};
   const {boxRef,trapTab}=useModalLayer(requestClose);
   const ta=(k,label,placeholder,rows=3)=>(
     <Field label={label}>
@@ -18332,24 +18349,11 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
           {page===1&&<>
           {ta('language','Linguagem visual','Cor, luz, câmera, composição, ritmo, texturas...',5)}
           {ta('breakdown','Breakdown','Cena a cena: o que acontece, planos, transições, o que chamou atenção...',8)}
-          <div>
-            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Imagens e referências visuais</span>
-            <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8}}>
-              {form.refs.map((img,idx)=>(
-                <div key={imgKey(img,idx,form.refs)} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)'}}>
-                  <Img src={img} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                  <button onClick={()=>removeRef(idx)} title="Remover imagem" aria-label={'Remover referência '+(idx+1)} style={{position:'absolute',top:4,right:4,width:20,height:20,borderRadius:'50%',background:'rgba(0,0,0,.55)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><Icon name="x" size={10}/></button>
-                </div>
-              ))}
-              <button onClick={()=>fileRef.current.click()} style={{aspectRatio:'1',borderRadius:10,border:'1.5px dashed var(--border)',background:'transparent',cursor:'pointer',color:'var(--muted)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:'.7rem'}}>
-                <Icon name="image-plus" size={18}/><span>Adicionar</span>
-              </button>
-            </div>
-          </div>
+          {imgGrid('refs','Imagens e referências visuais')}
           </>}
           {page===2&&<>
           {ta('analysis','Minha análise','Como eu vejo: por que funciona, o que levo para os meus projetos...',12)}
+          {imgGrid('analysisImages','Imagens da análise')}
           <Field label="Links"><textarea className="input-box" rows={5} value={form.links||''} onChange={e=>set('links',e.target.value)} placeholder="https://... (um por linha ou separados por vírgula)" style={{resize:'vertical',lineHeight:1.7}}/></Field>
           </>}
         </div>
