@@ -20694,14 +20694,16 @@ const App=()=>{
   // be told apart from "not applied yet" by the sync merge and would double count. The plan is recomputed on the freshest data inside
   // the updater, so a session finished meanwhile cannot be counted twice.
   const redistributeHours=async(args)=>{
+    if(fbUser&&!_didInitialReconcile.current)return{ok:false,error:'Aguarde a leitura inicial da conta antes de redistribuir. Nada foi alterado.'};
+    if(bhPersistenceBusy())return{ok:false,error:'Há uma restauração em andamento. Nada foi alterado.'};
     const live=_latestState.current||appState;
     if(bhStateHasData(live)&&!await bhCapture(live,'pre-redistribute'))return{ok:false,error:'Não foi possível criar a cópia de segurança. Nada foi alterado.'};
     const batch=bhNewId();
-    const moved=pomoRedistributePlan(pomoNormalize(live.pomoData),args).assignments.length;
-    setPomoData(prev=>{
-      const base=pomoNormalize(prev);
-      return pomoRedistributeApply(base,pomoRedistributePlan(base,args),batch);
-    });
+    // Only the sessions previewed are moved (by id); one that arrived after the
+    // preview stays put.
+    const plan=pomoRedistributePlan(pomoNormalize((_latestState.current||live).pomoData),args);
+    const moved=plan.assignments.length;
+    setPomoData(prev=>pomoRedistributeApply(pomoNormalize(prev),plan,batch));
     return{ok:true,batch,moved};
   };
   const handleImportUnlocked=async (data,{incomingWins=false,mediaUpdate=false}={})=>{
