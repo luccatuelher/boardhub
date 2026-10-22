@@ -83,3 +83,37 @@ test('board: add, edit, move, remove; junk is dropped; counts as outline progres
   assert.deepEqual(N.bhNarrativeNormalize({ board: [null, 5, { id: 'k', text: 3, x: 'a' }, { text: 'sem id' }] }).board, [{ id: 'k', text: '', x: 0, y: 0 }]);
   assert.deepEqual(N.bhNarrativeNormalize(undefined).board, []);
 });
+
+test('virgin\'s promise template exists with 12 beats', () => {
+  assert.equal(N.bhNarrativeTemplate('virgins-promise').beats.length, 12);
+});
+
+test('layout: every template has its own kind, one node per beat, all inside the box and apart', () => {
+  const kinds = new Set();
+  for (const t of N.BH_NARRATIVE_TEMPLATES) {
+    const lay = N.bhNarrativeLayout(t);
+    kinds.add(lay.kind);
+    assert.notEqual(lay.kind, 'row', t.id);
+    assert.deepEqual(lay.nodes.map(n => n.id), t.beats.map(b => b.id));
+    for (const n of lay.nodes) assert.ok(n.x - lay.r >= 0 && n.x + lay.r <= lay.w && n.y - lay.r >= 0 && n.y + lay.r <= lay.h, t.id + ' ' + n.n);
+    for (let i = 0; i < lay.nodes.length; i++) for (let j = i + 1; j < lay.nodes.length; j++) {
+      const a = lay.nodes[i], b = lay.nodes[j];
+      assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= lay.r * 1.6, t.id + ' overlap ' + a.n + '/' + b.n);
+    }
+  }
+  assert.equal(kinds.size, N.BH_NARRATIVE_TEMPLATES.length);
+  assert.equal(N.bhNarrativeLayout(N.bhNarrativeTemplate('story-circle')).kind, 'circle');
+});
+
+test('story plots: unique ids, stages ordered along the story, values in range; plot choice persists', () => {
+  assert.ok(N.BH_STORY_PLOTS.length >= 7);
+  assert.equal(new Set(N.BH_STORY_PLOTS.map(p => p.id)).size, N.BH_STORY_PLOTS.length);
+  for (const p of N.BH_STORY_PLOTS) {
+    assert.ok(p.name && p.phrase && p.stages.length >= 4);
+    p.stages.forEach((s, i) => { assert.ok(s.label && s.text && s.y >= 0 && s.y <= 1 && s.x > 0 && s.x < 100); if (i) assert.ok(s.x > p.stages[i - 1].x); });
+  }
+  const n = N.bhNarrativeSetPlot(undefined, 'rags');
+  assert.equal(n.plot, 'rags');
+  assert.equal(N.bhNarrativeSetPlot(n, 'ghost').plot, '');
+  assert.equal(N.bhNarrativeNormalize({ plot: 'nope' }).plot, '');
+});

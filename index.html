@@ -9765,6 +9765,19 @@ const BH_NARRATIVE_TEMPLATES=[
     ['s6','Sequência 6 · Crise e derrota aparente',''],
     ['s7','Sequência 7 · Último esforço',''],
     ['s8','Sequência 8 · Clímax e resolução','']])},
+  {id:'virgins-promise',name:'A Promessa da Virgem',author:'Kim Hudson',note:'12 etapas sobre quem esconde o que é de verdade até ousar brilhar; contrapartida da Jornada do Herói.',beats:bhBeats('virgin',[
+    ['dependent','1 · Mundo dependente','Vive para agradar e cumprir o que esperam dela.'],
+    ['price','2 · Preço da conformidade','O que ela perde ao se encaixar.'],
+    ['shine','3 · Chance de brilhar','Uma oportunidade de mostrar quem é.'],
+    ['dress','4 · Veste-se para o papel','Prepara-se, ainda em segredo.'],
+    ['secret','5 · Mundo secreto','O lugar onde ela pode ser ela mesma.'],
+    ['outgrow','6 · Já não cabe no seu mundo','O segredo e a vida pública entram em choque.'],
+    ['caught','7 · Flagrada brilhando','Descobrem o que ela escondia.'],
+    ['punished','8 · É punida','O mundo dependente reage com rejeição.'],
+    ['chooses','9 · Escolhe a si mesma','Recusa voltar a se esconder.'],
+    ['help','10 · Recebe ajuda','Aliados ou um mentor reconhecem seu valor.'],
+    ['crisis','11 · O reino em crise','O mundo antigo precisa do que ela tem.'],
+    ['order','12 · Nova ordem','Ela lidera pelo exemplo e o reino se transforma.']])},
 ];
 const bhNarrativeTemplate=id=>BH_NARRATIVE_TEMPLATES.find(t=>t.id===id)||null;
 const bhNarrativeStr=v=>typeof v==='string'?v:'';
@@ -9783,7 +9796,7 @@ const bhNarrativeNormalize=n=>{
     tpl:bhNarrativeTemplate(o.tpl)?o.tpl:'',
     logline:bhNarrativeStr(o.logline),synopsis:bhNarrativeStr(o.synopsis),argument:bhNarrativeStr(o.argument),script:bhNarrativeStr(o.script),
     outline1:bhNarrativeMap(o.outline1),outline2:bhNarrativeMap(o.outline2),
-    board:bhNarrativeBoard(o.board),
+    board:bhNarrativeBoard(o.board),plot:bhStoryPlot(o.plot)?o.plot:'',
     updatedAt:typeof o.updatedAt==='string'?o.updatedAt:'',
   };
 };
@@ -9793,6 +9806,7 @@ const bhNarrativeSetField=(n,key,text)=>{
   return bhNarrativeStamp({...bhNarrativeNormalize(n),[key]:bhNarrativeStr(text)});
 };
 const bhNarrativeSetTemplate=(n,tplId)=>bhNarrativeStamp({...bhNarrativeNormalize(n),tpl:bhNarrativeTemplate(tplId)?tplId:''});
+const bhNarrativeSetPlot=(n,plotId)=>bhNarrativeStamp({...bhNarrativeNormalize(n),plot:bhStoryPlot(plotId)?plotId:''});
 // pass 1 or 2; beat ids from another template are rejected so the map stays clean.
 const bhNarrativeSetBeat=(n,pass,beatId,text)=>{
   const cur=bhNarrativeNormalize(n);
@@ -9838,6 +9852,132 @@ const bhNarrativeProgress=n=>{
   const outlineHas=cur.board.some(c=>c.text.trim())||[cur.outline1,cur.outline2].some(m=>Object.values(m).some(t=>t.trim()));
   return[cur.logline,cur.synopsis,cur.argument,outlineHas?'x':'',cur.script].filter(t=>t.trim()).length;
 };
+
+// ---- Visual layout of each template (interactive map) ----
+// Every template has its own shape; a layout is pure data: decorative shapes plus
+// one node {id,n,x,y} per beat, in a 640x340 box. The UI only draws it.
+const BH_NARRATIVE_VIZ={'three-act':'acts','save-the-cat':'ruler','mckee':'stairs','hero-journey':'descent','story-circle':'circle','freytag':'pyramid','kishotenketsu':'panels','story-spine':'ladder','sequences':'blocks','virgins-promise':'worlds'};
+const bhPolar=(cx,cy,r,deg)=>[Math.round(cx+r*Math.cos(deg*Math.PI/180)),Math.round(cy+r*Math.sin(deg*Math.PI/180))];
+const bhNarrativeLayout=tpl=>{
+  const beats=tpl?tpl.beats:[],n=beats.length,kind=BH_NARRATIVE_VIZ[tpl&&tpl.id]||'row';
+  const decor=[],txt=(x,y,s,k)=>decor.push({t:'text',x,y,s,k:k||'note'});
+  const path=pts=>'M'+pts.map(p=>p[0]+' '+p[1]).join(' L');
+  let xy,r=15,labels=false;
+  if(kind==='circle'){
+    decor.push({t:'circle',cx:320,cy:170,r:135,k:'line'},{t:'line',x1:185,y1:170,x2:455,y2:170,k:'dash'});
+    txt(320,128,'ZONA DE CONFORTO');txt(320,222,'O DESCONHECIDO');
+    xy=beats.map((b,i)=>bhPolar(320,170,135,-90+360*i/n));
+  }else if(kind==='acts'){
+    const pct=[6,25,38,50,62,75,92],ys=[270,215,195,150,125,70,150];
+    decor.push({t:'rect',x:24,y:20,w:148,h:300,k:'band'});
+    decor.push({t:'rect',x:468,y:20,w:148,h:300,k:'band'});
+    txt(98,38,'ATO 1 · 25%');txt(320,38,'ATO 2 · 50%');txt(542,38,'ATO 3 · 25%');
+    xy=beats.map((b,i)=>[Math.round(24+592*pct[i]/100),ys[i]]);
+    decor.push({t:'path',d:path(xy),k:'curve'});
+  }else if(kind==='ruler'){
+    const pct=[1,5,8,10,15,20,23,35,50,62,75,78,80,90,99];
+    decor.push({t:'line',x1:24,y1:170,x2:616,y2:170,k:'line'});
+    [0,25,50,75,100].forEach(p=>{const x=Math.round(24+592*p/100);decor.push({t:'line',x1:x,y1:164,x2:x,y2:176,k:'line'});txt(x,196,p+'%');});
+    xy=beats.map((b,i)=>[Math.round(24+592*pct[i]/100),i%2?235:105]);
+    xy.forEach(p=>decor.push({t:'line',x1:p[0],y1:p[1],x2:p[0],y2:170,k:'dash'}));
+  }else if(kind==='stairs'){
+    const sw=Math.floor(560/n);
+    xy=beats.map((b,i)=>{const h=40+(i+1)*Math.floor(230/n),x=40+i*sw;decor.push({t:'rect',x,y:300-h,w:sw-4,h,k:'band'});return[x+Math.floor(sw/2)-2,300-h-20];});
+  }else if(kind==='descent'){
+    const ys=[55,65,80,100,170,215,250,290,255,215,150,55];
+    decor.push({t:'line',x1:24,y1:170,x2:616,y2:170,k:'dash'});txt(70,160,'MUNDO COMUM');txt(70,190,'MUNDO ESPECIAL');
+    xy=beats.map((b,i)=>[Math.round(60+i*(520/Math.max(1,n-1))),ys[i]]);
+    decor.push({t:'path',d:path(xy),k:'curve'});
+  }else if(kind==='pyramid'){
+    decor.push({t:'poly',pts:'60,290 320,60 580,290',k:'line'},{t:'line',x1:40,y1:290,x2:600,y2:290,k:'line'});
+    xy=[[90,290],[190,175],[320,70],[450,175],[550,290]];
+  }else if(kind==='panels'){
+    r=24;labels=true;
+    xy=beats.map((b,i)=>{const x=20+i*155,y=i===2?150:105;decor.push({t:'rect',x,y,w:130,h:130,k:i===2?'accent':'line',rot:i===2?6:0});
+      if(i<3)decor.push({t:'line',x1:x+134,y1:170,x2:x+150,y2:170,k:'line'});return[x+65,y+65];});
+  }else if(kind==='ladder'){
+    labels=true;decor.push({t:'line',x1:120,y1:14,x2:120,y2:326,k:'line'},{t:'line',x1:200,y1:14,x2:200,y2:326,k:'line'});
+    xy=beats.map((b,i)=>{const y=30+i*Math.floor(280/Math.max(1,n-1));decor.push({t:'line',x1:120,y1:y,x2:200,y2:y,k:'line'});return[160,y];});
+  }else if(kind==='blocks'){
+    const hs=[70,95,120,150,140,185,220,170],w=74;
+    [[24,172,'ATO 1'],[172,468,'ATO 2'],[468,616,'ATO 3']].forEach(a=>{decor.push({t:'line',x1:a[0]+3,y1:24,x2:a[1]-3,y2:24,k:'line'});txt(Math.round((a[0]+a[1])/2),16,a[2]);});
+    xy=beats.map((b,i)=>{const h=hs[i%8],x=24+i*w;decor.push({t:'rect',x:x+4,y:300-h,w:w-8,h,k:'band'});return[x+Math.floor(w/2),300-h-18];});
+  }else if(kind==='worlds'){
+    decor.push({t:'rect',x:14,y:14,w:400,h:150,k:'band'},{t:'rect',x:14,y:176,w:400,h:150,k:'band'},{t:'rect',x:426,y:14,w:200,h:312,k:'band'});
+    txt(214,34,'MUNDO DEPENDENTE');txt(214,196,'MUNDO SECRETO');txt(526,34,'MUNDO TRANSFORMADO');
+    const pos=[[55,95],[145,95],[235,95],[325,95],[145,255],[235,255],[470,80],[570,80],[470,170],[570,170],[470,260],[570,260]];
+    xy=beats.map((b,i)=>pos[i%12]);
+    decor.push({t:'path',d:path(xy),k:'dash'});
+  }else{
+    xy=beats.map((b,i)=>[Math.round(40+i*(560/Math.max(1,n-1))),170]);
+  }
+  return{kind,w:640,h:340,r,labels,decor,nodes:beats.map((b,i)=>({id:b.id,n:i+1,x:xy[i][0],y:xy[i][1],label:b.label}))};
+};
+
+// ---- Story archetypes (História tab): a one-phrase plot with its fortune curve ----
+// Static explainer, nothing is filled in. `x` is the position (0-100) of each stage
+// along the story; `y` the hero's fortune there (0 = worst, 1 = best).
+const BH_STORY_PLOTS=[
+  {id:'monster',name:'Vencer o monstro',phrase:'Uma ameaça oprime o mundo e o herói a derrota.',stages:[
+    {x:8,y:.55,label:'A sombra surge',text:'O monstro aparece e o herói é chamado.'},
+    {x:30,y:.45,label:'Preparação',text:'Ele reúne meios, aliados e coragem.'},
+    {x:52,y:.6,label:'Primeiro confronto',text:'Uma vitória aparente, mas o monstro ainda vive.'},
+    {x:76,y:.08,label:'Pesadelo',text:'Tudo desmorona; a morte parece certa.'},
+    {x:94,y:.92,label:'Vitória',text:'O monstro cai e o mundo é salvo.'}]},
+  {id:'rags',name:'Dos trapos à riqueza',phrase:'Alguém sem nada ganha tudo, perde, e merece de verdade.',stages:[
+    {x:6,y:.12,label:'Miséria',text:'A vida começa em falta e desprezo.'},
+    {x:25,y:.35,label:'Sai ao mundo',text:'Uma chance faz o personagem partir.'},
+    {x:46,y:.7,label:'Primeiro sucesso',text:'As conquistas chegam, quase fáceis demais.'},
+    {x:66,y:.2,label:'Crise',text:'Perde o que ganhou e descobre quem é.'},
+    {x:94,y:.95,label:'Plenitude',text:'Recupera tudo, agora por mérito.'}]},
+  {id:'quest',name:'A busca',phrase:'O herói parte atrás de um objetivo e é provado pelo caminho.',stages:[
+    {x:8,y:.5,label:'O chamado',text:'Surge um objetivo distante e valioso.'},
+    {x:30,y:.6,label:'A jornada',text:'O grupo atravessa terras e tentações.'},
+    {x:55,y:.35,label:'Provas',text:'Cada etapa cobra um preço.'},
+    {x:78,y:.15,label:'Último obstáculo',text:'O maior teste, perto da meta.'},
+    {x:94,y:.9,label:'O objetivo',text:'A conquista muda quem a alcança.'}]},
+  {id:'voyage',name:'Viagem e retorno',phrase:'O herói cai num mundo estranho, escapa e volta mudado.',stages:[
+    {x:6,y:.5,label:'Mundo comum',text:'Tudo é familiar.'},
+    {x:22,y:.7,label:'Queda e fascínio',text:'O mundo novo encanta e confunde.'},
+    {x:48,y:.4,label:'Frustração',text:'O encanto vira estranheza e perigo.'},
+    {x:72,y:.1,label:'Pesadelo',text:'A ameaça alcança o herói.'},
+    {x:94,y:.55,label:'Retorno',text:'Escapa e volta, com outro olhar.'}]},
+  {id:'comedy',name:'Comédia',phrase:'A confusão cresce até a verdade desfazer os nós.',stages:[
+    {x:8,y:.6,label:'Ordem',text:'Tudo parece em seu lugar.'},
+    {x:30,y:.4,label:'Mal-entendidos',text:'Segredos e enganos se acumulam.'},
+    {x:55,y:.15,label:'Confusão máxima',text:'Ninguém sabe quem é quem.'},
+    {x:78,y:.5,label:'Revelação',text:'A verdade vem à tona.'},
+    {x:94,y:.88,label:'Harmonia',text:'Casais e laços se acertam.'}]},
+  {id:'tragedy',name:'Tragédia',phrase:'Uma falha do herói o leva do auge à ruína.',stages:[
+    {x:8,y:.5,label:'Ambição',text:'O herói quer mais do que tem.'},
+    {x:30,y:.75,label:'Ascensão',text:'Os primeiros passos dão certo.'},
+    {x:52,y:.92,label:'Auge e erro',text:'No topo, a falha pesa.'},
+    {x:74,y:.45,label:'Ponto sem volta',text:'Cada tentativa piora tudo.'},
+    {x:94,y:.04,label:'Ruína',text:'A queda é total e inevitável.'}]},
+  {id:'rebirth',name:'Renascimento',phrase:'Uma sombra aprisiona o herói até ele se redimir.',stages:[
+    {x:8,y:.55,label:'A sombra',text:'Um defeito ou ameaça começa a crescer.'},
+    {x:30,y:.35,label:'Isolamento',text:'O herói é cercado pela própria falha.'},
+    {x:52,y:.04,label:'Quase morte',text:'O ponto mais escuro.'},
+    {x:76,y:.55,label:'Redenção',text:'Um gesto ou alguém o liberta.'},
+    {x:94,y:.95,label:'Nova vida',text:'Ele renasce transformado.'}]},
+  {id:'man-hole',name:'Homem no buraco',phrase:'Tudo vai bem, cai num buraco e sai dele melhor.',stages:[
+    {x:8,y:.55,label:'Vida normal',text:'Tudo vai bem.'},
+    {x:35,y:.25,label:'A queda',text:'Um acidente joga o herói no buraco.'},
+    {x:60,y:.1,label:'No fundo',text:'Ele aprende a se virar.'},
+    {x:94,y:.8,label:'A saída',text:'Escapa e termina melhor do que começou.'}]},
+  {id:'boy-girl',name:'Encontro e reencontro',phrase:'Duas pessoas se encontram, se perdem e se reencontram.',stages:[
+    {x:8,y:.5,label:'O encontro',text:'Dois caminhos se cruzam.'},
+    {x:30,y:.85,label:'Encanto',text:'Tudo floresce entre os dois.'},
+    {x:60,y:.12,label:'A perda',text:'Algo os separa.'},
+    {x:94,y:.92,label:'O reencontro',text:'Voltam a se achar, com mais sentido.'}]},
+  {id:'cinderella',name:'Cinderela',phrase:'Quem sofre ganha uma chance, cai de novo e triunfa de vez.',stages:[
+    {x:6,y:.25,label:'Opressão',text:'Vive sob o peso dos outros.'},
+    {x:25,y:.6,label:'A ajuda',text:'Um aliado abre uma porta.'},
+    {x:50,y:.9,label:'O baile',text:'Pela primeira vez, ela brilha.'},
+    {x:68,y:.1,label:'Meia-noite',text:'Tudo desaba de repente.'},
+    {x:94,y:1,label:'Triunfo',text:'Ganha o lugar que sempre foi seu.'}]},
+];
+const bhStoryPlot=id=>BH_STORY_PLOTS.find(p=>p.id===id)||null;
 // @bh-test-end narrative
 
 // - NARRATIVE TAB (UI for the narrative region above) -
@@ -9911,32 +10051,98 @@ const NarrativeSection=({title,sub,right,children})=>(
     {children}
   </div>
 );
-// "Narrativa": pick a model and fill its empty beat slots.
+const BH_VIZ_ACCENT='#D97706';
+const NarrativeDecor=({d})=>{
+  const stroke={line:'var(--muted)',dash:'var(--muted)',accent:BH_VIZ_ACCENT,curve:BH_VIZ_ACCENT}[d.k]||'var(--muted)';
+  const common={fill:'none',stroke,strokeWidth:d.k==='curve'?3:2,strokeDasharray:d.k==='dash'||d.k==='accent'?'5 4':undefined,opacity:d.k==='dash'?.7:1,strokeLinejoin:'round'};
+  if(d.t==='text')return <text x={d.x} y={d.y} textAnchor={d.k==='label'?'start':'middle'} fontSize="11" letterSpacing=".06em" fill="var(--muted)">{d.s}</text>;
+  if(d.t==='line')return <line x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} {...common}/>;
+  if(d.t==='circle')return <circle cx={d.cx} cy={d.cy} r={d.r} {...common}/>;
+  if(d.t==='poly')return <polygon points={d.pts} {...common}/>;
+  if(d.t==='path')return <path d={d.d} {...common}/>;
+  if(d.t==='rect'){
+    const band=d.k==='band';
+    return <rect x={d.x} y={d.y} width={d.w} height={d.h} rx={band?4:10} transform={d.rot?`rotate(${d.rot} ${d.x+d.w/2} ${d.y+d.h/2})`:undefined} {...(band?{fill:'var(--border)',opacity:.3}:common)}/>;
+  }
+  return null;
+};
+// Interactive map of one template: click (or Tab + Enter) a numbered node to fill that beat.
+const NarrativeViz=({tpl,values,sel,onSelect})=>{
+  const lay=bhNarrativeLayout(tpl);
+  return(
+    <svg viewBox={`0 0 ${lay.w} ${lay.h}`} role="group" aria-label={'Mapa: '+tpl.name} style={{width:'100%',maxHeight:420,display:'block'}}>
+      {lay.decor.map((d,i)=><NarrativeDecor key={i} d={d}/>)}
+      {lay.nodes.map(nd=>{
+        const filled=!!(values[nd.id]||'').trim(),on=nd.id===sel;
+        return(
+          <g key={nd.id} role="button" tabIndex={0} aria-label={nd.label} aria-pressed={on} style={{cursor:'pointer',outline:'none'}}
+            onClick={()=>onSelect(nd.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(nd.id);}}}>
+            {lay.labels&&(lay.kind==='ladder'?<rect x={nd.x-lay.r-4} y={nd.y-lay.r} width={200} height={lay.r*2} fill="transparent"/>:<rect x={nd.x-62} y={nd.y-lay.r} width={124} height={lay.r*2+24} fill="transparent"/>)}
+            {on&&<circle cx={nd.x} cy={nd.y} r={lay.r+6} fill="none" stroke={BH_VIZ_ACCENT} strokeWidth="2.5"/>}
+            <circle cx={nd.x} cy={nd.y} r={lay.r} fill={filled?'var(--text)':'var(--surface)'} stroke={filled?'var(--text)':'var(--muted)'} strokeWidth="2"/>
+            <text x={nd.x} y={nd.y+4} textAnchor="middle" fontSize="12" fontWeight="700" fill={filled?'var(--bg)':'var(--text)'} style={{pointerEvents:'none'}}>{nd.n}</text>
+            {lay.labels&&<text x={lay.kind==='ladder'?nd.x+70:nd.x} y={lay.kind==='ladder'?nd.y+4:nd.y+lay.r+16} textAnchor={lay.kind==='ladder'?'start':'middle'} fontSize="12" fill="var(--text)" style={{pointerEvents:'none'}}>{nd.label.replace(/^\d+ · /,'')}</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+// "Narrativa": pick a model and fill its beat map.
 // `onChange` receives an updater (cur=>next); the same panel serves the project and any animatic.
 const NarrativePanel=({narrative,onChange,scopeLabel,isMobile})=>{
   const n=bhNarrativeNormalize(narrative);
   const tpl=bhNarrativeTemplate(n.tpl);
   const [pass,setPass]=useState(1);
   const filled=bhNarrativeFilled(n,pass);
+  const [selId,setSel]=useState('');
+  const map=pass===2?n.outline2:n.outline1;
+  const idx=tpl?Math.max(0,tpl.beats.findIndex(b=>b.id===selId)):0;
+  const cur=tpl?tpl.beats[idx]:null;
   return(
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <NarrativeSection title="Modelo narrativo" sub={scopeLabel}><NarrativeTemplatePicker value={n.tpl} onChange={v=>onChange(cur=>bhNarrativeSetTemplate(cur,v))}/></NarrativeSection>
-      {tpl&&<NarrativeSection title={tpl.name} sub="Preencha cada etapa do modelo. O 2º esboço refina o 1º."
+      {tpl&&<NarrativeSection title={tpl.name} sub="Clique numa etapa do mapa para preenchê-la. O 2º esboço refina o 1º."
         right={<span style={{fontSize:'.74rem',color:'var(--muted)'}}>{filled.done}/{filled.total}</span>}>
         <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
           {[1,2].map(p=><button key={p} className={`btn ${pass===p?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={pass===p} onClick={()=>setPass(p)}>{p}º esboço</button>)}
           {pass===2&&<button className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={()=>onChange(cur=>bhNarrativeCopyOutline(cur))} title="Preenche as etapas vazias do 2º esboço com o 1º"><Icon name="copy" size={12}/> Partir do 1º</button>}
         </div>
-        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>
-          {tpl.beats.map(b=>(
-            <div key={b.id} style={{display:'flex',flexDirection:'column',gap:4,padding:10,border:'1px solid var(--border)',borderRadius:10}}>
-              <div style={{fontSize:'.84rem',fontWeight:600}}>{b.label}</div>
-              {b.hint&&<div style={{fontWeight:400,color:'var(--muted)',fontSize:'.74rem'}}>{b.hint}</div>}
-              <NarrativeTextarea label={b.label+' ('+pass+'º esboço)'} rows={3} value={(pass===2?n.outline2:n.outline1)[b.id]||''} onChange={v=>onChange(cur=>bhNarrativeSetBeat(cur,pass,b.id,v))} placeholder="…"/>
+        <NarrativeViz tpl={tpl} values={map} sel={cur.id} onSelect={setSel}/>
+        <div style={{display:'flex',flexDirection:'column',gap:6,padding:12,border:'1px solid var(--border)',borderRadius:10}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <div style={{fontSize:'.9rem',fontWeight:600}}>{cur.label}</div>
+            <div style={{display:'flex',gap:4}}>
+              <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Etapa anterior" disabled={idx<=0} onClick={()=>setSel(tpl.beats[idx-1].id)}><Icon name="arrow-left" size={14}/></button>
+              <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Próxima etapa" disabled={idx>=tpl.beats.length-1} onClick={()=>setSel(tpl.beats[idx+1].id)}><Icon name="arrow-right" size={14}/></button>
             </div>
-          ))}
+          </div>
+          {cur.hint&&<div style={{color:'var(--muted)',fontSize:'.76rem'}}>{cur.hint}</div>}
+          <NarrativeTextarea label={cur.label+' ('+pass+'º esboço)'} rows={4} value={map[cur.id]||''} onChange={v=>onChange(c=>bhNarrativeSetBeat(c,pass,cur.id,v))} placeholder="Escreva esta etapa…"/>
         </div>
       </NarrativeSection>}
+    </div>
+  );
+};
+// Static explainer of a story archetype: fortune curve with numbered stages. Nothing to fill in.
+const StoryPlotExplainer=({plotId})=>{
+  const pl=bhStoryPlot(plotId);
+  if(!pl)return <span style={{fontSize:'.76rem',color:'var(--muted)'}}>Escolha uma estrutura para ver como ela funciona.</span>;
+  const X=x=>30+x*5.8,Y=y=>180-y*150;
+  const pts=[[0,pl.stages[0].y],...pl.stages.map(s=>[s.x,s.y]),[100,pl.stages[pl.stages.length-1].y]];
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:'.9rem',fontWeight:600}}>{pl.phrase}</div>
+      <svg viewBox="0 0 640 220" role="img" aria-label={'Curva de fortuna: '+pl.name} style={{width:'100%',maxHeight:240}}>
+        <line x1="30" y1="195" x2="620" y2="195" stroke="var(--muted)" strokeWidth="1.5"/>
+        <line x1="30" y1="15" x2="30" y2="195" stroke="var(--muted)" strokeWidth="1.5"/>
+        <text x="38" y="22" fontSize="10" fill="var(--muted)">SORTE ↑</text><text x="610" y="212" fontSize="10" textAnchor="end" fill="var(--muted)">TEMPO →</text>
+        <polyline points={pts.map(p=>X(p[0])+','+Y(p[1])).join(' ')} fill="none" stroke={BH_VIZ_ACCENT} strokeWidth="3" strokeLinejoin="round"/>
+        {pl.stages.map((s,i)=><g key={i}><circle cx={X(s.x)} cy={Y(s.y)} r="11" fill="var(--text)"/><text x={X(s.x)} y={Y(s.y)+4} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--bg)">{i+1}</text></g>)}
+      </svg>
+      <ol style={{margin:0,paddingLeft:20,display:'flex',flexDirection:'column',gap:4,fontSize:'.82rem'}}>
+        {pl.stages.map((s,i)=><li key={i}><b>{s.label}</b> <span style={{color:'var(--muted)'}}>— {s.text}</span></li>)}
+      </ol>
     </div>
   );
 };
@@ -9945,6 +10151,13 @@ const StoryPanel=({narrative,onChange})=>{
   const n=bhNarrativeNormalize(narrative);
   return(
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      <NarrativeSection title="Estrutura da história" sub="Um arquétipo de enredo, só para referência: mostra como a estrutura funciona.">
+        <select className="input-box" aria-label="Estrutura da história" value={n.plot} onChange={e=>onChange(cur=>bhNarrativeSetPlot(cur,e.target.value))} style={{cursor:'pointer'}}>
+          <option value="">Nenhuma</option>
+          {BH_STORY_PLOTS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <StoryPlotExplainer plotId={n.plot}/>
+      </NarrativeSection>
       {BH_NARRATIVE_STAGES.map(s=><NarrativeSection key={s.key} title={s.label} sub={s.hint}>
         <NarrativeTextarea label={s.label} rows={s.rows} value={n[s.key]} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,s.key,v))} placeholder={s.label+'…'}/></NarrativeSection>)}
       <NarrativeSection title="Escaleta" sub="Um quadro de notas: escreva as batidas e arraste para reorganizar.">
@@ -18267,7 +18480,7 @@ const bhStudyList=(studies,{query='',kind='all',sort='recent'}={})=>{
 };
 // @bh-test-end studies
 const StudyModal=({study,onClose,onSave,onDelete})=>{
-  const [form,setForm]=useState(()=>({...study,refs:Array.isArray(study.refs)?study.refs:[],team:bhStudyTeam(study).map(r=>({...r,id:r.id||bhNewId()}))}));
+  const [form,setForm]=useState(()=>({...study,refs:Array.isArray(study.refs)?study.refs:[],analysisImages:Array.isArray(study.analysisImages)?study.analysisImages:[],team:bhStudyTeam(study).map(r=>({...r,id:r.id||bhNewId()}))}));
   const [page,setPage]=useState(0);
   const initialRef=useRef(JSON.stringify(form));
   const requestClose=async()=>{
