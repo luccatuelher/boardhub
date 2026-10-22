@@ -9794,14 +9794,14 @@ const BH_NARRATIVE_TEMPLATES=[
     ['resurrection','Ressurreição','O teste final, transformado.'],
     ['elixir','Retorno com o elixir','O que ele traz ao mundo comum.']])},
   {id:'story-circle',name:'Story Circle',author:'Dan Harmon',note:'8 passos em círculo; ideal para episódios curtos e animações.',beats:bhBeats('circle',[
-    ['you','1 · Uma personagem em sua zona de conforto',''],
-    ['need','2 · Mas ela precisa de algo',''],
-    ['go','3 · Entra numa situação desconhecida',''],
-    ['search','4 · Adapta-se a ela',''],
-    ['find','5 · Consegue o que queria',''],
-    ['take','6 · Paga um preço alto por isso',''],
-    ['return','7 · Volta à situação inicial',''],
-    ['change','8 · Já transformada','']])},
+    ['you','1 · Uma personagem em sua zona de conforto','Quem ela é, onde vive, a rotina que conhece.'],
+    ['need','2 · Mas ela precisa de algo','Um desejo ou falta que a inquieta.'],
+    ['go','3 · Entra numa situação desconhecida','Cruza o limiar: sai do mundo conhecido.'],
+    ['search','4 · Adapta-se a ela','Tenta, erra e aprende as regras do novo lugar.'],
+    ['find','5 · Consegue o que queria','A conquista, o ponto mais alto do desejo.'],
+    ['take','6 · Paga um preço alto por isso','A conquista cobra algo que dói.'],
+    ['return','7 · Volta à situação inicial','Atravessa o limiar de volta ao mundo conhecido.'],
+    ['change','8 · Já transformada','O que mudou nela, e como isso muda seu mundo.']])},
   {id:'freytag',name:'Pirâmide de Freytag',author:'Gustav Freytag',note:'Estrutura clássica de drama em cinco partes.',beats:bhBeats('freytag',[
     ['exposition','Exposição','Contexto, personagens, tom.'],
     ['rising','Ação ascendente','O conflito cresce.'],
@@ -9814,22 +9814,22 @@ const BH_NARRATIVE_TEMPLATES=[
     ['ten','Ten · Reviravolta','Um elemento inesperado, sem relação aparente.'],
     ['ketsu','Ketsu · Conclusão','Reconcilia os elementos e revela o sentido.']])},
   {id:'story-spine',name:'Story Spine',author:'Kenn Adams / Pixar',note:'Frases-guia curtas; perfeito para um animatic isolado.',beats:bhBeats('spine',[
-    ['once','Era uma vez…',''],
-    ['everyday','Todo dia…',''],
-    ['until','Até que um dia…',''],
-    ['because1','Por causa disso…',''],
-    ['because2','Por causa disso…',''],
-    ['until-finally','Até que finalmente…',''],
-    ['ever-since','E desde então…','']])},
+    ['once','Era uma vez…','Apresenta o mundo e a personagem.'],
+    ['everyday','Todo dia…','A rotina que será quebrada.'],
+    ['until','Até que um dia…','O evento que muda tudo.'],
+    ['because1','Por causa disso…','Primeira consequência.'],
+    ['because2','Por causa disso…','Segunda consequência, mais séria.'],
+    ['until-finally','Até que finalmente…','O clímax: a resolução do conflito.'],
+    ['ever-since','E desde então…','O novo normal, depois de tudo.']])},
   {id:'sequences',name:'Oito sequências',author:'Frank Daniel',note:'Dois atos e meio divididos em oito blocos de cerca de 12 minutos.',beats:bhBeats('seq',[
-    ['s1','Sequência 1 · Situação e incidente',''],
-    ['s2','Sequência 2 · Reação e decisão',''],
-    ['s3','Sequência 3 · Primeira tentativa',''],
-    ['s4','Sequência 4 · Complicações / ponto médio',''],
-    ['s5','Sequência 5 · Segunda tentativa',''],
-    ['s6','Sequência 6 · Crise e derrota aparente',''],
-    ['s7','Sequência 7 · Último esforço',''],
-    ['s8','Sequência 8 · Clímax e resolução','']])},
+    ['s1','Sequência 1 · Situação e incidente','Apresenta o mundo e termina com o evento que muda tudo.'],
+    ['s2','Sequência 2 · Reação e decisão','O herói reage e decide ir atrás do objetivo.'],
+    ['s3','Sequência 3 · Primeira tentativa','Primeiro esforço; os obstáculos aparecem.'],
+    ['s4','Sequência 4 · Complicações / ponto médio','As coisas se complicam e termina numa virada central.'],
+    ['s5','Sequência 5 · Segunda tentativa','Novo plano, agora com mais em jogo.'],
+    ['s6','Sequência 6 · Crise e derrota aparente','Tudo parece perdido; fim do segundo ato.'],
+    ['s7','Sequência 7 · Último esforço','A decisão final e o caminho até o clímax.'],
+    ['s8','Sequência 8 · Clímax e resolução','O confronto final e o novo equilíbrio.']])},
   {id:'virgins-promise',name:'A Promessa da Virgem',author:'Kim Hudson',note:'12 etapas sobre quem esconde o que é de verdade até ousar brilhar; contrapartida da Jornada do Herói.',beats:bhBeats('virgin',[
     ['dependent','1 · Mundo dependente','Vive para agradar e cumprir o que esperam dela.'],
     ['price','2 · Preço da conformidade','O que ela perde ao se encaixar.'],
@@ -9921,6 +9921,19 @@ const bhNarrativeProgress=n=>{
 // ---- Visual layout of each template (interactive map) ----
 // Every template has its own shape; a layout is pure data: decorative shapes plus
 // one node {id,n,x,y} per beat, in a 640x340 box. The UI only draws it.
+// What each model is for, in a few lines (shown under the map).
+const BH_NARRATIVE_ABOUT={
+  'three-act':'A estrutura mais usada no cinema. Divide a história em apresentação (25%), confronto (50%) e resolução (25%), com dois pontos de virada que empurram a trama de um ato ao outro.',
+  'save-the-cat':'Um mapa de 15 batidas, cada uma com um ponto exato na duração do roteiro. Ajuda a dosar o ritmo: o que precisa acontecer e em que momento.',
+  'mckee':'Foca no desejo do protagonista e na oposição a ele. A história avança por complicações progressivas até uma crise, onde ele faz a escolha mais difícil, e um clímax.',
+  'hero-journey':'Uma viagem em dois mundos: o comum e o especial. O herói cruza o limiar, passa por provas até a provação central e volta transformado, trazendo algo ao mundo comum.',
+  'story-circle':'Oito passos num círculo: a personagem sai da zona de conforto, enfrenta o desconhecido, consegue o que queria, paga o preço e volta mudada. Ótimo para episódios curtos.',
+  'freytag':'A forma clássica do drama: a tensão sobe até o clímax e desce até o desfecho. Boa para ver o formato geral de uma história.',
+  'kishotenketsu':'Estrutura de quatro partes sem conflito central. A graça está no ten, uma reviravolta que parece desconexa e que o ketsu reconcilia, revelando o sentido.',
+  'story-spine':'Uma escada de frases-guia que obriga a contar só o essencial: o que era normal, o que mudou, o que isso causou e como terminou. Perfeita para um animatic curto.',
+  'sequences':'Divide o filme em oito blocos de cerca de 12 minutos, cada um com um mini-objetivo. Facilita escrever e revisar um bloco de cada vez.',
+  'virgins-promise':'A contrapartida da Jornada do Herói: em vez de partir, a personagem guarda um talento secreto num mundo que a limita, até ousar mostrá-lo e transformar esse mundo.',
+};
 const BH_NARRATIVE_VIZ={'three-act':'acts','save-the-cat':'ruler','mckee':'stairs','hero-journey':'descent','story-circle':'circle','freytag':'pyramid','kishotenketsu':'panels','story-spine':'ladder','sequences':'blocks','virgins-promise':'worlds'};
 const bhPolar=(cx,cy,r,deg)=>[Math.round(cx+r*Math.cos(deg*Math.PI/180)),Math.round(cy+r*Math.sin(deg*Math.PI/180))];
 const bhNarrativeLayout=tpl=>{
@@ -10161,6 +10174,7 @@ const NarrativePanel=({narrative,onChange,scopeLabel,isMobile})=>{
   const [pass,setPass]=useState(1);
   const filled=bhNarrativeFilled(n,pass);
   const [selId,setSel]=useState('');
+  const [view,setView]=useState('map');
   const map=pass===2?n.outline2:n.outline1;
   const idx=tpl?Math.max(0,tpl.beats.findIndex(b=>b.id===selId)):0;
   const cur=tpl?tpl.beats[idx]:null;
@@ -10173,18 +10187,33 @@ const NarrativePanel=({narrative,onChange,scopeLabel,isMobile})=>{
           {[1,2].map(p=><button key={p} className={`btn ${pass===p?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={pass===p} onClick={()=>setPass(p)}>{p}º esboço</button>)}
           {pass===2&&<button className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={()=>onChange(cur=>bhNarrativeCopyOutline(cur))} title="Preenche as etapas vazias do 2º esboço com o 1º"><Icon name="copy" size={12}/> Partir do 1º</button>}
         </div>
-        <NarrativeViz tpl={tpl} values={map} sel={cur.id} onSelect={setSel}/>
-        <div style={{display:'flex',flexDirection:'column',gap:6,padding:12,border:'1px solid var(--border)',borderRadius:10}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-            <div style={{fontSize:'.9rem',fontWeight:600}}>{cur.label}</div>
-            <div style={{display:'flex',gap:4}}>
-              <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Etapa anterior" disabled={idx<=0} onClick={()=>setSel(tpl.beats[idx-1].id)}><Icon name="arrow-left" size={14}/></button>
-              <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Próxima etapa" disabled={idx>=tpl.beats.length-1} onClick={()=>setSel(tpl.beats[idx+1].id)}><Icon name="arrow-right" size={14}/></button>
-            </div>
-          </div>
-          {cur.hint&&<div style={{color:'var(--muted)',fontSize:'.76rem'}}>{cur.hint}</div>}
-          <NarrativeTextarea label={cur.label+' ('+pass+'º esboço)'} rows={4} value={map[cur.id]||''} onChange={v=>onChange(c=>bhNarrativeSetBeat(c,pass,cur.id,v))} placeholder="Escreva esta etapa…"/>
+        <div style={{display:'flex',gap:6}} role="group" aria-label="Modo de visualização">
+          {[['map','Mapa'],['all','Todas as etapas']].map(([k,l])=><button key={k} className={`btn ${view===k?'btn-dark':'btn-outline'}`} style={{padding:'4px 12px',fontSize:'.78rem'}} aria-pressed={view===k} onClick={()=>setView(k)}>{l}</button>)}
         </div>
+        {view==='map'?<>
+          <NarrativeViz tpl={tpl} values={map} sel={cur.id} onSelect={setSel}/>
+          <div style={{display:'flex',flexDirection:'column',gap:6,padding:12,border:'1px solid var(--border)',borderRadius:10}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+              <div style={{fontSize:'.9rem',fontWeight:600}}>{cur.label}</div>
+              <div style={{display:'flex',gap:4}}>
+                <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Etapa anterior" disabled={idx<=0} onClick={()=>setSel(tpl.beats[idx-1].id)}><Icon name="arrow-left" size={14}/></button>
+                <button className="btn btn-ghost" style={{padding:'4px 8px'}} aria-label="Próxima etapa" disabled={idx>=tpl.beats.length-1} onClick={()=>setSel(tpl.beats[idx+1].id)}><Icon name="arrow-right" size={14}/></button>
+              </div>
+            </div>
+            {cur.hint&&<div style={{color:'var(--muted)',fontSize:'.76rem'}}>{cur.hint}</div>}
+            <NarrativeTextarea label={cur.label+' ('+pass+'º esboço)'} rows={4} value={map[cur.id]||''} onChange={v=>onChange(c=>bhNarrativeSetBeat(c,pass,cur.id,v))} placeholder="Escreva esta etapa…"/>
+          </div>
+        </>:(
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>
+            {tpl.beats.map(b=>(
+              <div key={b.id} style={{display:'flex',flexDirection:'column',gap:4,padding:10,border:'1px solid var(--border)',borderRadius:10}}>
+                <div style={{fontSize:'.84rem',fontWeight:600}}>{b.label}</div>
+                {b.hint&&<div style={{fontWeight:400,color:'var(--muted)',fontSize:'.74rem'}}>{b.hint}</div>}
+                <NarrativeTextarea label={b.label+' ('+pass+'º esboço)'} rows={3} value={map[b.id]||''} onChange={v=>onChange(c=>bhNarrativeSetBeat(c,pass,b.id,v))} placeholder="…"/>
+              </div>
+            ))}
+          </div>
+        )}
       </NarrativeSection>}
     </div>
   );

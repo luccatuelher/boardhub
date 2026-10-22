@@ -117,3 +117,10 @@ test('story plots: unique ids, stages ordered along the story, values in range; 
   assert.equal(N.bhNarrativeSetPlot(n, 'ghost').plot, '');
   assert.equal(N.bhNarrativeNormalize({ plot: 'nope' }).plot, '');
 });
+
+test('every template explains itself and every beat has a hint', () => {
+  for (const t of N.BH_NARRATIVE_TEMPLATES) {
+    assert.ok((N.BH_NARRATIVE_ABOUT[t.id] || '').length > 40, t.id);
+    for (const b of t.beats) assert.ok(b.hint, b.id);
+  }
+});
