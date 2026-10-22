@@ -1836,7 +1836,7 @@ const BH_MAX_TOTAL=12;    // cap on the ROTATING tier only — the weekly tier a
 // In the rotating tier, six pre-sync captures (one per remote apply: minutes
 // with two active devices) evicted a same-day 'Local (edição simultânea)'.
 const BH_KEEP_PROTECTED=8;
-const BH_PROTECTED_REASONS=new Set(['remoto-concorrente','concurrent-superseded','cloud-superseded','local-prelogin','pre-login-edit','descartado','account-switch','pre-restore','import-source','pre-tasks-migration']);
+const BH_PROTECTED_REASONS=new Set(['remoto-concorrente','concurrent-superseded','cloud-superseded','local-prelogin','pre-login-edit','descartado','account-switch','pre-restore','pre-redistribute','import-source','pre-tasks-migration']);
 const bhStateHasData=s=>{
   if(!s)return false;
   const ne=a=>Array.isArray(a)&&a.length>0;
@@ -7119,6 +7119,71 @@ const pomoApplyRetargets=(side,other)=>{
     out=pomoRetargetSession(out,o.retarget.from,o.retarget.to,o.retarget.parts);
   });
   return out;
+};
+// Focus sessions that never got a category ('none'/empty), which is where the
+// time of someone who never filed her sessions sits. Pending rows are still in
+// the registration dialog and rows already moved (retarget) are left alone.
+const pomoBlankRows=(base,range)=>{
+  const since=range&&range.since||'',until=range&&range.until||'';
+  return((base&&base.rank&&base.rank.sessions)||[]).filter(r=>{
+    if(!r||r.id==null||r.status==='pending'||r.retarget)return false;
+    if(r.targetKey&&r.targetKey!=='none')return false;
+    if(!(Number(r.durationSeconds)>0))return false;
+    // Only the row's own local day is trusted: the ledgers are keyed by it.
+    const day=String(r.date||'');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
+    if(Array.isArray(r.chunks)&&r.chunks.some(c=>c&&c.targetKey&&c.targetKey!=='none'))return false;
+    return(!since||day>=since)&&(!until||day<=until);
+  });
+};
+// Seconds counted in the day totals that no category or project holds, session
+// rows or not. Shown as information only: just session rows are moved.
+const pomoUnallocatedSeconds=base=>{
+  const days=(base&&base.days)||{},daily=(base&&base.dailyAllocations)||{};
+  return Object.entries(days).reduce((n,[k,v])=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(k))return n;
+    const held=Object.values(daily[k]||{}).reduce((a,b)=>a+(Number(b)||0),0);
+    return n+Math.max(0,(Number(v)||0)-held);
+  },0);
+};
+// Splits the blank sessions across `targets` ([{key:'cat:ID',label,weight}],
+// weight defaults to 1 = even split). Whole sessions are assigned, largest
+// first, to the target furthest below its share, so no second is created or
+// lost. Pure: returns {assignments,perTarget,totalSecs,count}.
+const pomoRedistributePlan=(base,args)=>{
+  const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&t.key.startsWith('cat:')).map(t=>({key:t.key,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
+  const rows=pomoBlankRows(base,args).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
+  const totalSecs=rows.reduce((n,r)=>n+Number(r.durationSeconds),0);
+  const W=targets.reduce((n,t)=>n+t.weight,0);
+  const perTarget=targets.map(t=>({key:t.key,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
+  const assignments=[];
+  if(!perTarget.length)return{assignments,perTarget,totalSecs,count:rows.length};
+  rows.forEach(r=>{
+    let best=perTarget[0];
+    perTarget.forEach(t=>{if(t.goal-t.secs>best.goal-best.secs)best=t;});
+    const secs=Number(r.durationSeconds);
+    best.secs+=secs;best.count++;
+    assignments.push({id:String(r.id),key:best.key,label:best.label,secs});
+  });
+  return{assignments,perTarget,totalSecs,count:rows.length};
+};
+// Applies a plan: each session moves from "no category" to its target through
+// pomoRetargetSession (ledger totals, all-time and per day) and keeps the same
+// retarget marker a hand-filed session gets, so the restore/sync merge counts
+// it once. The row also carries `redistribute` as a record of the batch.
+const pomoRedistributeApply=(base,plan,batch)=>{
+  if(!base||!base.rank||!plan||!(plan.assignments||[]).length)return base;
+  const by=new Map(plan.assignments.map(a=>[String(a.id),a]));
+  let out=base,changed=false;
+  const sessions=(base.rank.sessions||[]).map(row=>{
+    const a=row&&by.get(String(row.id));
+    if(!a||row.status==='pending'||row.retarget||(row.targetKey&&row.targetKey!=='none'))return row;
+    const parts=pomoSessionParts(row,'none');
+    out=pomoRetargetSession(out,'none',a.key,parts);
+    changed=true;
+    return{...row,targetKey:a.key,targetLabel:a.label||row.targetLabel,retarget:{from:'none',to:a.key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
+  });
+  return changed?{...out,rank:{...out.rank,sessions}}:base;
 };
 // @bh-test-end rank
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -17502,7 +17567,84 @@ const RequireRegisterSwitch=()=>{
   const on=useRequireRegister();
   return <BhSwitch checked={on} onChange={bhRequireRegisterSave} label="Registro de sessão obrigatório" style={{flexShrink:0}}/>;
 };
-const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,autoMigrate,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled})=>{
+// Sincronizar → "Redistribuir horas": foco sem categoria vai para as categorias
+// escolhidas, com prévia, confirmação e cópia de segurança.
+const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
+  const base=useMemo(()=>pomoNormalize(appState?.pomoData),[appState?.pomoData]);
+  const folders=useMemo(()=>(appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived&&f.id!=null),[appState?.galleryFolders]);
+  const [open,setOpen]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [picked,setPicked]=useState({}); // folderId -> true
+  const [custom,setCustom]=useState(false);
+  const [weights,setWeights]=useState({}); // folderId -> text
+  const [since,setSince]=useState('');
+  const [until,setUntil]=useState('');
+  const targets=folders.filter(f=>picked[f.id]).map(f=>({key:'cat:'+f.id,label:f.label,weight:custom?((weights[f.id]==null?1:parseFloat(String(weights[f.id]).replace(',','.'))||0)):1}));
+  const blankAll=useMemo(()=>pomoBlankRows(base,{}),[base]);
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until}),[base,picked,custom,weights,since,until,folders]);// eslint-disable-line react-hooks/exhaustive-deps
+  const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
+  const apply=async()=>{
+    if(busy||!plan.assignments.length)return;
+    const lines=plan.perTarget.filter(t=>t.count>0).map(t=>`• ${t.label}: ${pomoFmtSecs(t.secs)} (${t.count} ${t.count===1?'sessão':'sessões'})`).join('\n');
+    if(!await bhConfirm({title:'Redistribuir horas',confirmLabel:'Redistribuir',
+      message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} sem categoria (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
+    setBusy(true);
+    try{
+      const r=await onApply({targets,since,until});
+      if(r&&r.ok)showStatus('ok',r.moved?`✓ ${r.moved} ${r.moved===1?'sessão redistribuída':'sessões redistribuídas'}.`:'Nada mudou: as sessões já tinham sido movidas.');
+      else showStatus('err',(r&&r.error)||'Falha ao redistribuir.');
+    }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
+    finally{setBusy(false);}
+  };
+  if(!blankAll.length&&!open&&unallocated<=0)return null;
+  return(
+    <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+        <div style={{minWidth:0}}>
+          <span className="label label-section" style={{display:'block',marginBottom:6}}><StaveGlyph name="half"/>Redistribuir horas</span>
+          <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
+            {blankAll.length
+              ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre as categorias que já existem; nada novo é criado.</>
+              :<>Nenhuma sessão de foco sem categoria.</>}
+            {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> O total diário tem ainda {pomoFmtSecs(unallocated)} sem destino; só as sessões listadas podem ser movidas.</>}
+          </div>
+        </div>
+        {blankAll.length>0&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
+      </div>
+      {open&&blankAll.length>0&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
+          <span style={{color:'var(--muted)'}}>Período (opcional):</span>
+          <input type="date" value={since} onChange={e=>setSince(e.target.value)} aria-label="De" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
+          <span style={{color:'var(--muted)'}}>até</span>
+          <input type="date" value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
+        </div>
+        <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
+          <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>
+          <button type="button" className={custom?'btn':'btn btn-outline'} aria-pressed={custom} onClick={()=>setCustom(true)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Pesos personalizados</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+          {folders.length===0&&<div style={{fontSize:'.78rem',color:'var(--muted)'}}>Nenhuma categoria na Galeria.</div>}
+          {folders.map(f=><label key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
+            <input type="checkbox" checked={!!picked[f.id]} onChange={e=>setPicked(p=>({...p,[f.id]:e.target.checked}))}/>
+            <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{f.label}</span>
+            {custom&&picked[f.id]&&<input type="text" inputMode="decimal" value={weights[f.id]==null?'1':weights[f.id]} onChange={e=>setWeights(w=>({...w,[f.id]:e.target.value}))} aria-label={'Peso de '+f.label} className="input-box" style={{width:56,padding:'3px 6px',textAlign:'right'}}/>}
+          </label>)}
+        </div>
+        <div style={{fontSize:'.8rem',lineHeight:1.6,borderTop:'1px solid var(--border)',paddingTop:8}}>
+          {since&&until&&since>until&&<div style={{color:'var(--danger-fg)'}}>A data inicial é depois da final.</div>}
+          <strong>Prévia</strong> · {plan.count} {plan.count===1?'sessão':'sessões'} · {pomoFmtSecs(plan.totalSecs)}
+          {plan.perTarget.length===0
+            ?<div style={{color:'var(--muted)'}}>Marque ao menos uma categoria{custom?' com peso maior que zero':''}.</div>
+            :plan.perTarget.map(t=><div key={t.key} style={{display:'flex',justifyContent:'space-between',gap:8}}><span>{t.label}</span><span style={{color:'var(--muted)'}}>{pomoFmtSecs(t.secs)} · {t.count} {t.count===1?'sessão':'sessões'}</span></div>)}
+          {plan.perTarget.length>0&&<div style={{color:'var(--muted)',fontSize:'.72rem'}}>Cada sessão vai inteira para uma categoria, então as partes podem diferir um pouco do alvo.</div>}
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button type="button" className="btn" disabled={busy||!plan.assignments.length} onClick={apply}>Redistribuir…</button>
+        </div>
+      </div>}
+    </div>);
+};
+const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,autoMigrate,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled,onRedistributeHours})=>{
   // Where the running JS came from: 'cache' (a compiled bundle reused) or 'babel'
   // (transpiled just now). Free diagnostics for P1-1.
   const bundleSource=(typeof window!=='undefined'&&window.__bhBundleCache&&window.__bhBundleCache.source)||'?';
@@ -17528,7 +17670,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
   const refreshHistory=()=>{bhHistoryInit().then(()=>setBackupHistory(bhRecoverableMeta()));};
   useEffect(()=>{refreshHistory();},[]);
 
-  const BH_REASON_LABEL={'import-source':'Arquivo importado','pre-sync':'Antes do sync','daily':'Diário','auto':'Automático','pre-restore':'Antes de restaurar','pre-login-edit':'Edição pré-login','cloud-superseded':'Nuvem substituída','descartado':'Local descartado','local-prelogin':'Local antes do 1º login','account-switch':'Antes de trocar de conta','remoto-concorrente':'Nuvem (edição simultânea)','concurrent-superseded':'Local (edição simultânea)','local-save-failed':'Local sem espaço','emergency':'Cópia de emergência','pre-tasks-migration':'Antes de levar as sessões às tarefas'};
+  const BH_REASON_LABEL={'import-source':'Arquivo importado','pre-sync':'Antes do sync','daily':'Diário','auto':'Automático','pre-restore':'Antes de restaurar','pre-redistribute':'Antes de redistribuir horas','pre-login-edit':'Edição pré-login','cloud-superseded':'Nuvem substituída','descartado':'Local descartado','local-prelogin':'Local antes do 1º login','account-switch':'Antes de trocar de conta','remoto-concorrente':'Nuvem (edição simultânea)','concurrent-superseded':'Local (edição simultânea)','local-save-failed':'Local sem espaço','emergency':'Cópia de emergência','pre-tasks-migration':'Antes de levar as sessões às tarefas'};
   const handleRestoreFromHistory=async(entry)=>{
     const dt=new Date(entry.at).toLocaleString('pt-BR');
     const c=entry.counts||{};
@@ -17966,6 +18108,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
 
       {/* Ranks on/off. Off freezes the score (no decay, no gain, no season
           reset); on resumes from exactly the same points. */}
+      {onRedistributeHours&&<RedistributeHoursCard appState={appState} onApply={onRedistributeHours} isMobile={isMobile} showStatus={showStatus}/>}
       {onSetRanksEnabled&&(()=>{
         const rank=rankNormalize(appState?.pomoData?.rank);
         const pos=rankPosition(rank.points);
@@ -20516,6 +20659,22 @@ const App=()=>{
     return obj;
   };
 
+  // Moves the focus sessions that never got a category into categories chosen
+  // in Sincronizar. A safety copy of the whole state is written first; if it
+  // fails nothing changes. There is no undo on purpose: a reverse move cannot
+  // be told apart from "not applied yet" by the sync merge and would double count. The plan is recomputed on the freshest data inside
+  // the updater, so a session finished meanwhile cannot be counted twice.
+  const redistributeHours=async(args)=>{
+    const live=_latestState.current||appState;
+    if(bhStateHasData(live)&&!await bhCapture(live,'pre-redistribute'))return{ok:false,error:'Não foi possível criar a cópia de segurança. Nada foi alterado.'};
+    const batch=bhNewId();
+    const moved=pomoRedistributePlan(pomoNormalize(live.pomoData),args).assignments.length;
+    setPomoData(prev=>{
+      const base=pomoNormalize(prev);
+      return pomoRedistributeApply(base,pomoRedistributePlan(base,args),batch);
+    });
+    return{ok:true,batch,moved};
+  };
   const handleImportUnlocked=async (data,{incomingWins=false,mediaUpdate=false}={})=>{
     // Shape validation. v22 checked truthiness only — an object where an array
     // was expected passed the check and crashed every .filter() downstream.
@@ -20641,7 +20800,7 @@ const App=()=>{
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Inspirações" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
         {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
-        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity}/></ViewBoundary>}
+        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity} onRedistributeHours={redistributeHours}/></ViewBoundary>}
       </main>
     </div>
   );
