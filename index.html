@@ -6163,6 +6163,33 @@ const NAV_ITEMS=[
   {id:'clients',  icon:'users',           label:'Contatos'},
   {id:'sync',     icon:'refresh-cw',      label:'Sincronizar'},
 ];
+// Sidebar grouping + order. The saved layout lives in `identity.navLayout` (synced with the
+// rest of identity): an array of groups, each an array of NAV_ITEMS ids.
+// @bh-test-begin navlayout
+const BH_NAV_DEFAULT=[['dashboard','projects','gallery'],['ideas','studies','mentors'],['social','clients','sync']];
+// Always returns 3 groups holding every known id exactly once: unknown/duplicate ids are
+// dropped, ids missing from the saved layout (new tabs) go back to the end of their default group.
+const bhNavLayout=(saved,defaults=BH_NAV_DEFAULT)=>{
+  const known=new Set(defaults.flat()),seen=new Set();
+  const groups=defaults.map((_,i)=>{
+    const src=Array.isArray(saved)&&Array.isArray(saved[i])?saved[i]:[];
+    return src.filter(id=>known.has(id)&&!seen.has(id)&&seen.add(id));
+  });
+  defaults.forEach((g,i)=>g.forEach(id=>{if(!seen.has(id)){seen.add(id);groups[i].push(id);}}));
+  return groups;
+};
+// Moves `id` into group `toGroup` at position `toIndex` (index counted after removing it).
+const bhNavMove=(layout,id,toGroup,toIndex)=>{
+  const groups=layout.map(g=>g.filter(x=>x!==id));
+  if(!layout.some(g=>g.includes(id))||!groups[toGroup])return layout;
+  groups[toGroup].splice(Math.max(0,Math.min(toIndex,groups[toGroup].length)),0,id);
+  return groups;
+};
+// @bh-test-end navlayout
+const useNavGroups=(identity,localLayout)=>useMemo(()=>{
+  const byId=new Map(NAV_ITEMS.map(n=>[n.id,n]));
+  return bhNavLayout(identity?.navLayout||localLayout).map(g=>g.map(id=>byId.get(id)));
+},[identity?.navLayout,localLayout]);
 
 // - FIRST-RUN SETUP MODAL -
 const SetupModal=({onDone})=>{
@@ -6276,9 +6303,42 @@ const SetupModal=({onDone})=>{
 const splitHubName=name=>{const m=(name||'BoardHub').match(/^([A-Z][a-z]*)([A-Z].*)$/);return m?[m[1],m[2]]:[(name||'BoardHub'),''];};
 
 // Desktop: fixed left sidebar
-const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForceMobile,hubName,osName,projects,tasks,onOpenCmd,onSelectProject,theme,themeMode,onToggleTheme,localSaveStatus})=>{
+const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForceMobile,hubName,osName,projects,tasks,onOpenCmd,onSelectProject,theme,themeMode,onToggleTheme,localSaveStatus,navGroups,onNavLayout})=>{
+  const [arrange,setArrange]=useState(false);
+  const [drag,setDrag]=useState(null);
+  const dragRef=useRef(null);
+  const navRef=useRef(null);
   const activeProjects=useMemo(()=>(projects||[]).filter(p=>!p.deleted&&p.status==='Em Andamento'),[projects]);
   const badges={'projects':activeProjects.length||0};
+  const ids=navGroups.map(g=>g.map(n=>n.id));
+  // Pointer events (not HTML5 drag) so touch works: the drag starts on the grip, which has touch-action:none.
+  // Target group = the one under the pointer (else the nearest); slot = rows above the pointer's
+  // y (by row midpoint), so dropping on gaps and padding still lands where the line shows.
+  const hit=(x,y,id)=>{
+    const groups=[...(navRef.current?.querySelectorAll('[data-nav-group]')||[])];
+    if(!groups.length)return {over:null,group:null};
+    let best=0,bestD=Infinity;
+    groups.forEach((g,i)=>{const r=g.getBoundingClientRect();const d=y<r.top?r.top-y:y>r.bottom?y-r.bottom:0;if(d<bestD){bestD=d;best=i;}});
+    const rows=[...groups[best].querySelectorAll('[data-nav-id]')].filter(r=>r.getAttribute('data-nav-id')!==id);
+    let idx=0;rows.forEach(r=>{const b=r.getBoundingClientRect();if(y>b.top+b.height/2)idx++;});
+    return {over:idx<rows.length?rows[idx].getAttribute('data-nav-id'):null,group:best,index:idx};
+  };
+  const startDrag=(e,id)=>{e.preventDefault();e.currentTarget.setPointerCapture?.(e.pointerId);dragRef.current=id;setDrag({id,over:null,group:null});};
+  const moveDrag=e=>{if(!dragRef.current)return;const h=hit(e.clientX,e.clientY,dragRef.current);setDrag(d=>d&&(d.over!==h.over||d.group!==h.group)?{...d,...h}:d);};
+  const endDrag=e=>{
+    const id=dragRef.current;dragRef.current=null;setDrag(null);
+    if(!id)return;
+    const h=hit(e.clientX,e.clientY,id);
+    if(h.group===null)return;
+    onNavLayout(bhNavMove(ids,id,h.group,h.index));
+  };
+  const keyMove=(e,id)=>{
+    const gi=ids.findIndex(g=>g.includes(id)),i=ids[gi].indexOf(id);
+    let next=null;
+    if(e.key==='ArrowUp')next=i>0?bhNavMove(ids,id,gi,i-1):gi>0?bhNavMove(ids,id,gi-1,ids[gi-1].length):null;
+    else if(e.key==='ArrowDown')next=i<ids[gi].length-1?bhNavMove(ids,id,gi,i+1):gi<ids.length-1?bhNavMove(ids,id,gi+1,0):null;
+    if(next){e.preventDefault();onNavLayout(next);setTimeout(()=>navRef.current?.querySelector('[data-nav-id="'+id+'"] [role="button"]')?.focus(),0);}
+  };
   return(
   <aside style={{width:220,minWidth:220,borderRight:'1px solid var(--border)',height:'100vh',position:'fixed',top:0,left:0,background:'var(--surface)',display:'flex',flexDirection:'column',padding:'22px 14px 18px',zIndex:30,overflowY:'auto'}}>
     <div onClick={()=>setView('dashboard')} {...keyActivate(()=>setView('dashboard'),'Ir para a visão geral')} onDoubleClick={e=>{e.preventDefault();resetView?.('dashboard');}} style={{cursor:'pointer',marginBottom:20,padding:'0 4px'}}>
@@ -6302,16 +6362,26 @@ const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForce
       </>
     )}
     <div className="sidebar-section-label" style={{marginTop:activeProjects.length>0?16:0}}>Menu</div>
-    <nav style={{display:'flex',flexDirection:'column',gap:2,flex:1}}>
-      {NAV_ITEMS.map(item=>(
-        <button key={item.id} onClick={()=>setView(item.id)}
-          onDoubleClick={e=>{e.preventDefault();resetView?.(item.id);}}
-          title="Clique para abrir · clique duas vezes para voltar ao início"
-          className={`nav-item ${activeView.startsWith(item.id)||(item.id==='projects'&&activeView==='project-detail')?'active':''}`}>
-          <Icon name={item.icon} size={15}/>{item.label}
-          {item.id==='projects'&&badges.projects>0&&<span className="nav-badge">{badges.projects}</span>}
-        </button>
+    <nav ref={navRef} style={{display:'flex',flexDirection:'column',gap:2,flex:1}}>
+      {navGroups.map((group,gi)=>(
+        <div key={gi} data-nav-group={gi} style={{display:'flex',flexDirection:'column',gap:2,paddingTop:gi>0&&(group.length>0||arrange)?8:0,marginTop:gi>0&&(group.length>0||arrange)?8:0,borderTop:gi>0&&(group.length>0||arrange)?'1px solid var(--border)':'none',minHeight:arrange?36:0,borderRadius:8,background:arrange&&drag&&drag.group===gi?'rgba(var(--ink),.04)':'transparent'}}>
+          {group.map(item=>(
+            <div key={item.id} data-nav-id={item.id} style={{display:'flex',alignItems:'center',gap:2,opacity:drag&&drag.id===item.id?.4:1,borderTop:arrange&&drag&&drag.over===item.id&&drag.id!==item.id?'2px solid var(--text)':'2px solid transparent'}}>
+              {arrange&&<span role="button" tabIndex={0} aria-label={'Arrastar '+item.label+' (ou use as setas)'} title="Arraste para reorganizar" onPointerDown={e=>startDrag(e,item.id)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={()=>{dragRef.current=null;setDrag(null);}} onKeyDown={e=>keyMove(e,item.id)} style={{cursor:'grab',touchAction:'none',padding:'8px 4px',color:'var(--muted)',display:'flex',flexShrink:0}}><Icon name="grip-vertical" size={14}/></span>}
+              <button onClick={()=>{if(!arrange)setView(item.id);}}
+                onDoubleClick={e=>{e.preventDefault();if(!arrange)resetView?.(item.id);}}
+                title={arrange?'Arraste a alça para reorganizar':'Clique para abrir · clique duas vezes para voltar ao início'}
+                className={`nav-item ${activeView.startsWith(item.id)||(item.id==='projects'&&activeView==='project-detail')?'active':''}`}>
+                <Icon name={item.icon} size={15}/>{item.label}
+                {item.id==='projects'&&badges.projects>0&&<span className="nav-badge">{badges.projects}</span>}
+              </button>
+            </div>
+          ))}
+        </div>
       ))}
+      <button onClick={()=>setArrange(v=>!v)} className="hover-text" aria-pressed={arrange} style={{marginTop:'auto',alignSelf:'flex-start',display:'flex',alignItems:'center',gap:6,padding:'6px 10px',border:'none',background:'transparent',cursor:'pointer',color:'var(--muted)',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.72rem'}}>
+        <Icon name={arrange?'check':'arrow-up-down'} size={12}/>{arrange?'Concluir':'Reorganizar menu'}
+      </button>
     </nav>
     <div style={{borderTop:'1px solid var(--border)',paddingTop:12,marginTop:8,display:'flex',flexDirection:'column',gap:8}}>
       <button onClick={()=>setForceMobile(true)} className="hover-border-text hover-text"
@@ -6392,9 +6462,12 @@ const SidebarMobile=React.memo(({activeView,setView,resetView,setForceMobile,hub
           <div className="more-sheet">
             <div className="more-sheet-handle"/>
             {MORE_ITEMS.map(item=>(
-              <button key={item.id} onClick={()=>go(item.id)} aria-current={activeView.startsWith(item.id)?'page':undefined} className={`more-sheet-item ${activeView.startsWith(item.id)?'active-sheet':''}`}>
+              <React.Fragment key={item.id}>
+              {item.id==='social'&&<div style={{borderTop:'1px solid var(--border)',margin:'6px 0'}}/>}
+              <button onClick={()=>go(item.id)} aria-current={activeView.startsWith(item.id)?'page':undefined} className={`more-sheet-item ${activeView.startsWith(item.id)?'active-sheet':''}`}>
                 <Icon name={item.icon} size={20}/>{item.label}
               </button>
+              </React.Fragment>
             ))}
             <button onClick={()=>{onOpenCmd();setMoreOpen(false);}} className="more-sheet-item">
                 <Icon name="search" size={20}/>Buscar (Cmd+K)
@@ -18171,12 +18244,18 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
 const BH_STUDY_KINDS=['Filme','Série','Animação','Curta','Cinemática de jogo','Videoclipe','Comercial','Outro'];
 // New studies carry every field so the editor never meets undefined; `refs` is a
 // free-length list of image URLs (visual references / frame grabs).
-const bhNewStudy=(over={},newId=bhNewId)=>({id:newId(),title:'',kind:'Filme',year:'',studio:'',artists:'',language:'',breakdown:'',analysis:'',links:'',refs:[],deleted:false,...over});
+const bhNewStudy=(over={},newId=bhNewId)=>({id:newId(),title:'',kind:'Filme',year:'',studio:'',artists:'',language:'',breakdown:'',analysis:'',links:'',refs:[],team:[],deleted:false,...over});
+// `team` rows are {id,role,name}. Old studies only have the free-text `artists`, so opening one
+// splits that text into rows (name only, nothing dropped); `artists` stays as a derived summary
+// ("Role: Name, ...") so cards, search and older clients keep working.
+const bhStudyTeamFromArtists=text=>String(text||'').split(/[\n;,]+/).map(t=>t.trim()).filter(Boolean).map((name,i)=>({id:'m'+i,role:'',name}));
+const bhStudyTeam=study=>Array.isArray(study?.team)&&(!study.artists||study.artists===bhStudyTeamSummary(study.team))?study.team.filter(r=>r&&typeof r==='object').map(r=>({id:r.id,role:String(r.role||''),name:String(r.name||'')})):bhStudyTeamFromArtists(study?.artists);
+const bhStudyTeamSummary=team=>(Array.isArray(team)?team:[]).filter(r=>r&&(r.name||r.role)).map(r=>r.role&&r.name?r.role+': '+r.name:(r.name||r.role)).join(', ');
 const bhStudyFold=v=>String(v||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 const bhStudyMatches=(study,query)=>{
   const q=bhStudyFold(query).trim();
   if(!q)return true;
-  return bhStudyFold([study?.title,study?.kind,study?.year,study?.studio,study?.artists,study?.language,study?.breakdown,study?.analysis].join(' ')).includes(q);
+  return bhStudyFold([study?.title,study?.kind,study?.year,study?.studio,study?.artists,(Array.isArray(study?.team)?study.team.map(r=>(r?.role||'')+' '+(r?.name||'')).join(' '):''),study?.language,study?.breakdown,study?.analysis].join(' ')).includes(q);
 };
 // Live studies only, filtered by kind/search, newest year first (unknown years last), then by title.
 const bhStudyList=(studies,{query='',kind='all',sort='recent'}={})=>{
@@ -18188,7 +18267,8 @@ const bhStudyList=(studies,{query='',kind='all',sort='recent'}={})=>{
 };
 // @bh-test-end studies
 const StudyModal=({study,onClose,onSave,onDelete})=>{
-  const [form,setForm]=useState({...study,refs:Array.isArray(study.refs)?study.refs:[]});
+  const [form,setForm]=useState(()=>({...study,refs:Array.isArray(study.refs)?study.refs:[],team:bhStudyTeam(study).map(r=>({...r,id:r.id||bhNewId()}))}));
+  const [page,setPage]=useState(0);
   const initialRef=useRef(JSON.stringify(form));
   const requestClose=async()=>{
     if(JSON.stringify(form)!==initialRef.current&&!await bhConfirm({message:'Descartar as alterações deste estudo?',confirmLabel:'Descartar',cancelLabel:'Continuar editando',danger:true}))return;
@@ -18203,6 +18283,10 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
       catch(err){bhLog('study.ref',err,'a referência');await bhAlert(bhUploadErrorText(err,'Não foi possível enviar a imagem. Tente novamente.'));}
     }
   };
+  const setRow=(id,k,v)=>setForm(f=>({...f,team:f.team.map(r=>r.id===id?{...r,[k]:v}:r)}));
+  const addRow=()=>setForm(f=>({...f,team:[...f.team,{id:bhNewId(),role:'',name:''}]}));
+  const removeRow=id=>setForm(f=>({...f,team:f.team.filter(r=>r.id!==id)}));
+  const saveForm=()=>{const team=form.team.filter(r=>r.role.trim()||r.name.trim()).map(r=>({...r,role:r.role.trim(),name:r.name.trim()}));onSave({...form,team,artists:bhStudyTeamSummary(team)});};
   const removeRef=idx=>setForm(f=>({...f,refs:(f.refs||[]).filter((_,i)=>i!==idx)}));
   const {boxRef,trapTab}=useModalLayer(requestClose);
   const ta=(k,label,placeholder,rows=3)=>(
@@ -18212,10 +18296,15 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
   );
   return ReactDOM.createPortal(
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&requestClose()}>
-      <div className="modal" style={{maxWidth:680}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={form.title||'Estudo'} onKeyDown={trapTab}>
+      <div className="modal" style={{maxWidth:760}} ref={boxRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={form.title||'Estudo'} onKeyDown={trapTab}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20}}>
           <h2 className="serif" style={{fontSize:'1.6rem',fontWeight:400,margin:0}}>{form.title||'Novo estudo'}</h2>
           <button className="btn btn-ghost" onClick={requestClose} style={{padding:6}} title="Fechar" aria-label="Fechar"><Icon name="x" size={18}/></button>
+        </div>
+        <div role="tablist" aria-label="Páginas do estudo" style={{display:'flex',gap:6,marginBottom:16,borderBottom:'1px solid var(--border)'}}>
+          {['Equipe','Linguagem e breakdown','Análise e links'].map((t,i)=>(
+            <button key={t} role="tab" aria-selected={page===i} className="btn btn-ghost" onClick={()=>setPage(i)} style={{padding:'8px 12px',borderRadius:0,fontSize:'.82rem',fontWeight:page===i?600:400,borderBottom:page===i?'2px solid var(--text)':'2px solid transparent',marginBottom:-1}}>{i+1}. {t}</button>
+          ))}
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
           <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px',gap:10}}>
@@ -18223,18 +18312,30 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
             <Field label="Tipo"><select className="input-box" value={form.kind||'Filme'} onChange={e=>set('kind',e.target.value)}>{BH_STUDY_KINDS.map(k=><option key={k} value={k}>{k}</option>)}</select></Field>
             <Field label="Ano"><input className="input-box" type="number" min="1880" max="2099" value={form.year||''} onChange={e=>set('year',e.target.value?Number(e.target.value):'')}/></Field>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <Field label="Estúdio"><input className="input-box" value={form.studio||''} onChange={e=>set('studio',e.target.value)} placeholder="Quem produziu"/></Field>
-            <Field label="Artistas"><input className="input-box" value={form.artists||''} onChange={e=>set('artists',e.target.value)} placeholder="Direção, arte, fotografia..."/></Field>
-          </div>
-          {ta('language','Linguagem visual','Cor, luz, câmera, composição, ritmo, texturas...')}
-          {ta('breakdown','Breakdown','Cena a cena: o que acontece, planos, transições, o que chamou atenção...',5)}
-          {ta('analysis','Minha análise','Como eu vejo: por que funciona, o que levo para os meus projetos...',5)}
-          <Field label="Links"><input className="input-box" value={form.links||''} onChange={e=>set('links',e.target.value)} placeholder="https://... (separe com vírgula)"/></Field>
+          {page===0&&<>
+          <Field label="Estúdio"><input className="input-box" value={form.studio||''} onChange={e=>set('studio',e.target.value)} placeholder="Quem produziu"/></Field>
           <div>
-            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Referências visuais</span>
+            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Equipe e créditos</span>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {form.team.map((r,i)=>(
+                <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr 1.4fr 32px',gap:8,alignItems:'center'}}>
+                  <input className="input-box" value={r.role} onChange={e=>setRow(r.id,'role',e.target.value)} placeholder="Função (ex: Direção de arte)" aria-label={'Função '+(i+1)}/>
+                  <input className="input-box" value={r.name} onChange={e=>setRow(r.id,'name',e.target.value)} placeholder="Nome" aria-label={'Nome '+(i+1)}/>
+                  <button className="btn btn-ghost" onClick={()=>removeRow(r.id)} style={{padding:6}} title="Remover linha" aria-label={'Remover linha '+(i+1)}><Icon name="x" size={14}/></button>
+                </div>
+              ))}
+              {form.team.length===0&&<p style={{color:'var(--muted)',fontSize:'.82rem',margin:0}}>Nenhum crédito ainda. Adicione função + nome.</p>}
+              <button className="btn btn-outline" onClick={addRow} style={{alignSelf:'flex-start'}}><Icon name="plus" size={14}/> Adicionar pessoa</button>
+            </div>
+          </div>
+          </>}
+          {page===1&&<>
+          {ta('language','Linguagem visual','Cor, luz, câmera, composição, ritmo, texturas...',5)}
+          {ta('breakdown','Breakdown','Cena a cena: o que acontece, planos, transições, o que chamou atenção...',8)}
+          <div>
+            <span className="label label-section" style={{display:'block',marginBottom:8}}><StaveGlyph name="whole"/>Imagens e referências visuais</span>
             <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={e=>{addFiles(e.target.files);e.target.value='';}}/>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(110px,1fr))',gap:8}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8}}>
               {form.refs.map((img,idx)=>(
                 <div key={imgKey(img,idx,form.refs)} style={{position:'relative',aspectRatio:'1',borderRadius:10,overflow:'hidden',background:'var(--bg)',border:'1px solid var(--border)'}}>
                   <Img src={img} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
@@ -18246,12 +18347,17 @@ const StudyModal=({study,onClose,onSave,onDelete})=>{
               </button>
             </div>
           </div>
+          </>}
+          {page===2&&<>
+          {ta('analysis','Minha análise','Como eu vejo: por que funciona, o que levo para os meus projetos...',12)}
+          <Field label="Links"><textarea className="input-box" rows={5} value={form.links||''} onChange={e=>set('links',e.target.value)} placeholder="https://... (um por linha ou separados por vírgula)" style={{resize:'vertical',lineHeight:1.7}}/></Field>
+          </>}
         </div>
         <div style={{display:'flex',justifyContent:'space-between',paddingTop:12,marginTop:16,borderTop:'1px solid var(--border)'}}>
           <button className="btn btn-danger" onClick={onDelete} title="Mover para a lixeira"><Icon name="trash-2" size={14}/> Lixeira</button>
           <div style={{display:'flex',gap:8}}>
             <button className="btn btn-outline" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-dark" onClick={()=>onSave(form)}><Icon name="check" size={14}/> Salvar</button>
+            <button className="btn btn-dark" onClick={saveForm}><Icon name="check" size={14}/> Salvar</button>
           </div>
         </div>
       </div>
@@ -18553,7 +18659,7 @@ const App=()=>{
       if(k==='n'){e.preventDefault();setQuickCaptureType('note');setShowQuickCapture(true);return;}
       if(k==='t'){e.preventDefault();setQuickCaptureType('task');setShowQuickCapture(true);return;}
       if(e.key==='?'){e.preventDefault();setShowShortcuts(v=>!v);return;}
-      if(/^[1-9]$/.test(e.key)){const item=NAV_ITEMS[Number(e.key)-1];if(item){e.preventDefault();navigateRef.current?.(item.id);}}
+      if(/^[1-9]$/.test(e.key)){const item=navGroupsRef.current.flat()[Number(e.key)-1];if(item){e.preventDefault();navigateRef.current?.(item.id);}}
     };
     window.addEventListener('keydown',onKD);
     return()=>window.removeEventListener('keydown',onKD);
@@ -18651,6 +18757,11 @@ const App=()=>{
   },[saveLocal]);
   const [syncStatus,setSyncStatus]=useState('idle'); // 'idle'|'syncing'|'synced'|'error'
   const [identity,setIdentity]=useState(()=>loadIdentity());
+  // Without an identity (not set up / local-only) the layout stays on this device only.
+  const [localNav,setLocalNav]=useState(()=>{try{return JSON.parse(localStorage.getItem('boardhub_navlayout')||'null');}catch{return null;}});
+  const navGroups=useNavGroups(identity,localNav);
+  const navGroupsRef=useRef(navGroups);navGroupsRef.current=navGroups;
+  const handleNavLayout=useCallback(layout=>setIdentity(prev=>{if(!prev){setLocalNav(layout);try{localStorage.setItem('boardhub_navlayout',JSON.stringify(layout));}catch(e){bhLog('navlayout',e);}return prev;}const next={...prev,navLayout:layout};saveIdentity(next);return next;}),[]);
 
   // Initialize from localStorage if available, else seed
   const [projects,setProjects]=useState(()=>bhRecordArray(persisted?.projects,SEED.projects));
@@ -20301,7 +20412,7 @@ const App=()=>{
       {rankPromotion&&(rankPromotion.preview||(ranksEnabled&&pageVisible&&!pendingSession&&!pendingRankNotice&&!rankHeld))&&<RankPromotionOverlay promotion={rankPromotion} onDone={dismissRankPromotion}/>} 
       {isMobile
         ?<SidebarMobile activeView={view} setView={navigate} resetView={resetView} setForceMobile={setForceMobile} hubName={identity?.hubName} onOpenCmd={()=>setShowCmdPalette(true)} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
-        :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus}/>
+        :<SidebarDesktop activeView={view} setView={navigate} resetView={resetView} isMobile={isMobile} setForceMobile={setForceMobile} hubName={identity?.hubName} osName={identity?.osName} projects={projects} tasks={tasks} onOpenCmd={()=>setShowCmdPalette(true)} onSelectProject={handleSelectProject} theme={theme} themeMode={themeMode} onToggleTheme={toggleTheme} localSaveStatus={localSaveStatus} navGroups={navGroups} onNavLayout={handleNavLayout}/>
       }
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>

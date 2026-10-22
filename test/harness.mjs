@@ -52,7 +52,8 @@ export const EXPECTED = {
   preloadall: ['bhPreloadAllPosts', 'bhPreloadList', 'bhImageIsLocal', 'bhImageHdSettled'],
   disp: ['bhDispName', 'bhDispPlan', 'bhDispAccept', 'bhIsAnimated', 'bhDispCacheState'],
   narrative: ['BH_NARRATIVE_STAGES', 'BH_NARRATIVE_TEMPLATES', 'bhNarrativeTemplate', 'bhNarrativeNormalize', 'bhNarrativeSetField', 'bhNarrativeSetTemplate', 'bhNarrativeSetBeat', 'bhNarrativeCopyOutline', 'bhNarrativeBoardAdd', 'bhNarrativeBoardEdit', 'bhNarrativeBoardMove', 'bhNarrativeBoardRemove', 'bhNarrativeFilled', 'bhNarrativeProgress'],
-  studies: ['BH_STUDY_KINDS', 'bhNewStudy', 'bhStudyMatches', 'bhStudyList'],
+  navlayout: ['BH_NAV_DEFAULT', 'bhNavLayout', 'bhNavMove'],
+  studies: ['BH_STUDY_KINDS', 'bhNewStudy', 'bhStudyMatches', 'bhStudyList', 'bhStudyTeam', 'bhStudyTeamSummary'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { BH_STUDY_KINDS, bhNewStudy, bhStudyMatches, bhStudyList } = load(['studies'], { stubs: { bhNewId: () => 'id-1' } });
+const { BH_STUDY_KINDS, bhNewStudy, bhStudyMatches, bhStudyList, bhStudyTeam, bhStudyTeamSummary } = load(['studies'], { stubs: { bhNewId: () => 'id-1' } });
 
 test('bhNewStudy: every field present, overrides win, own refs array each time', () => {
   const a = bhNewStudy({ title: 'Spider-Verse', year: 2018 });
@@ -58,4 +58,25 @@ test('sync: the acked base leaves out an empty studies list, keeps a filled one'
   assert.equal('studies' in _bhSyncBases.get('u'), false);
   bhSyncAck('u', { projects: [], studies: [{ id: 's1' }] });
   assert.deepEqual(_bhSyncBases.get('u').studies, [{ id: 's1' }]);
+});
+
+test('team: old free-text artists become name rows, nothing dropped', () => {
+  const t = bhStudyTeam({ artists: 'Peter Ramsey, Justin K. Thompson;\nBob Persichetti' });
+  assert.deepEqual(t.map(r => r.name), ['Peter Ramsey', 'Justin K. Thompson', 'Bob Persichetti']);
+  assert.ok(t.every(r => r.role === ''));
+  assert.deepEqual(bhStudyTeam({}), []);
+});
+
+test('team: existing rows win over artists text; summary joins role and name', () => {
+  const team = [{ id: 'a', role: 'Direção', name: 'Ramsey' }, { id: 'b', role: '', name: 'Thompson' }, { id: 'c', role: 'Fotografia', name: '' }];
+  assert.deepEqual(bhStudyTeam({ artists: bhStudyTeamSummary(team), team }), team);
+  assert.equal(bhStudyTeamSummary(team), 'Direção: Ramsey, Thompson, Fotografia');
+  assert.equal(bhNewStudy().team.length, 0);
+  assert.ok(bhStudyMatches({ team }, 'fotografia'));
+});
+
+test('team: artists edited by an older client wins over a stale team', () => {
+  const team = [{ id: 'a', role: 'Direção', name: 'Ramsey' }];
+  assert.deepEqual(bhStudyTeam({ artists: 'Direção: Ramsey', team }), team);
+  assert.deepEqual(bhStudyTeam({ artists: 'Novo Nome', team }).map(r => r.name), ['Novo Nome']);
 });
