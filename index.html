@@ -20696,6 +20696,8 @@ const App=()=>{
   const redistributeHours=async(args)=>{
     if(fbUser&&!_didInitialReconcile.current)return{ok:false,error:'Aguarde a leitura inicial da conta antes de redistribuir. Nada foi alterado.'};
     if(bhPersistenceBusy())return{ok:false,error:'Há uma restauração em andamento. Nada foi alterado.'};
+    // Two devices (or a device still focusing) changing the same totals can double count or drop hours in the sync merge, so only run with sync idle.
+    if(fbUser&&(syncStatus!=='synced'||_hasPendingLocalEdit.current))return{ok:false,error:'Aguarde o sync terminar (Local em dia) e deixe os outros aparelhos parados. Nada foi alterado.'};
     const live=_latestState.current||appState;
     if(bhStateHasData(live)&&!await bhCapture(live,'pre-redistribute'))return{ok:false,error:'Não foi possível criar a cópia de segurança. Nada foi alterado.'};
     const batch=bhNewId();
