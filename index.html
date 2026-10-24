@@ -622,6 +622,7 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .rich-editor{outline:none;word-break:break-word;overflow-y:auto;min-height:80px;}
 .rich-editor:empty:before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
 .rich-editor img{max-width:100%;border-radius:8px;margin:8px 0;display:block;cursor:grab;}
+.rich-editor img.note-al-c{margin-left:auto;margin-right:auto;}
 .rich-editor video{max-width:100%;max-height:70vh;border-radius:8px;margin:8px 0;display:block;background:#000;}
 .rich-editor img:active{cursor:grabbing;}
 /* Note-image uploads reserve their final place immediately. The placeholder is
@@ -14672,7 +14673,7 @@ const sanitizeHTML=html=>{
           if(!ok)el.removeAttribute(a.name);
         }
         else if(n==='class'){
-          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&(/^note-all-[1-5]$/.test(c)||c==='note-embed'||c==='note-embed-audio'))||(el.tagName==='IFRAME'&&c==='note-embed-frame'));
+          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(c==='note-al-c'&&el.tagName==='IMG')||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&(/^note-all-[1-5]$/.test(c)||c==='note-embed'||c==='note-embed-audio'))||(el.tagName==='IFRAME'&&c==='note-embed-frame'));
           if(allowed.length)el.className=allowed.join(' ');else el.removeAttribute('class');
         }
         else if(n==='href'&&!/^(?:https?:|mailto:|#)/i.test(compact))el.removeAttribute(a.name);
@@ -15415,9 +15416,10 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     e.preventDefault();e.stopPropagation();
     resizingRef.current=true;
     const full=editor.clientWidth||1,left=el.getBoundingClientRect().left;
+    const er=editor.getBoundingClientRect(),centerX=er.left+er.width/2,centered=el.classList.contains('note-al-c');
     const handle=e.currentTarget;try{handle.setPointerCapture(e.pointerId);}catch{/*silent-ok: capture is a nicety*/}
     const apply=clientX=>{
-      const pct=Math.max(20,Math.min(100,Math.round(((clientX-left)/full*100)/5)*5));
+      const pct=Math.max(20,Math.min(100,Math.round(((centered?(clientX-centerX)*2:clientX-left)/full*100)/5)*5));
       const old=widthClassOf(el);if(old)el.classList.remove(old);
       if(pct<100)el.classList.add('note-w-'+pct);
       setResizeLive(pct);setResizeTick(t=>t+1);
@@ -15457,6 +15459,13 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const el=toolsEl;if(!el||!el.isConnected)return;
     if(!bhImgClipToggle(persistedSrcOf(el),el.tagName==='VIDEO'?'video':'image'))
       bhAlert('Esta mídia está embutida no texto da nota e não pode ser copiada. Adicione-a de novo como imagem.');
+  };
+  // Centering applies to a loose image (images inside a grid already fill their cell).
+  const canCenterTools=!!toolsEl&&toolsEl.tagName==='IMG'&&!toolsEl.closest('.note-image-grid,.note-image-row,.note-image-cell');
+  const toggleCenterTools=()=>{
+    const el=toolsEl;if(!el||!el.isConnected)return;
+    el.classList.toggle('note-al-c');
+    setResizeTick(t=>t+1);emit();
   };
   const deleteToolsImage=()=>{
     const el=toolsEl,ed=ref.current;if(!el||!ed||!el.isConnected||!ed.contains(el))return;
@@ -15898,6 +15907,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
       {dropBar&&<div className="note-drop-bar" aria-hidden="true" style={dropBar}/>}
       {toolsBox&&<div className="note-img-tools" style={toolsBox}>
         {(()=>{const src=persistedSrcOf(toolsEl),copied=bhImgClipHas(src);return <button type="button" className={'note-img-tool'+(copied?' on':'')} title={copied?'Copiada: clique para tirar da seleção':'Copiar para colar em outra nota'} aria-label={copied?'Tirar a imagem das copiadas':'Copiar imagem'} aria-pressed={copied} onMouseDown={e=>e.preventDefault()} onClick={copyToolsImage}><Icon name={copied?'check':'copy'} size={13}/></button>;})()}
+        {canCenterTools&&<button type="button" className={'note-img-tool'+(toolsEl.classList.contains('note-al-c')?' on':'')} title={toolsEl.classList.contains('note-al-c')?'Alinhada ao centro: clique para alinhar à esquerda':'Centralizar imagem'} aria-label="Centralizar imagem" aria-pressed={toolsEl.classList.contains('note-al-c')} onMouseDown={e=>e.preventDefault()} onClick={toggleCenterTools}><Icon name="align-center" size={13}/></button>}
         <button type="button" className="note-img-tool danger" title="Remover imagem" aria-label="Remover imagem" onMouseDown={e=>e.preventDefault()} onClick={deleteToolsImage}><Icon name="trash-2" size={13}/></button>
       </div>}
       {undoDel&&<div className="note-undo-bar" role="status"><span>Imagem removida.</span><button type="button" onMouseDown={e=>e.preventDefault()} onClick={undoDelete}>Desfazer</button></div>}
