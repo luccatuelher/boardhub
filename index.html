@@ -18336,8 +18336,8 @@ const MentorModal=({mentor,onClose,onSave,onDelete})=>{
             <Field label="Nome"><input className="input-box" value={form.name} onChange={e=>set('name',e.target.value)} style={{fontWeight:600}}/></Field>
             <Field label="Area"><input className="input-box" value={form.area||''} onChange={e=>set('area',e.target.value)} placeholder="Ex: Narrativa Visual"/></Field>
             <Field label="Meio"><input className="input-box" value={form.medium||''} onChange={e=>set('medium',e.target.value)} placeholder="Ex: Animacao, HQ..."/></Field>
-            <Field label="Ano">
-              <input className="input-box" type="number" value={form.year||''} onChange={e=>set('year',e.target.value?Number(e.target.value):'')} placeholder={new Date().getFullYear()} min="1900" max="2099"/>
+            <Field label="Estúdio">
+              <input className="input-box" list="bh-mentor-studios" value={form.studio||''} onChange={e=>set('studio',e.target.value)} placeholder="Ex: Studio Ghibli"/>
             </Field>
           </div>
         </div>
@@ -18411,31 +18411,34 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     take();window.addEventListener('bh-open-item',take);return()=>window.removeEventListener('bh-open-item',take);
   },[mentors]);
   const [search,setSearch]=useState('');
-  const currentYear=new Date().getFullYear();
-  const [activeYear,setActiveYear]=useState('all');
+  const [activeStudio,setActiveStudio]=useState('all');
 
-  // Collect all distinct years present in mentors
-  const years=useMemo(()=>{
-    const ys=[...new Set(mentors.filter(m=>!m.deleted&&m.year).map(m=>Number(m.year)))];
-    ys.sort((a,b)=>b-a);
-    return ys;
+  // Distinct studios present in mentors (case-insensitive), for the filter chips
+  // and the studio suggestions in the editor.
+  const studios=useMemo(()=>{
+    const seen=new Map();
+    mentors.forEach(m=>{const st=String(m.studio||'').trim();if(!m.deleted&&st&&!seen.has(st.toLowerCase()))seen.set(st.toLowerCase(),st);});
+    return [...seen.values()].sort((x,y)=>x.localeCompare(y,'pt-BR',{sensitivity:'base'}));
   },[mentors]);
-  // The chosen year can vanish (its last mentor deleted or moved to another
-  // year), leaving an empty list and no chip marked; fall back to "Todos",
-  // as the Social platform filter does.
-  useEffect(()=>{if(activeYear!=='all'&&!years.includes(Number(activeYear)))setActiveYear('all');},[years,activeYear]);
+  // The chosen studio can vanish (last artist renamed or deleted); fall back to "Todos".
+  useEffect(()=>{if(activeStudio!=='all'&&!studios.some(st=>st.toLowerCase()===activeStudio.toLowerCase()))setActiveStudio('all');},[studios,activeStudio]);
 
-  const [mentorSort,setMentorSort]=useState(()=>{try{const v=localStorage.getItem('boardhub_mentors_sort');return v==='name'||v==='year'?v:'manual';}catch{return 'manual';}});
+  const [mentorSort,setMentorSort]=useState(()=>{try{const v=localStorage.getItem('boardhub_mentors_sort');return v==='name'||v==='studio'||v==='added'?v:'manual';}catch{return 'manual';}});
   const changeMentorSort=v=>{setMentorSort(v);try{localStorage.setItem('boardhub_mentors_sort',v);}catch(e){bhLog('mentors.sort',e);}};
   const filteredMentors=mentors.filter(m=>!m.deleted&&
-    (activeYear==='all'||String(m.year)===String(activeYear))&&
-    (!search||bhSearchText(m.name,m.area,m.medium,m.notes).includes(bhFold(search).trim()))
+    (activeStudio==='all'||String(m.studio||'').trim().toLowerCase()===activeStudio.toLowerCase())&&
+    (!search||bhSearchText(m.name,m.area,m.medium,m.studio,m.notes).includes(bhFold(search).trim()))
   );
   const byMentorName=(a,b)=>String(a.name||'').localeCompare(String(b.name||''),'pt-BR',{sensitivity:'base'});
   // Main mentors always come first; each group keeps the chosen order (the sort is stable).
   const mainFirst=list=>[...list].sort((a,b)=>(b.main?1:0)-(a.main?1:0));
   const visible=mainFirst(mentorSort==='name'?[...filteredMentors].sort(byMentorName)
-    :mentorSort==='year'?[...filteredMentors].sort((a,b)=>(Number(b.year)||0)-(Number(a.year)||0)||byMentorName(a,b))
+    :mentorSort==='studio'?[...filteredMentors].sort((a,b)=>{
+        const sa=String(a.studio||'').trim(),sb=String(b.studio||'').trim();
+        if(!sa!==!sb)return sa?-1:1;// artists without a studio go last
+        return sa.localeCompare(sb,'pt-BR',{sensitivity:'base'})||byMentorName(a,b);
+      })
+    :mentorSort==='added'?[...filteredMentors].sort((a,b)=>(bhIdTime(b.id)||0)-(bhIdTime(a.id)||0)||byMentorName(a,b))
     :filteredMentors);
   const dragIdxRef=useRef(null);
   const reorderMentors=(fromId,toId)=>{
@@ -18461,7 +18464,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
     onDrop:e=>{e.preventDefault();e.currentTarget.classList.remove('drag-over');if(dragIdxRef.current!=null&&String(dragIdxRef.current)!==String(id)){reorderMentors(dragIdxRef.current,id);dragIdxRef.current=null;}},
   });
   const add=()=>{
-    const n={id:bhNewId(),name:'Nova Inspiração',area:'',medium:'',year:currentYear,notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
+    const n={id:bhNewId(),name:'Nova Inspiração',area:'',medium:'',studio:'',notes:'',links:'',active:true,main:false,photo:'',photos:[null,null,null,null],deleted:false};
     setMentors(p=>[n,...p]);
     setSelected(n);
   };
@@ -18481,7 +18484,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
   // Same stepped rendering as the contacts list; the limit restarts when the list changes.
   const [listLimit,setListLimit]=useState(BH_LIST_STEP);
   const moreMentors=()=>setListLimit(l=>l+BH_LIST_STEP);
-  useEffect(()=>{setListLimit(BH_LIST_STEP);},[activeYear,search,mentorSort,trash]);
+  useEffect(()=>{setListLimit(BH_LIST_STEP);},[activeStudio,search,mentorSort,trash]);
   const trashed=mentors.filter(m=>m&&m.deleted);
   const del=()=>{
     const id=selected.id;
@@ -18523,7 +18526,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 :<div style={{width:40,height:40,borderRadius:'50%',background:'var(--bg)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Cormorant Garamond,serif',fontSize:'1.1rem',fontWeight:500}}>{(m.name||'?').charAt(0)}</div>}
               <div className="compact-row-info">
                 <div className="compact-row-title">{m.name||'Sem nome'}</div>
-                <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
+                <div className="compact-row-meta">{[m.area,m.medium,m.studio].filter(Boolean).join(' · ')}</div>
               </div>
               <div style={{display:'flex',gap:5,flexShrink:0}}>
                 <button onClick={()=>restore(m.id)} className="btn btn-outline" style={{padding:'4px 8px',fontSize:'.75rem'}} title="Restaurar" aria-label={'Restaurar '+(m.name||'inspiração')}><Icon name="refresh-cw" size={11}/></button>
@@ -18540,25 +18543,26 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
             placeholder="Buscar inspirações..." aria-label="Buscar inspirações" style={{paddingLeft:36,paddingRight:150}}/>
           <select value={mentorSort} onChange={e=>changeMentorSort(e.target.value)} aria-label="Ordenar inspirações" className="gallery-sort-select"
             style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
-            <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="year">Ano (recentes)</option>
+            <option value="manual">Ordem manual</option><option value="name">Nome A–Z</option><option value="studio">Estúdio A–Z</option><option value="added">Adicionados (recentes)</option>
           </select>
         </div>
       )}
-      {/* Year tabs */}
-      {!trash&&years.length>0&&(
+      {/* Studio filter */}
+      {!trash&&studios.length>0&&(
         <div style={{display:'flex',borderBottom:'1px solid var(--border)',marginBottom:20,gap:0,overflowX:'auto'}}>
-          <button onClick={()=>setActiveYear('all')} className="tab-btn"
-            style={{color:activeYear==='all'?'var(--text)':'var(--muted)',borderBottom:activeYear==='all'?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>
+          <button onClick={()=>setActiveStudio('all')} className="tab-btn"
+            style={{color:activeStudio==='all'?'var(--text)':'var(--muted)',borderBottom:activeStudio==='all'?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>
             Todos
           </button>
-          {years.map(y=>(
-            <button key={y} onClick={()=>setActiveYear(String(y))} className="tab-btn"
-              style={{color:String(activeYear)===String(y)?'var(--text)':'var(--muted)',borderBottom:String(activeYear)===String(y)?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>
-              {y}
+          {studios.map(st=>(
+            <button key={st} onClick={()=>setActiveStudio(st)} className="tab-btn"
+              style={{color:activeStudio.toLowerCase()===st.toLowerCase()?'var(--text)':'var(--muted)',borderBottom:activeStudio.toLowerCase()===st.toLowerCase()?'2px solid var(--text)':'2px solid transparent',whiteSpace:'nowrap'}}>
+              {st}
             </button>
           ))}
         </div>
       )}
+      <datalist id="bh-mentor-studios">{studios.map(st=><option key={st} value={st}/>)}</datalist>
       {!trash&&visible.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)'}}>
           <Icon name="book-open" size={36} style={{marginBottom:12,opacity:.3}}/>
@@ -18582,7 +18586,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
               }
               <div className="compact-row-info">
                 <div className="compact-row-title">{m.name}</div>
-                <div className="compact-row-meta">{m.area}{m.medium?' · '+m.medium:''}{m.year?' · '+m.year:''}</div>
+                <div className="compact-row-meta">{[m.area,m.medium,m.studio].filter(Boolean).join(' · ')}</div>
               </div>
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
                 {m.main&&<Icon name="star" size={11} style={{color:'var(--warn-fg)'}}/>}
@@ -18621,7 +18625,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
                 {m.notes&&<p style={{fontSize:'.76rem',color:'var(--muted)',margin:0,lineHeight:1.55,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{m.notes}</p>}
                 <div style={{marginTop:10,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
                   {m.main&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--warn-bg)',color:'var(--warn-fg)',display:'flex',alignItems:'center',gap:3}}><Icon name="star" size={9}/> Principal</span>}
-                  {m.year&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--bg)',color:'var(--muted)'}}>{m.year}</span>}
+                  {m.studio&&<span style={{fontSize:'.65rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',padding:'2px 7px',borderRadius:4,background:'var(--bg)',color:'var(--muted)'}}>{m.studio}</span>}
                 </div>
               </div>
             </div>
