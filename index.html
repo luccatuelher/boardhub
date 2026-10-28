@@ -13480,6 +13480,38 @@ const DeckNav=({index,count,onPrev,onNext,caption})=>(
 );
 // Click on the left / right half of a viewer's picture: dir -1 / +1.
 const deckHalf=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX-r.left<r.width/2?-1:1;};
+// Gallery post uploads live outside the Gallery screen: each post has its own
+// queue (posts upload at the same time), progress is read per post, and nothing
+// stops when the user changes tab or screen. Leaving the page asks first.
+const _bhPostUploads=new Map(),_bhPostUploadListeners=new Set(),_bhPostUploadSink={add:null};
+let _bhPostUploadVersion=0;
+const _bhPostUploadNotify=()=>{_bhPostUploadVersion++;_bhPostUploadListeners.forEach(f=>{try{f();}catch(e){}});};
+const _bhPostUploadWarn=e=>{if(!_bhPostUploads.size)return;e.preventDefault();e.returnValue='';};
+const bhPostUploadSubscribe=f=>{_bhPostUploadListeners.add(f);return()=>_bhPostUploadListeners.delete(f);};
+const bhPostUploadVersion=()=>_bhPostUploadVersion;
+const bhPostUploadOf=postId=>{const st=_bhPostUploads.get(String(postId));return st?{done:st.done+st.cur,total:st.total,compact:st.compact}:null;};
+const bhPostUploadEnqueue=async(postId,files)=>{
+  const key=String(postId);
+  let st=_bhPostUploads.get(key);
+  if(!st){st={done:0,cur:0,total:0,compact:null,running:false,queue:[]};_bhPostUploads.set(key,st);if(typeof window!=='undefined')window.addEventListener('beforeunload',_bhPostUploadWarn);}
+  st.total+=files.length;st.queue.push(files);_bhPostUploadNotify();
+  if(st.running)return;
+  st.running=true;
+  while(st.queue.length){
+    const batch=st.queue.shift();
+    try{
+      const urls=await uploadImages(batch,done=>{st.cur=done;_bhPostUploadNotify();},(i,pct)=>{st.compact=pct;_bhPostUploadNotify();});
+      if(_bhPostUploadSink.add)_bhPostUploadSink.add(postId,urls);
+    }catch(err){
+      bhLog('gallery.upload',err,'the selected images were not added');
+      await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));
+    }
+    st.done+=batch.length;st.cur=0;st.compact=null;_bhPostUploadNotify();
+  }
+  _bhPostUploads.delete(key);
+  if(!_bhPostUploads.size&&typeof window!=='undefined')window.removeEventListener('beforeunload',_bhPostUploadWarn);
+  _bhPostUploadNotify();
+};
 const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
@@ -13583,7 +13615,6 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const reorderFolders=(from,to)=>{if(from===to)return;setFolders(prev=>{const live=prev.filter(f=>!f.deleted&&!f.archived);const rest=prev.filter(f=>f.deleted||f.archived);const next=[...live];const[m]=next.splice(from,1);next.splice(to,0,m);return[...next,...rest];});};
 
   const [trash,setTrash]=useState(()=>!!_galleryUi.trash);
-  const [uploading,setUploading]=useState(false);
   const addImgRef=useRef();
 
   useEffect(()=>{
@@ -13806,53 +13837,30 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     setSelected(prev=>prev&&String(prev.id)===String(postId)?{...prev,[field]:value}:prev);
     setPosts(prev=>prev.map(p=>String(p.id)===String(postId)?{...p,[field]:value}:p));
   };
-  const [uploadProgress,setUploadProgress]=useState(null); // {done,total}|null
+  React.useSyncExternalStore(bhPostUploadSubscribe,bhPostUploadVersion);
+  // Only the open post shows (and is blocked by) its own upload.
+  const uploadProgress=selected?bhPostUploadOf(selected.id):null;
+  const uploading=!!uploadProgress;
+  _bhPostUploadSink.add=(postId,urls)=>{
+    setPosts(prev=>prev.map(post=>String(post.id)===String(postId)?{...post,images:[...(Array.isArray(post.images)?post.images:[]),...urls]}:post));
+    setSelected(prev=>prev&&String(prev.id)===String(postId)?{...prev,images:[...(Array.isArray(prev.images)?prev.images:[]),...urls]}:prev);
+  };
   const handleAddImages=async e=>{
     const files=Array.from(e.target.files||[]);
     try{await addImageFiles(files);}finally{e.target.value='';}
   };
   // Shared by the file picker and by files dropped from the desktop onto the
-  // post (images and videos only; anything else is ignored).
-  // Files added while an upload is running (a second paste) wait here, with the post
-  // they were meant for, and go up one batch after another.
-  const uploadQueueRef=useRef([]);
-  // Running totals of the whole run (all queued batches), so the counter reads 0/1 -> 0/2.
-  const uploadRunRef=useRef({done:0,total:0});
+  // post (images and videos only; anything else is ignored). Each post uploads
+  // on its own, so several posts can be filled at the same time.
   const addImageFiles=async(rawFiles,target)=>{
     let files=(rawFiles||[]).filter(f=>f&&(/^(image|video)\//.test(f.type)||/\.(gif|png|jpe?g|webp|mp4|webm|mov)$/i.test(f.name||'')));
     if(!files.length)return;
     // A big batch of frames (an exported animatic): offer one frame per hold.
     if(!target){const picked=await bhPickHoldFrames(files);if(!picked||!picked.length)return;files=picked;}
     const postId=target?target.postId:selected?.id;
-    const run=uploadRunRef.current;
-    if(uploading){
-      uploadQueueRef.current.push({files,postId});
-      run.total+=files.length;
-      setUploadProgress(p=>p?{...p,total:run.total}:p);
-      return;
-    }
-    if(!target){run.done=0;run.total=files.length;}
-    const base=run.done;
-    setUploading(true);
-    setUploadProgress({done:base,total:run.total});
-    try{
-      const urls=await uploadImages(files,(done)=>setUploadProgress({done:base+done,total:run.total}),(i,pct)=>setUploadProgress(p=>({done:p?.done??base+i,total:run.total,compact:pct})));
-      setPosts(prev=>prev.map(post=>String(post.id)===String(postId)?{...post,images:[...(Array.isArray(post.images)?post.images:[]),...urls]}:post));
-      setSelected(prev=>prev&&String(prev.id)===String(postId)?{...prev,images:[...(Array.isArray(prev.images)?prev.images:[]),...urls]}:prev);
-    }catch(err){
-      bhLog('gallery.upload',err,'the selected images were not added');
-      await bhAlert(bhUploadErrorText(err,'Não foi possível adicionar as imagens. Tente novamente.'));
-    }finally{
-      run.done=base+files.length;
-      if(!uploadQueueRef.current.length)setUploadProgress(null);
-      setUploading(false);
-    }
+    if(postId==null)return;
+    await bhPostUploadEnqueue(postId,files);
   };
-  useEffect(()=>{
-    if(uploading||!uploadQueueRef.current.length)return;
-    const next=uploadQueueRef.current.shift();
-    addImageFilesRef.current?.(next.files,next);
-  },[uploading]);
   const [fileDragOver,setFileDragOver]=useState(false);
   // Ctrl/Cmd+V with an image on the clipboard (a screenshot, a frame copied
   // from an editor) adds it to the open study. Plain-text paste into the
