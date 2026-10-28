@@ -1187,6 +1187,408 @@ const bhWithRestore=async work=>{
   }
 };
 const LS_KEY = 'boardhub_v2';
+// @bh-test-begin lsstate
+// The main state is written to localStorage, which browsers cap at about 5 MB.
+// When that is full the state is stored compressed instead (the text of posts is
+// mostly repeated image links, so it shrinks several times). A compressed value
+// starts with the marker below; plain JSON never does. Compression is LZ-based
+// (the lz-string algorithm by pieroxy, WTFPL licence), packing 15 bits per character.
+const BH_LS_PACKED='bhlz1:';
+const _bhLzChar=String.fromCharCode;
+const _bhLzCompress=(uncompressed, bitsPerChar, getCharFromInt)=>{
+    if (uncompressed == null) return "";
+    var i, value,
+        context_dictionary= {},
+        context_dictionaryToCreate= {},
+        context_c="",
+        context_wc="",
+        context_w="",
+        context_enlargeIn= 2, // Compensate for the first entry which should not count
+        context_dictSize= 3,
+        context_numBits= 2,
+        context_data=[],
+        context_data_val=0,
+        context_data_position=0,
+        ii;
+
+    for (ii = 0; ii < uncompressed.length; ii += 1) {
+      context_c = uncompressed.charAt(ii);
+      if (!Object.prototype.hasOwnProperty.call(context_dictionary,context_c)) {
+        context_dictionary[context_c] = context_dictSize++;
+        context_dictionaryToCreate[context_c] = true;
+      }
+
+      context_wc = context_w + context_c;
+      if (Object.prototype.hasOwnProperty.call(context_dictionary,context_wc)) {
+        context_w = context_wc;
+      } else {
+        if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+          if (context_w.charCodeAt(0)<256) {
+            for (i=0 ; i<context_numBits ; i++) {
+              context_data_val = (context_data_val << 1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+            }
+            value = context_w.charCodeAt(0);
+            for (i=0 ; i<8 ; i++) {
+              context_data_val = (context_data_val << 1) | (value&1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = value >> 1;
+            }
+          } else {
+            value = 1;
+            for (i=0 ; i<context_numBits ; i++) {
+              context_data_val = (context_data_val << 1) | value;
+              if (context_data_position ==bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = 0;
+            }
+            value = context_w.charCodeAt(0);
+            for (i=0 ; i<16 ; i++) {
+              context_data_val = (context_data_val << 1) | (value&1);
+              if (context_data_position == bitsPerChar-1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = value >> 1;
+            }
+          }
+          context_enlargeIn--;
+          if (context_enlargeIn == 0) {
+            context_enlargeIn = Math.pow(2, context_numBits);
+            context_numBits++;
+          }
+          delete context_dictionaryToCreate[context_w];
+        } else {
+          value = context_dictionary[context_w];
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+
+
+        }
+        context_enlargeIn--;
+        if (context_enlargeIn == 0) {
+          context_enlargeIn = Math.pow(2, context_numBits);
+          context_numBits++;
+        }
+        // Add wc to the dictionary.
+        context_dictionary[context_wc] = context_dictSize++;
+        context_w = String(context_c);
+      }
+    }
+
+    // Output the code for w.
+    if (context_w !== "") {
+      if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
+        if (context_w.charCodeAt(0)<256) {
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+          }
+          value = context_w.charCodeAt(0);
+          for (i=0 ; i<8 ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+        } else {
+          value = 1;
+          for (i=0 ; i<context_numBits ; i++) {
+            context_data_val = (context_data_val << 1) | value;
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = 0;
+          }
+          value = context_w.charCodeAt(0);
+          for (i=0 ; i<16 ; i++) {
+            context_data_val = (context_data_val << 1) | (value&1);
+            if (context_data_position == bitsPerChar-1) {
+              context_data_position = 0;
+              context_data.push(getCharFromInt(context_data_val));
+              context_data_val = 0;
+            } else {
+              context_data_position++;
+            }
+            value = value >> 1;
+          }
+        }
+        context_enlargeIn--;
+        if (context_enlargeIn == 0) {
+          context_enlargeIn = Math.pow(2, context_numBits);
+          context_numBits++;
+        }
+        delete context_dictionaryToCreate[context_w];
+      } else {
+        value = context_dictionary[context_w];
+        for (i=0 ; i<context_numBits ; i++) {
+          context_data_val = (context_data_val << 1) | (value&1);
+          if (context_data_position == bitsPerChar-1) {
+            context_data_position = 0;
+            context_data.push(getCharFromInt(context_data_val));
+            context_data_val = 0;
+          } else {
+            context_data_position++;
+          }
+          value = value >> 1;
+        }
+
+
+      }
+      context_enlargeIn--;
+      if (context_enlargeIn == 0) {
+        context_enlargeIn = Math.pow(2, context_numBits);
+        context_numBits++;
+      }
+    }
+
+    // Mark the end of the stream
+    value = 2;
+    for (i=0 ; i<context_numBits ; i++) {
+      context_data_val = (context_data_val << 1) | (value&1);
+      if (context_data_position == bitsPerChar-1) {
+        context_data_position = 0;
+        context_data.push(getCharFromInt(context_data_val));
+        context_data_val = 0;
+      } else {
+        context_data_position++;
+      }
+      value = value >> 1;
+    }
+
+    // Flush the last char
+    while (true) {
+      context_data_val = (context_data_val << 1);
+      if (context_data_position == bitsPerChar-1) {
+        context_data.push(getCharFromInt(context_data_val));
+        break;
+      }
+      else context_data_position++;
+    }
+    return context_data.join('');
+};
+const _bhLzDecompress=(length, resetValue, getNextValue)=>{
+    var dictionary = [],
+        next,
+        enlargeIn = 4,
+        dictSize = 4,
+        numBits = 3,
+        entry = "",
+        result = [],
+        i,
+        w,
+        bits, resb, maxpower, power,
+        c,
+        data = {val:getNextValue(0), position:resetValue, index:1};
+
+    for (i = 0; i < 3; i += 1) {
+      dictionary[i] = i;
+    }
+
+    bits = 0;
+    maxpower = Math.pow(2,2);
+    power=1;
+    while (power!=maxpower) {
+      resb = data.val & data.position;
+      data.position >>= 1;
+      if (data.position == 0) {
+        data.position = resetValue;
+        data.val = getNextValue(data.index++);
+      }
+      bits |= (resb>0 ? 1 : 0) * power;
+      power <<= 1;
+    }
+
+    switch (next = bits) {
+      case 0:
+          bits = 0;
+          maxpower = Math.pow(2,8);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+        c = _bhLzChar(bits);
+        break;
+      case 1:
+          bits = 0;
+          maxpower = Math.pow(2,16);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+        c = _bhLzChar(bits);
+        break;
+      case 2:
+        return "";
+    }
+    dictionary[3] = c;
+    w = c;
+    result.push(c);
+    while (true) {
+      if (data.index > length) {
+        return "";
+      }
+
+      bits = 0;
+      maxpower = Math.pow(2,numBits);
+      power=1;
+      while (power!=maxpower) {
+        resb = data.val & data.position;
+        data.position >>= 1;
+        if (data.position == 0) {
+          data.position = resetValue;
+          data.val = getNextValue(data.index++);
+        }
+        bits |= (resb>0 ? 1 : 0) * power;
+        power <<= 1;
+      }
+
+      switch (c = bits) {
+        case 0:
+          bits = 0;
+          maxpower = Math.pow(2,8);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+
+          dictionary[dictSize++] = _bhLzChar(bits);
+          c = dictSize-1;
+          enlargeIn--;
+          break;
+        case 1:
+          bits = 0;
+          maxpower = Math.pow(2,16);
+          power=1;
+          while (power!=maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position == 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb>0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+          dictionary[dictSize++] = _bhLzChar(bits);
+          c = dictSize-1;
+          enlargeIn--;
+          break;
+        case 2:
+          return result.join('');
+      }
+
+      if (enlargeIn == 0) {
+        enlargeIn = Math.pow(2, numBits);
+        numBits++;
+      }
+
+      if (dictionary[c]) {
+        entry = dictionary[c];
+      } else {
+        if (c === dictSize) {
+          entry = w + w.charAt(0);
+        } else {
+          return null;
+        }
+      }
+      result.push(entry);
+
+      // Add w+entry[0] to the dictionary.
+      dictionary[dictSize++] = w + entry.charAt(0);
+      enlargeIn--;
+
+      w = entry;
+
+      if (enlargeIn == 0) {
+        enlargeIn = Math.pow(2, numBits);
+        numBits++;
+      }
+
+    }
+};
+// The marker carries the length of the original text, so a damaged value is refused instead of read as data.
+const bhLsPack=text=>BH_LS_PACKED+text.length+':'+_bhLzCompress(text,15,a=>_bhLzChar(a+32))+' ';
+const bhLsIsPacked=raw=>typeof raw==='string'&&raw.startsWith(BH_LS_PACKED);
+// The JSON text behind a stored value (null when a packed value cannot be read).
+const bhLsUnpack=raw=>{
+  if(!bhLsIsPacked(raw))return raw;
+  try{
+    const at=raw.indexOf(':',BH_LS_PACKED.length);
+    const len=Number(raw.slice(BH_LS_PACKED.length,at));
+    if(at<0||!(len>0))return null;
+    const body=raw.slice(at+1);
+    const out=_bhLzDecompress(body.length,16384,i=>body.charCodeAt(i)-32);
+    return typeof out==='string'&&out.length===len?out:null;
+  }
+  catch{return null;}
+};
+// @bh-test-end lsstate
 // Asks the browser to keep this origin's storage (localStorage, IndexedDB) out of
 // eviction: Safari clears idle sites after ~7 days and Chrome evicts "best-effort"
 // storage under disk pressure, which is where unsynced local media and the backup
@@ -1209,11 +1611,13 @@ const bhRequestPersist=force=>{
 const DIRTY_KEY = 'boardhub_dirty'; // '1' = localStorage holds edits not yet confirmed pushed to cloud
 const LAST_EDIT_KEY = 'boardhub_last_edit_at'; // ISO timestamp of the last USER edit — feeds last-write-wins
 const LOCAL_OWNER_UID_KEY='boardhub_local_owner_uid';
+let _lsPacked=false; // the stored state is compressed (sticky: once the plain form no longer fit)
 const lsLoadResult = () => {
   try {
     const raw=localStorage.getItem(LS_KEY);
     if(!raw)return {status:'empty',state:null,raw:''};
-    try{const state=JSON.parse(raw);if(!state||typeof state!=='object'||Array.isArray(state))throw new Error('Estado local não é um objeto.');return {status:'valid',state,raw};}
+    if(bhLsIsPacked(raw))_lsPacked=true;
+    try{const text=bhLsUnpack(raw);if(text==null)throw new Error('Estado local compactado não pôde ser lido.');const state=JSON.parse(text);if(!state||typeof state!=='object'||Array.isArray(state))throw new Error('Estado local não é um objeto.');return {status:'valid',state,raw};}
     catch(error){return {status:'corrupt',state:null,raw,error};}
   } catch(error) { return {status:'unavailable',state:null,raw:'',error}; }
 };
@@ -1235,8 +1639,11 @@ const lsSave = s => {
   try {
     const serialized=JSON.stringify(s);
     const remember=()=>{_lsLastRefs=new Map(keys.map(k=>[k,s[k]]));_lsLastSerialized=serialized;};
-    if(_lsLastSerialized!=null?_lsLastSerialized===serialized:localStorage.getItem(LS_KEY)===serialized){remember();return {ok:true,stripped:false,unchanged:true};}
-    try{localStorage.setItem(LS_KEY,serialized);}
+    if(_lsLastSerialized!=null?_lsLastSerialized===serialized:bhLsUnpack(localStorage.getItem(LS_KEY))===serialized){remember();return {ok:true,stripped:false,unchanged:true};}
+    // Compressed only while the plain text does not fit; a state well under the cap goes back to plain.
+    const payload=_lsPacked&&serialized.length>=2000000?bhLsPack(serialized):serialized;
+    let wrotePacked=payload!==serialized;
+    try{localStorage.setItem(LS_KEY,payload);}
     catch(first){
       // The state is the primary copy; the emergency/fallback copies in this
       // same origin quota are only safety nets (the history lives in IndexedDB).
@@ -1247,9 +1654,16 @@ const lsSave = s => {
       bhLog('lsSave.quota',first,'dropping localStorage backup copies to keep the state');
       const held=[BH_EMERGENCY_KEY,BH_FALLBACK_KEY,BH_LOG_KEY].map(k=>[k,localStorage.getItem(k)]).filter(([,v])=>v!==null);
       held.forEach(([k])=>localStorage.removeItem(k));
-      try{localStorage.setItem(LS_KEY,serialized);}
-      catch(second){held.forEach(([k,v])=>{try{localStorage.setItem(k,v);}catch{/*silent-ok: nothing more to try; the original error is reported below*/}});throw second;}
+      try{localStorage.setItem(LS_KEY,payload);}
+      catch(second){
+        // Still full: the compressed form is several times smaller. From now on the state stays compressed.
+        let packedOk=false;
+        if(!_lsPacked||payload===serialized){try{const packed=bhLsPack(serialized);if(bhLsUnpack(packed)!==serialized)throw new Error('compactação não conferiu');localStorage.setItem(LS_KEY,packed);_lsPacked=true;wrotePacked=true;packedOk=true;bhLog('lsSave.packed',second,'the state no longer fits as plain text; stored compressed');}catch{/*silent-ok: reported below*/}}
+        if(!packedOk){held.forEach(([k,v])=>{try{localStorage.setItem(k,v);}catch{/*silent-ok: nothing more to try; the original error is reported below*/}});throw second;}
+        held.forEach(([k,v])=>{try{localStorage.setItem(k,v);}catch{/*silent-ok: the safety copies yield to the state*/}});
+      }
     }
+    _lsPacked=wrotePacked; // plain again once it fits
     remember();return {ok:true,stripped:false};
   }
   catch(e) {
@@ -20363,7 +20777,7 @@ const App=()=>{
   useEffect(()=>{
     const onStorage=e=>{
       if(e.key!==LS_KEY||!e.newValue||bhPersistenceBusy())return;
-      let remote;try{remote=JSON.parse(e.newValue);}catch{return;/* a torn or foreign write: the next save of either tab settles it */}
+      let remote;try{remote=JSON.parse(bhLsUnpack(e.newValue));}catch{return;/* a torn or foreign write: the next save of either tab settles it */}
       if(!remote||typeof remote!=='object'||Array.isArray(remote))return;
       const local=_latestState.current;if(!local)return;
       const merged=bhMergeSync(bhSyncState(_lsTabBase.current||{}),bhSyncState(local),bhSyncState(remote));

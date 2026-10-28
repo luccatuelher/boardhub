@@ -54,6 +54,7 @@ export const EXPECTED = {
   narrative: ['BH_NARRATIVE_STAGES', 'BH_NARRATIVE_TEMPLATES', 'bhNarrativeTemplate', 'bhNarrativeNormalize', 'bhNarrativeSetField', 'bhNarrativeSetTemplate', 'bhNarrativeSetBeat', 'bhNarrativeSetPlot', 'BH_NARRATIVE_VIZ', 'BH_NARRATIVE_ABOUT', 'bhNarrativeLayout', 'BH_STORY_PLOTS', 'bhStoryPlot', 'bhNarrativeCopyOutline', 'bhNarrativeBoardAdd', 'bhNarrativeBoardEdit', 'bhNarrativeBoardMove', 'bhNarrativeBoardRemove', 'bhNarrativeFilled', 'bhNarrativeProgress'],
   navlayout: ['BH_NAV_DEFAULT', 'bhNavLayout', 'bhNavMove'],
   studies: ['BH_STUDY_KINDS', 'bhNewStudy', 'bhStudyMatches', 'bhStudyList', 'bhStudyTeam', 'bhStudyTeamSummary'],
+  lsstate: ['BH_LS_PACKED', 'bhLsPack', 'bhLsIsPacked', 'bhLsUnpack'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 
