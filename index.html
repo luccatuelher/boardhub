@@ -10799,6 +10799,8 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
 
 // - PROJECTS LIST -
 const PROJECT_SORT_KEY='boardhub_projects_sort';
+const PROJECT_FILTER_KEY='boardhub_projects_filter';
+const PROJECT_ACTIVE_KEY='boardhub_projects_only_active';
 const PROJECT_SORTS=[['manual','Ordem manual'],['deadline','Prazo mais próximo'],['recent','Mais recentes'],['title','Nome A–Z'],['status','Status']];
 const PROJECT_STATUS_ORDER=['Atrasado','Em Andamento','Pausado','Concluído','Cancelado'];
 // Universal timeline on the Projects page (owner request, 2026-09-24): every
@@ -11455,14 +11457,17 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
   const updateTimelineTask=useCallback((projectId,taskId,patch)=>setProjects(prev=>prev.map(p=>String(p.id)!==String(projectId)?p
     :{...p,projectTasks:(p.projectTasks||[]).map(t=>String(t.id)===String(taskId)?{...t,...patch}:t),
       ...(patch.status!==undefined?{miniProjects:(p.miniProjects||[]).map(m=>String(m.id)===String(taskId)?{...m,status:projectTaskMiniStatus(patch.status)}:m)}:{})})),[setProjects]);
-  const [filterType,setFilterType]=useState('all');
-  const [onlyActive,setOnlyActive]=useState(false);
+  // The chosen filter and "Apenas ativos" are viewing preferences (per device).
+  const [filterType,setFilterTypeRaw]=useState(()=>{try{const v=localStorage.getItem(PROJECT_FILTER_KEY);return ['all','work','personal','done'].includes(v)?v:'all';}catch{return 'all';}});
+  const [onlyActive,setOnlyActiveRaw]=useState(()=>{try{return localStorage.getItem(PROJECT_ACTIVE_KEY)==='1';}catch{return false;}});
+  const setFilterType=v=>{setFilterTypeRaw(v);try{localStorage.setItem(PROJECT_FILTER_KEY,v);}catch(e){bhLog('projects.filter',e,'the chosen filter lasts only for this session');}};
+  const setOnlyActive=v=>{setOnlyActiveRaw(!!v);try{localStorage.setItem(PROJECT_ACTIVE_KEY,v?'1':'0');}catch(e){bhLog('projects.filter',e,'the chosen filter lasts only for this session');}};
   const [trash,setTrash]=useState(false);
   // A viewing preference (per device). Only "Ordem manual" is draggable: in
   // the computed orders a drop would silently rewrite the manual order.
   const [projSort,setProjSort]=useState(()=>{try{const v=localStorage.getItem(PROJECT_SORT_KEY);return PROJECT_SORTS.some(([k])=>k===v)?v:'manual';}catch{return 'manual';}});
   const changeProjSort=v=>{setProjSort(v);try{localStorage.setItem(PROJECT_SORT_KEY,v);}catch(e){bhLog('projects.sort',e,'the chosen order lasts only for this session');}};
-  const filtered=projects.filter(p=>trash?p.deleted:(!p.deleted&&(filterType==='all'||p.type===filterType)&&(!onlyActive||p.status==='Em Andamento')));
+  const filtered=projects.filter(p=>trash?p.deleted:(!p.deleted&&(filterType==='done'?p.status==='Concluído':((filterType==='all'||p.type===filterType)&&(!onlyActive||p.status==='Em Andamento')))));
   const visible=useMemo(()=>{
     if(trash||projSort==='manual')return filtered;
     const byTitle=(a,b)=>String(a.title||'').localeCompare(String(b.title||''),'pt-BR',{sensitivity:'base',numeric:true});
@@ -11541,7 +11546,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
           {!trash&&(
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'6px 16px 6px 6px',marginBottom:isMobile?12:16,flexWrap:isMobile?'wrap':'nowrap',gap:isMobile?8:0}}>
               <div style={{display:'flex',gap:4}}>
-                {[['all','Todos'],['work','Trabalho'],['personal','Pessoal']].map(([v,l])=>(
+                {[['all','Todos'],['work','Trabalho'],['personal','Pessoal'],['done','Concluídos']].map(([v,l])=>(
                   <button key={v} onClick={()=>setFilterType(v)} aria-pressed={filterType===v} style={{padding:'7px 16px',borderRadius:7,border:'none',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.82rem',fontWeight:500,background:filterType===v?'var(--text)':'transparent',color:filterType===v?'var(--bg)':'var(--muted)',transition:'all .15s'}}>{l}</button>
                 ))}
               </div>
@@ -11554,7 +11559,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                 <select value={projSort} onChange={e=>changeProjSort(e.target.value)} aria-label="Ordenar projetos" className="gallery-sort-select">
                   {PROJECT_SORTS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
                 </select>
-                <BhSwitch checked={onlyActive} onChange={setOnlyActive} label="Apenas ativos" style={{fontSize:'.82rem',color:'var(--muted)'}}>
+                <BhSwitch checked={onlyActive&&filterType!=='done'} onChange={setOnlyActive} label="Apenas ativos" style={{fontSize:'.82rem',color:'var(--muted)',...(filterType==='done'?{opacity:.45,pointerEvents:'none'}:null)}}>
                   {!isMobile&&'Apenas ativos'}
                 </BhSwitch>
               </div>
