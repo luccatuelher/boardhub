@@ -11996,7 +11996,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const pt0=(local.projectTasks||[]).find(t=>String(t.id)===String(parentId))||{};
     const n=((local.miniProjects||[]).filter(m=>String(m.parentId||'')===String(parentId)).length)+1;
     const id=bhNewId(),title='Rodada '+n;
-    const mini={id,title,status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),parentId:parent.id};
+    const mini={id,title,status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),parentId:parent.id,...(parent.galleryPostId!=null&&parent.galleryPostId!==''?{galleryPostId:parent.galleryPostId,postImagesSeparate:true}:null)};
     const pt={id,text:title,status:'Pendente',startDate:pt0.startDate||local.startDate||todayISO(),dueDate:pt0.dueDate||local.deadline||addDays(todayISO(),7),notes:'',parentId:parent.id};
     edit(prev=>({...prev,miniProjects:bhInsertChild(prev.miniProjects,parent.id,mini),projectTasks:bhInsertChild(prev.projectTasks,parent.id,pt)}));
     setActiveMiniId(id);setActiveInnerNoteId(null);
@@ -12094,18 +12094,37 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     mapInnerNotes(activeMiniId,ns=>ns.map(n=>String(n.id)===String(note.id)?out.note:n));
     if(local.gallerySection&&onPlacePost)onPlacePost(out.post.folder,out.post.id,String(local.gallerySection));
   };
+  // A session note joins an existing Gallery post of the project's folder: its
+  // images go into the post (which the note then reads through) and the two are linked.
+  const attachNoteToPost=(note,postId)=>{
+    const post=(galleryPosts||[]).find(x=>x&&!x.deleted&&String(x.id)===String(postId));
+    if(!post||!note||(note.galleryPostId!=null&&note.galleryPostId!==''))return;
+    const own=Array.isArray(note.images)?note.images:[];
+    if(own.length)setGalleryPosts(prev=>(prev||[]).map(x=>{
+      if(!x||String(x.id)!==String(post.id))return x;
+      const images=bhAppendImages(Array.isArray(x.images)?x.images:[],own);
+      return{...x,images,bannerImage:x.bannerImage&&images.includes(x.bannerImage)?x.bannerImage:(images.find(i=>!isVideoSrc(i))||'')};
+    }));
+    mapInnerNotes(activeMiniId,ns=>ns.map(n=>String(n.id)===String(note.id)?{...n,images:[],galleryPostId:String(post.id)}:n));
+  };
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
   const projectGalleryFolder=local.galleryFolder?(galleryFolders||[]).find(f=>f&&String(f.id)===String(local.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder]);
   // Posts already linked to ANOTHER task of this project (one post, one task): offered
   // too, so a duplicate task (V1/V2) can take the link over.
   const takeoverPosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&p.linkedTask&&!p.linkedTask.archived&&String(p.linkedTask.projectId)===String(local.id)&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder,local.id]);
+  // A task linked to a post carries its sub-tasks with it (same post, time only).
+  const withChildrenLinked=(ms,taskId,postId)=>(ms||[]).map(m=>{
+    if(!m)return m;
+    const own=String(m.id)===String(taskId),child=String(m.parentId||'')===String(taskId);
+    return(own||child)&&(m.galleryPostId==null||m.galleryPostId==='')?{...m,galleryPostId:String(postId),postImagesSeparate:true}:m;
+  });
   const linkTaskToNewPost=miniId=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     if(!mini||!local.galleryFolder||linkedPostOf(mini))return;
     const post={id:'task-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),folder:String(local.galleryFolder),storageScope:'gallery',title:mini.title||'Tarefa',date:localDateISO(),content:'',images:[],bannerImage:'',deleted:false};
     setGalleryPosts(prev=>[post,...(prev||[])]);
-    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:post.id,postImagesSeparate:true});
+    upd('miniProjects',ms=>withChildrenLinked(ms,miniId,post.id));
   };
   // Linking shares time, never images: the post and the task keep their own.
   const linkTaskToPost=async(miniId,postId)=>{
@@ -12116,14 +12135,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       const other=post.linkedTask;
       if(String(other.projectId)!==String(local.id)||other.archived||String(other.taskId)===String(miniId))return;
       if(!await bhConfirm({message:'Este post já está ligado à tarefa “'+other.taskTitle+'”. Passar a ligação para esta tarefa? A outra fica sem post.',confirmLabel:'Passar a ligação'}))return;
-      edit(prev=>({...prev,miniProjects:(prev.miniProjects||[]).map(m=>{
-        if(String(m.id)===String(other.taskId)){const {galleryPostId,...rest}=m;return rest;}
-        if(String(m.id)===String(miniId))return m.galleryPostId?m:{...m,galleryPostId:String(post.id),postImagesSeparate:true};
+      edit(prev=>({...prev,miniProjects:withChildrenLinked((prev.miniProjects||[]).map(m=>{
+        const fromOther=String(m.id)===String(other.taskId)||String(m.parentId||'')===String(other.taskId);
+        if(fromOther&&String(m.galleryPostId)===String(post.id)){const {galleryPostId,...rest}=m;return rest;}
         return m;
-      })}));
+      }),miniId,post.id)}));
       return;
     }
-    mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id),postImagesSeparate:true});
+    upd('miniProjects',ms=>withChildrenLinked(ms,miniId,post.id));
   };
   const unlinkTaskPost=async miniId=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
@@ -12237,7 +12256,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       if(!item)return arr;
       return bhInsertChild(arr.filter(x=>x!==item),parentId,{...item,parentId});
     };
-    edit(prev=>({...prev,miniProjects:setParent(prev.miniProjects),projectTasks:setParent(prev.projectTasks)}));
+    const parentMini=(local.miniProjects||[]).find(x=>String(x.id)===String(parentId));
+    const inherit=parentMini&&parentMini.galleryPostId!=null&&parentMini.galleryPostId!==''?parentMini.galleryPostId:null;
+    edit(prev=>({...prev,miniProjects:setParent(prev.miniProjects).map(m=>inherit&&m&&String(m.id)===String(childId)&&(m.galleryPostId==null||m.galleryPostId==='')?{...m,galleryPostId:inherit,postImagesSeparate:true}:m),projectTasks:setParent(prev.projectTasks)}));
     setExpandedMiniIds(x=>{const s2=new Set(x);s2.add(parentId);return s2;});
   };
   const reorderMinis=(fromIdx,toIdx)=>{
@@ -12956,7 +12977,12 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   </div>
                   {Array.isArray(note.sessionIds)&&note.sessionIds.length>0&&(note.galleryPostId==null||note.galleryPostId==='')&&local.galleryFolder&&projectGalleryFolder&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/>
                     <span style={{flex:'1 1 220px'}}>Esta sessão ainda não tem post na Galeria. Publicar cria o post em <strong>{projectGalleryFolder.label}</strong> com as imagens e o texto da nota, e liga os dois.</span>
-                    <button type="button" className="gallery-chip" onClick={()=>publishNoteToGallery(note)}><Icon name="upload" size={11}/> Publicar na Galeria</button></div>}
+                    <button type="button" className="gallery-chip" onClick={()=>publishNoteToGallery(note)}><Icon name="upload" size={11}/> Publicar na Galeria</button>
+                    {(()=>{const opts=(galleryPosts||[]).filter(x=>x&&!x.deleted&&!isProjectScopedPost(x)&&String(x.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+                      return opts.length>0&&<select aria-label="Juntar a um post existente" value="" onChange={e=>{if(e.target.value)attachNoteToPost(note,e.target.value);}} style={{maxWidth:220}}>
+                        <option value="">Juntar a um post existente…</option>
+                        {opts.map(x=><option key={x.id} value={String(x.id)}>{x.title||'Sem título'}</option>)}
+                      </select>;})()}</div>}
                   {note.galleryPostId!=null&&note.galleryPostId!==''&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/><span>{notePost
                     ?(notePost.deleted?<>O post <strong>{notePost.title||'Sem título'}</strong> desta sessão está na lixeira da Galeria; as imagens abaixo vêm dele.</>:<>As imagens abaixo são as do post <strong>{notePost.title||'Sem título'}</strong> da Galeria: mudar aqui muda lá.</>)
                     :'O post da Galeria desta sessão não está mais disponível.'}</span></div>}
