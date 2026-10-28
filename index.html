@@ -2944,6 +2944,44 @@ const Icon=({name,size=16,style={},strokeWidth}) =>{
 // M4 still owes would have landed on all 23 form inputs as well as the section
 // headings. Neither marker declares anything today: this is a seam, not a
 // restyle, and the computed style of every label is unchanged by construction.
+// Date field in the Brazilian format: the text reads and is typed as dd/mm/aaaa
+// whatever the browser's language is (a native date input follows the browser's,
+// so it showed mm/dd/yyyy). The value handed to onChange stays ISO (aaaa-mm-dd);
+// the calendar button opens the native picker. Drop-in for a date <input>.
+// @bh-test-begin brdate
+const bhIsoToBR=iso=>{const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||''));return m?m[3]+'/'+m[2]+'/'+m[1]:'';};
+const bhBRToIso=text=>{
+  const m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(text||'').trim());
+  if(!m)return null;
+  const d=+m[1],mo=+m[2],y=+m[3],t=new Date(Date.UTC(y,mo-1,d));
+  return y>=1900&&t.getUTCFullYear()===y&&t.getUTCMonth()===mo-1&&t.getUTCDate()===d?m[3]+'-'+m[2]+'-'+m[1]:null;
+};
+// @bh-test-end brdate
+const BhDateInput=({value,onChange,className,style,disabled,...rest})=>{
+  const iso=String(value||'').slice(0,10);
+  const [text,setText]=useState(bhIsoToBR(iso));
+  const pickerRef=useRef(null);
+  useEffect(()=>{setText(prev=>bhBRToIso(prev)===iso||(!iso&&!prev)?prev:bhIsoToBR(iso));},[iso]);
+  const emit=v=>onChange&&onChange({target:{value:v}});
+  const type=e=>{
+    const digits=e.target.value.replace(/\D/g,'').slice(0,8);
+    const shown=digits.length>4?digits.slice(0,2)+'/'+digits.slice(2,4)+'/'+digits.slice(4):digits.length>2?digits.slice(0,2)+'/'+digits.slice(2):digits;
+    setText(shown);
+    if(!shown){emit('');return;}
+    const out=bhBRToIso(shown);
+    if(out)emit(out);
+  };
+  const openPicker=()=>{const el=pickerRef.current;if(!el||disabled)return;try{el.showPicker();}catch{try{el.focus();el.click();}catch{/*silent-ok: no native picker here; the date can still be typed*/}}};
+  const full=String(className||'').includes('input-box')&&!(style&&style.width);
+  return <span style={{position:'relative',display:full?'flex':'inline-flex',width:full?'100%':undefined,alignItems:'center'}}>
+    <input {...rest} type="text" inputMode="numeric" placeholder="dd/mm/aaaa" maxLength={10} autoComplete="off" disabled={disabled} className={className} value={text}
+      onChange={type} onBlur={()=>setText(bhIsoToBR(iso))} style={{...style,paddingRight:30,minWidth:112}}/>
+    <button type="button" tabIndex={-1} disabled={disabled} onClick={openPicker} title="Escolher no calendário" aria-label="Escolher no calendário"
+      style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)',background:'transparent',border:'none',padding:2,cursor:'pointer',color:'var(--muted)',display:'flex'}}><Icon name="calendar-days" size={13}/></button>
+    <input ref={pickerRef} type="date" tabIndex={-1} aria-hidden="true" value={iso} onChange={e=>{if(e.target.value)emit(e.target.value);}}
+      style={{position:'absolute',right:0,bottom:0,width:1,height:1,opacity:0,pointerEvents:'none',border:0,padding:0}}/>
+  </span>;
+};
 const Field=({label,children})=><label style={{display:'flex',flexDirection:'column',gap:6}}><span className="label label-field">{label}</span>{children}</label>;
 // The app's one on/off switch. Three hand-rolled copies differed in size and
 // markup: the "Pago" one was a <div> inside a <label>, so its "A receber"
@@ -10745,8 +10783,8 @@ const NewProjectModal=({onSave,onClose,isMobile})=>{
         </div>
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:12}}>
           <Field label="Status"><select className="input-box" value={form.status} onChange={e=>set('status',e.target.value)} style={{cursor:'pointer'}}><option>Em Andamento</option><option>Pausado</option><option>Concluído</option><option>Cancelado</option></select></Field>
-          <Field label="Início"><input className="input-box" type="date" value={form.startDate} onChange={e=>set('startDate',e.target.value)}/></Field>
-          <Field label="Deadline"><input className="input-box" type="date" value={form.deadline} onChange={e=>set('deadline',e.target.value)}/></Field>
+          <Field label="Início"><BhDateInput className="input-box" value={form.startDate} onChange={e=>set('startDate',e.target.value)}/></Field>
+          <Field label="Deadline"><BhDateInput className="input-box" value={form.deadline} onChange={e=>set('deadline',e.target.value)}/></Field>
         </div>
         <NarrativeStartPicker value={narrativeTpl} onChange={setNarrativeTpl}/>
         <Field label="Notas iniciais"><textarea className="input-box" rows={3} value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Briefing, referências..." style={{resize:'none',lineHeight:1.7}}/></Field>
@@ -12004,11 +12042,11 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Início</label>
-            <input aria-label="Início" type="date" value={editDraft.startDate||''} onChange={e=>setEditDraft({...editDraft,startDate:e.target.value})} className="input-box"/>
+            <BhDateInput aria-label="Início" value={editDraft.startDate||''} onChange={e=>setEditDraft({...editDraft,startDate:e.target.value})} className="input-box"/>
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Prazo</label>
-            <input aria-label="Prazo" type="date" value={editDraft.dueDate||''} onChange={e=>setEditDraft({...editDraft,dueDate:e.target.value})} className="input-box"/>
+            <BhDateInput aria-label="Prazo" value={editDraft.dueDate||''} onChange={e=>setEditDraft({...editDraft,dueDate:e.target.value})} className="input-box"/>
           </div>
           <div style={{minWidth:130}}>
             <label style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',display:'block',marginBottom:5}}>Status</label>
@@ -13521,7 +13559,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   ?<input value={galleryPopup.title||''} onChange={e=>updateGalleryPopup('title',e.target.value)} placeholder="Título do post" style={{width:'100%',boxSizing:'border-box',fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,color:'var(--text)',background:'transparent',border:0,borderBottom:'1px solid var(--field-border)',outline:'none',padding:'0 0 4px'}}/>
                   :<h3 style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,margin:0,lineHeight:1.2,color:'var(--text)'}}>{galleryPopup.title}</h3>}
                 {galleryPopupEditing
-                  ?<input aria-label="Data do post" type="date" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--field-border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
+                  ?<BhDateInput aria-label="Data do post" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--field-border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
                   :<div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:3}}>{(()=>{try{return new Date(galleryPopup.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});}catch{return galleryPopup.date;}})()}</div>}
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
@@ -14698,7 +14736,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         {/* Date editor */}
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span className="label label-field" style={{flexShrink:0}}>Data</span>
-          <input type="date" value={(selected.date||'').slice(0,10)} onChange={e=>upd('date',e.target.value)} aria-label="Data do estudo"
+          <BhDateInput value={(selected.date||'').slice(0,10)} onChange={e=>upd('date',e.target.value)} aria-label="Data do estudo"
             style={{border:'1px solid var(--field-border)',borderRadius:8,padding:'6px 12px',fontSize:'.82rem',outline:'none',color:'var(--text)',backgroundColor:'var(--bg)',cursor:'pointer'}}/>
         </div>
         </div>
@@ -18237,9 +18275,9 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
       {open&&blankAll.length>0&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
           <span style={{color:'var(--muted)'}}>Período (opcional):</span>
-          <input type="date" value={since} onChange={e=>setSince(e.target.value)} aria-label="De" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
+          <BhDateInput value={since} onChange={e=>setSince(e.target.value)} aria-label="De" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
           <span style={{color:'var(--muted)'}}>até</span>
-          <input type="date" value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
+          <BhDateInput value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
         </div>
         <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
           <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>
