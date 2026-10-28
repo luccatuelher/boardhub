@@ -10402,7 +10402,8 @@ const useTlWidth=()=>{
 // middle of the calendar, i.e. of the width right of the sticky names column.
 // Today's column lands in the middle of the CALENDAR you can see, i.e. of the
 // width right of the sticky names column (which covers the first LEFT_W px).
-const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W/2+todayX+DAY_W/2-el.clientWidth/2);
+// Today lands on the centre of the whole box (where the collapse arrow sits), not of the grid beside the names column.
+const tlTodayLeft=(el,todayX,DAY_W,LEFT_W)=>Math.max(0,LEFT_W+todayX+DAY_W/2-el.clientWidth/2);
 // The "Hoje" button makes the very assignment the timelines make when they
 // open. It used to animate (scrollTo smooth), and an animated scroll stops
 // wherever it is when the user's own scrolling (trackpad momentum, wheel)
