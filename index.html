@@ -8450,12 +8450,12 @@ const FocusStatsBody=({pomoData,todayExtraSecs=0,tab})=>{
 
 const PomodoroTimer = ({ pomoData, setPomoData, projects=[], galleryFolders=[], onSessionComplete, onResumeSession, onOpenPost, galleryPosts=[] }) => {
   const BREAK_SECS = 5 * 60;
-  const MAX_FOCUS_MINS = 120; // sessions up to 2 hours (owner request, 2026-09-28)
+  const MAX_FOCUS_MINS = 60; // sessions up to 1 hour (owner request, 2026-10-28; was 2 hours since 2026-09-28)
 
   const _initRef=useRef(null);
   if(!_initRef.current)_initRef.current=(()=>{
     const saved = pomoTimerLoad();
-    const focusMins = saved?.focusMins ?? 30;
+    const focusMins = Math.min(MAX_FOCUS_MINS, Math.max(5, Number(saved?.focusMins) || 30));
     const targetKey = saved?.targetKey || 'none';
     const fromAnotherDocument=saved?.sessionMeta&&saved?.mode==='focus'&&saved?.documentId!==POMO_DOCUMENT_ID;
     // A session another tab wrote seconds ago is still running there (that tab
@@ -9488,6 +9488,11 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
     // The pinned ones (up to BH_PIN_MAX), in the order they were pinned.
     return result.filter(n=>n.pinned).sort((a,b)=>(Number(a.pinnedAt)||0)-(Number(b.pinnedAt)||0)).slice(0,BH_PIN_MAX);
   },[notes]);
+  const dragPinRef=useRef(null);
+  const [dragPinOver,setDragPinOver]=useState(null);
+  const pinTarget=n=>n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id};
+  const pinKey=n=>`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`;
+  const dropPin=n=>{const from=dragPinRef.current;dragPinRef.current=null;setDragPinOver(null);if(from)setNotes(prev=>bhMovePin(prev,from,pinTarget(n)));};
   const unpinRecent=n=>setNotes(prev=>bhTogglePin(prev,n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id},Date.now()).notes);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
@@ -9627,7 +9632,12 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
               <Icon name="pin" size={20} style={{opacity:.3}}/><span>Fixe até {BH_PIN_MAX} notas, pastas ou categorias em Anotações para vê-las aqui.</span>
             </div>}
             <div style={{display:'flex',flexDirection:'column',gap:isSmall?4:6,flex:1,minHeight:0,overflow:isMobile?'visible':'hidden'}}>
-              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'3px 10px':'7px 12px',flex:isMobile?'1 1 auto':'1 1 0',minHeight:isMobile?undefined:isTight?28:isSmall?40:46,overflow:'hidden',maxHeight:isSmall?64:84,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,minWidth:0}}>
+              {recentNotes.map(n=><div key={`${n._recentKind}-${n._recentFolderId||'root'}-${n.id}`} className="card card-click dashboard-pinned-note" draggable={recentNotes.length>1}
+                onDragStart={e=>{dragPinRef.current=pinTarget(n);e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(n.id));}catch(_){}}}
+                onDragOver={e=>{if(!dragPinRef.current)return;e.preventDefault();e.dataTransfer.dropEffect='move';if(dragPinOver!==pinKey(n))setDragPinOver(pinKey(n));}}
+                onDrop={e=>{e.preventDefault();dropPin(n);}}
+                onDragEnd={()=>{dragPinRef.current=null;setDragPinOver(null);}}
+                onClick={()=>openRecentNote(n)} {...keyActivate(()=>openRecentNote(n),'Abrir nota '+(n.title||''))} style={{padding:isSmall?'3px 10px':'7px 12px',flex:isMobile?'1 1 auto':'1 1 0',minHeight:isMobile?undefined:isTight?28:isSmall?40:46,overflow:'hidden',maxHeight:isSmall?64:84,display:'flex',flexDirection:'column',justifyContent:'center',gap:3,...(dragPinOver===pinKey(n)?{outline:'2px dashed var(--muted)',outlineOffset:-2}:null),minWidth:0}}>
                 <div style={{display:'flex',alignItems:'baseline',gap:8,minWidth:0}}>
                   <Icon name={n._recentKind==='category'?'layers-3':n._recentKind==='folder'?'folder':'pin'} size={11} style={{flexShrink:0,color:'var(--muted)',alignSelf:'center'}}/>
                   <div style={{fontWeight:600,fontSize:'.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}}>{n.title||'Sem título'}</div>
@@ -10822,6 +10832,36 @@ const bhTogglePin=(notes,target,now,max=BH_PIN_MAX)=>{
   }
   return{ok:true,pinned:!pinned,notes:list.map(x=>x&&String(x.id)===String(target.id)?flip(x):x)};
 };
+// Moves one pinned item to where another is in the pinned order (the order of
+// pinnedAt, which is what the home lists): the same pinnedAt values are handed
+// out again in the new order. Same array when nothing moves.
+const bhMovePin=(notes,from,to)=>{
+  const list=Array.isArray(notes)?notes:[];
+  const items=[];
+  list.forEach(x=>{
+    if(!x||x.deleted)return;
+    if(x.type!=='section'&&x.pinned)items.push({id:String(x.id),folderId:null,at:Number(x.pinnedAt)||0});
+    if(x.type==='project'&&Array.isArray(x.entries))x.entries.forEach(e=>{if(e&&!e.deleted&&e.pinned)items.push({id:String(e.id),folderId:String(x.id),at:Number(e.pinnedAt)||0});});
+  });
+  items.sort((a,b)=>a.at-b.at);
+  const same=(it,t)=>it.id===String(t.id)&&(t.kind==='entry'?it.folderId===String(t.folderId):it.folderId==null);
+  const a=items.findIndex(it=>same(it,from)),b=items.findIndex(it=>same(it,to));
+  if(a<0||b<0||a===b)return list;
+  const times=items.map(it=>it.at);
+  for(let i=1;i<times.length;i++)if(times[i]<=times[i-1])times[i]=times[i-1]+1;
+  const [moved]=items.splice(a,1);
+  items.splice(b,0,moved);
+  const stamp=new Map(items.map((it,i)=>[(it.folderId||'')+'/'+it.id,times[i]]));
+  return list.map(x=>{
+    if(!x)return x;
+    let out=x;
+    if(x.type!=='section'&&x.pinned&&!x.deleted){const t=stamp.get('/'+String(x.id));if(t!=null&&t!==x.pinnedAt)out={...out,pinnedAt:t};}
+    if(x.type==='project'&&Array.isArray(x.entries)&&x.entries.some(e=>e&&e.pinned&&!e.deleted)){
+      out={...out,entries:x.entries.map(e=>{if(!e||!e.pinned||e.deleted)return e;const t=stamp.get(String(x.id)+'/'+String(e.id));return t!=null&&t!==e.pinnedAt?{...e,pinnedAt:t}:e;})};
+    }
+    return out;
+  });
+};
 // @bh-test-end notepins
 // @bh-test-begin notesections
 // Sections of the Anotações list ("Seção"): a header row inside a level (the root
@@ -11941,6 +11981,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const open=bhUiLoad('openTaskNote');
     if(String(open.projectId||'')===String(project.id))bhUiReplace('openTaskNote',{});
   },[project.id]);
+  const [addMenuMiniId,setAddMenuMiniId]=useState(null);
   const [activeMiniId,setActiveMiniId]=useState(()=>openTaskTarget?openTaskTarget.miniId:((project.miniProjects||[])[0]?.id||null));
   const [expandedMiniIds,setExpandedMiniIds]=useState(()=>new Set([openTaskTarget?openTaskTarget.miniId:(project.miniProjects||[])[0]?.id].filter(v=>v!=null)));
   const activeMini=(local.miniProjects||[]).find(m=>m.id===activeMiniId)||null;
@@ -11963,7 +12004,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const addMini=()=>{
     const id=bhNewId();
     const n={id,title:'Nova Tarefa',status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};
-    const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:local.startDate||todayISO(),dueDate:local.deadline||addDays(todayISO(),7),notes:''};
+    const today0=todayISO();
+    const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:today0,dueDate:local.deadline&&local.deadline>=today0?local.deadline:addDays(today0,7),notes:''};
     edit(prev=>({...prev,miniProjects:[n,...(prev.miniProjects||[])],projectTasks:[pt,...(prev.projectTasks||[])]}));
     setActiveMiniId(id);
   };
@@ -12665,6 +12707,22 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:'.82rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isMiniActive?'var(--bg)':'var(--text)'}}>{m.title}</div>
                     </div>
+                    <span style={{position:'relative',display:'flex',flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                      <button title="Adicionar nota ou subtarefa" aria-label="Adicionar nota ou subtarefa" aria-haspopup="menu" aria-expanded={addMenuMiniId===m.id}
+                        onClick={e=>{e.stopPropagation();setAddMenuMiniId(v=>v===m.id?null:m.id);}}
+                        style={{width:19,height:19,border:'1px solid '+(isMiniActive?'rgba(var(--paper),.35)':'var(--border)'),borderRadius:6,background:'transparent',cursor:'pointer',padding:0,display:'flex',alignItems:'center',justifyContent:'center',color:isMiniActive?'var(--bg)':'var(--muted)'}}>
+                        <Icon name="plus" size={11}/>
+                      </button>
+                      {addMenuMiniId===m.id&&<>
+                        <div onClick={e=>{e.stopPropagation();setAddMenuMiniId(null);}} style={{position:'fixed',inset:0,zIndex:40}}/>
+                        <div role="menu" style={{position:'absolute',top:24,right:0,zIndex:41,minWidth:150,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,boxShadow:'0 6px 20px rgba(0,0,0,.18)',padding:4,display:'flex',flexDirection:'column',gap:2}}>
+                          <button role="menuitem" className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'6px 10px',fontSize:'.78rem',color:'var(--text)'}}
+                            onClick={e=>{e.stopPropagation();setAddMenuMiniId(null);addInnerNote(m.id);setExpandedMiniIds(x=>{const s2=new Set(x);s2.add(m.id);return s2;});}}><Icon name="file-text" size={12}/> Nova nota</button>
+                          {!m.parentId&&<button role="menuitem" className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'6px 10px',fontSize:'.78rem',color:'var(--text)'}}
+                            onClick={e=>{e.stopPropagation();setAddMenuMiniId(null);addSubTask(m.id);}}><Icon name="folder-plus" size={12}/> Nova subtarefa</button>}
+                        </div>
+                      </>}
+                    </span>
                     {m.galleryPostId!=null&&m.galleryPostId!==''&&<span title="Publicada na Galeria" style={{display:'flex',flexShrink:0,color:isMiniActive?'var(--bg)':'var(--muted)'}}><Icon name="images" size={12}/></span>}
                     <span style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.05em',padding:'1px 5px',borderRadius:3,flexShrink:0,
                       background:isMiniActive?'rgba(var(--paper),.2)':'var(--bg)',color:isMiniActive?'rgba(var(--paper),.8)':'var(--muted)'}}>{m.status==='Em Andamento'?'Ativo':m.status==='Concluído'?'OK':m.status==='Atrasado'?'Late':m.status==='Pendente'?'--':m.status}</span>
@@ -12693,18 +12751,8 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                           </div>
                         );
 };
-                    const addNoteBtn=(subId)=>(
-                      <button onClick={e=>{e.stopPropagation();addInnerNote(m.id,subId);if(!expandedMiniIds.has(m.id)){const x=new Set(expandedMiniIds);x.add(m.id);setExpandedMiniIds(x);}}}
-                        style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:6,border:'1px dashed var(--border)',background:'transparent',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.74rem',color:'var(--muted)',marginTop:2}}>
-                        <Icon name="plus" size={10}/> Nova nota
-                      </button>);
                     return <div style={{paddingLeft:20,display:'flex',flexDirection:'column',gap:2,marginTop:2,marginBottom:2}}>
                       {notes.map((n,i)=>renderNote(n,i))}
-                      {addNoteBtn(null)}
-                      {!m.parentId&&<button onClick={e=>{e.stopPropagation();addSubTask(m.id);}}
-                        style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:6,border:'1px dashed var(--border)',background:'transparent',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.74rem',color:'var(--muted)',marginTop:2}}>
-                        <Icon name="folder-plus" size={10}/> Nova subtarefa
-                      </button>}
                     </div>;
                   })()}
                 </div>
@@ -17622,6 +17670,17 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const blankAll=useMemo(()=>pomoBlankRows(base,{}),[base]);
   const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until}),[base,picked,custom,weights,since,until,folders]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
+  // Why hours may look "unallocated" yet are not movable here: sessions still
+  // waiting in the registration dialog, and sessions filed under a category
+  // that no longer exists. Shown so the card never just disappears.
+  const stuck=useMemo(()=>{
+    const rows=((base.rank&&base.rank.sessions)||[]).filter(r=>r&&r.id!=null&&Number(r.durationSeconds)>0&&!r.retarget);
+    const sumSecs=list=>list.reduce((n,r)=>n+Number(r.durationSeconds),0);
+    const live=new Set((appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&f.id!=null).map(f=>'cat:'+f.id));
+    const pending=rows.filter(r=>r.status==='pending'&&(!r.targetKey||r.targetKey==='none'));
+    const orphan=rows.filter(r=>typeof r.targetKey==='string'&&r.targetKey.startsWith('cat:')&&!live.has(r.targetKey));
+    return{pending:{n:pending.length,secs:sumSecs(pending)},orphan:{n:orphan.length,secs:sumSecs(orphan)}};
+  },[base,appState?.galleryFolders]);
   const apply=async()=>{
     if(busy||!plan.assignments.length)return;
     const lines=plan.perTarget.filter(t=>t.count>0).map(t=>`• ${t.label}: ${pomoFmtSecs(t.secs)} (${t.count} ${t.count===1?'sessão':'sessões'})`).join('\n');
@@ -17635,7 +17694,6 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
     finally{setBusy(false);}
   };
-  if(!blankAll.length&&!open&&unallocated<=0)return null;
   return(
     <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
@@ -17644,7 +17702,9 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
             {blankAll.length
               ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre as categorias que já existem; nada novo é criado.</>
-              :<>Nenhuma sessão de foco sem categoria.</>}
+              :<>Nenhuma sessão de foco sem categoria para mover.</>}
+            {stuck.pending.n>0&&<> {stuck.pending.n} {stuck.pending.n===1?'sessão ainda espera':'sessões ainda esperam'} o registro ({pomoFmtSecs(stuck.pending.secs)}); registre ou pule para poder mover.</>}
+            {stuck.orphan.n>0&&<> {stuck.orphan.n} {stuck.orphan.n===1?'sessão está':'sessões estão'} em categorias que não existem mais ({pomoFmtSecs(stuck.orphan.secs)}).</>}
             {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> O total diário tem ainda {pomoFmtSecs(unallocated)} sem destino; só as sessões listadas podem ser movidas.</>}
           </div>
         </div>
@@ -19392,8 +19452,24 @@ const App=()=>{
       // (see bhNoteImages). The id is derived from the session, so a retry (or
       // another device) finds the same post. A project with no Gallery folder
       // keeps the images in the note.
+      // Only when the task is (or is being) published: with "Não publicar a
+      // tarefa" the images stay in the note and no Gallery post is made.
+      const currentMini=task?null:(project.miniProjects||[]).find(m=>m&&String(m.id)===taskId);
+      const taskAlreadyLinked=!!currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!=='';
+      // Linking the task to a Gallery post from the modal (for time only, no
+      // images change hands): a new post in the project's folder, or a post of
+      // that folder no task is linked to yet.
+      const folderId=project.galleryFolder?String(project.galleryFolder):'';
+      let newPost=null,linkPost=null;
+      if(session.galleryLink&&folderId&&!(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!=='')){
+        if(session.galleryLink==='__new__'){
+          const taskTitle=task?task.text:((project.miniProjects||[]).find(m=>m&&String(m.id)===taskId)?.title||(project.projectTasks||[]).find(t=>t&&String(t.id)===taskId)?.text||'Tarefa');
+          newPost={id:'task-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),folder:folderId,storageScope:'gallery',title:taskTitle,date:day,content:'',images:[],bannerImage:'',deleted:false};
+        }else if(!taskPostLinks.has(String(session.galleryLink)))linkPost=galleryPosts.find(p=>p&&!p.deleted&&String(p.id)===String(session.galleryLink))||null;
+      }
+      const linkId=newPost?newPost.id:linkPost?String(linkPost.id):null;
       const sessionFolder=project.galleryFolder?String(project.galleryFolder):'';
-      const sessionPostId=sessionFolder?'session-post-'+session.id:null;
+      const sessionPostId=sessionFolder&&(linkId||taskAlreadyLinked)?'session-post-'+session.id:null;
       const note={id:noteId,title:session.title||'Sessão',content:session.note||'',
         images:sessionPostId?[]:images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)],
         ...(sessionPostId?{galleryPostId:sessionPostId}:{})};
@@ -19404,19 +19480,6 @@ const App=()=>{
         // never a project key: a post carrying one reads as a project post and is re-scoped away from the Gallery
         sourceTargetKey:session.targetType==='project'?'none':(session.targetKey||'none'),sourceTargetKeys:[session.targetType==='project'?'none':(session.targetKey||'none')],
         sourceTargetType:session.targetType==='project'?'other':(session.targetType||'other'),sourceSeasonId:session.seasonId||rankSeasonForDate().id,taskIds:[taskId]}:null;
-      // Linking the task to a Gallery post from the modal (for time only, no
-      // images change hands): a new post in the project's folder, or a post of
-      // that folder no task is linked to yet.
-      const folderId=project.galleryFolder?String(project.galleryFolder):'';
-      let newPost=null,linkPost=null;
-      const currentMini=task?null:(project.miniProjects||[]).find(m=>m&&String(m.id)===taskId);
-      if(session.galleryLink&&folderId&&!(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!=='')){
-        if(session.galleryLink==='__new__'){
-          const taskTitle=task?task.text:((project.miniProjects||[]).find(m=>m&&String(m.id)===taskId)?.title||(project.projectTasks||[]).find(t=>t&&String(t.id)===taskId)?.text||'Tarefa');
-          newPost={id:'task-post-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),folder:folderId,storageScope:'gallery',title:taskTitle,date:day,content:'',images:[],bannerImage:'',deleted:false};
-        }else if(!taskPostLinks.has(String(session.galleryLink)))linkPost=galleryPosts.find(p=>p&&!p.deleted&&String(p.id)===String(session.galleryLink))||null;
-      }
-      const linkId=newPost?newPost.id:linkPost?String(linkPost.id):null;
       // A category session keeps its category as target, so the time it took
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the

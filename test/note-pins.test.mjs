@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const { BH_PIN_MAX, bhPinCount, bhIsPinned, bhTogglePin } = load(['notepins']);
+const { BH_PIN_MAX, bhPinCount, bhIsPinned, bhTogglePin, bhMovePin } = load(['notepins']);
 
 const notes = () => [
   { id: 'a', type: 'note' }, { id: 'b', type: 'note' }, { id: 'c', type: 'note', deleted: true, pinned: true },
@@ -51,4 +51,24 @@ test('folders and categories can be pinned too, and count toward the same limit'
   assert.equal(bhPinCount([{ id: 's', type: 'section', pinned: true }]), 0, 'a section header is never counted');
   list = bhTogglePin(list, { kind: 'note', id: 'n' }, 3).notes;
   assert.equal(bhPinCount(list), 3);
+});
+
+test('bhMovePin reorders the pinned list (notes and entries) by reassigning pinnedAt', () => {
+  const list = [
+    { id: 'a', type: 'note', pinned: true, pinnedAt: 10 },
+    { id: 'b', type: 'note', pinned: true, pinnedAt: 20 },
+    { id: 'f', type: 'project', entries: [{ id: 'e1', pinned: true, pinnedAt: 30 }, { id: 'e2' }] },
+  ];
+  const order = l => {
+    const all = [];
+    l.forEach(x => { if (x.pinned) all.push([x.id, x.pinnedAt]); (x.entries || []).forEach(e => e.pinned && all.push([e.id, e.pinnedAt])); });
+    return all.sort((p, q) => p[1] - q[1]).map(p => p[0]);
+  };
+  const moved = bhMovePin(list, { kind: 'entry', id: 'e1', folderId: 'f' }, { kind: 'note', id: 'a' });
+  assert.deepEqual(order(moved), ['e1', 'a', 'b']);
+  assert.deepEqual(order(bhMovePin(moved, { kind: 'note', id: 'a' }, { kind: 'note', id: 'b' })), ['e1', 'b', 'a']);
+  assert.equal(bhMovePin(list, { kind: 'note', id: 'a' }, { kind: 'note', id: 'a' }), list);
+  assert.equal(bhMovePin(list, { kind: 'note', id: 'zzz' }, { kind: 'note', id: 'a' }), list);
+  const ties = [{ id: 'a', type: 'note', pinned: true, pinnedAt: 5 }, { id: 'b', type: 'note', pinned: true, pinnedAt: 5 }];
+  assert.deepEqual(order(bhMovePin(ties, { kind: 'note', id: 'b' }, { kind: 'note', id: 'a' })), ['b', 'a']);
 });
