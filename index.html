@@ -13551,6 +13551,9 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const [selected,setSelected]=useState(()=>galleryOnlyPosts.find(p=>String(p.id)===String(_galleryUi.selectedId))||null);
   const galleryBrowseRef=useRef(null);
   const hadSelectedPostRef=useRef(!!selected);
+  const listScrollRef=useRef(null);
+  const selectedNowRef=useRef(selected);
+  selectedNowRef.current=selected;
   // The lightbox is tracked by POSITION in the post's image list, not by src:
   // storyboards repeat a frame (a hold), and identical files have the same
   // content-addressed URL, so "next" from the first copy found the same src
@@ -13569,13 +13572,36 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     const hadSelected=hadSelectedPostRef.current;
     hadSelectedPostRef.current=!!selected;
     if(!hadSelected||selected)return;
-    const galleryPane=galleryBrowseRef.current;
-    if(galleryPane)galleryPane.scrollTop=0;
-    const main=galleryPane?.closest?.('main');
-    if(main)main.scrollTop=0;
-    document.documentElement.scrollTop=0;
-    document.body.scrollTop=0;
+    // "Voltar" returns to where the list was; a tab reset clears the saved spot and goes to the top.
+    const at=listScrollRef.current||{pane:0,main:0,doc:0};
+    const apply=()=>{
+      const galleryPane=galleryBrowseRef.current;
+      if(galleryPane)galleryPane.scrollTop=at.pane;
+      const main=galleryPane?.closest?.('main');
+      if(main)main.scrollTop=at.main;
+      document.documentElement.scrollTop=at.doc;
+      document.body.scrollTop=at.doc;
+    };
+    apply();
+    if(!listScrollRef.current)return;
+    // The list's cards may not have their height yet: try again once they do.
+    let raf2=0;
+    const raf1=requestAnimationFrame(()=>{apply();raf2=requestAnimationFrame(apply);});
+    return()=>{cancelAnimationFrame(raf1);if(raf2)cancelAnimationFrame(raf2);};
   },[selected]);
+  // Where the list is scrolled while no post is open (the scroll owner is the
+  // gallery pane, the app's main area or the page, depending on the layout).
+  React.useEffect(()=>{
+    const on=()=>{
+      if(selectedNowRef.current)return;
+      const pane=galleryBrowseRef.current;
+      if(!pane)return;
+      listScrollRef.current={pane:pane.scrollTop,main:pane.closest?.('main')?.scrollTop||0,doc:document.documentElement.scrollTop||window.scrollY||0};
+    };
+    document.addEventListener('scroll',on,true);
+    window.addEventListener('scroll',on);
+    return()=>{document.removeEventListener('scroll',on,true);window.removeEventListener('scroll',on);};
+  },[]);
   // Eager-warm local thumbnails AND network images for the opened study.
   useEffect(()=>{if(selected&&Array.isArray(selected.images))warmSources(selected.images,48,{priority:'high'});},[selected?.id]);
   // A deliberate tab RESET (double-click/double-tap) returns Gallery to its
@@ -13583,6 +13609,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const _firstNav=useRef(true);
   useEffect(()=>{
     if(_firstNav.current){_firstNav.current=false;return;}
+    listScrollRef.current=null;
     setSelected(null);setLightbox(null);
     setFolderTrash(false);setFolderArchive(false);setTrash(false);
     const first=(liveFolders[0]||{id:'work'}).id;
