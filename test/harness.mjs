@@ -33,7 +33,7 @@ export const EXPECTED = {
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],
   sesstitle: ['bhSessionPostTitle', 'bhPlaceInSection'],
-  gallinks: ['DEFAULT_GALLERY_FOLDERS', 'normalizeGallerySections', 'galleryManualLayout', 'bhProjectGalleryScope', 'bhLinkedPostCount', 'bhProjectScopePostIds', 'bhProjectPostPaid', 'bhProjectUnpaidShare', 'bhProjectTogglePaid', 'bhProjectSetAllPaid', 'pomoLinkedExtra', 'pomoSectionSeconds', 'pomoSectionProjectSeconds'],
+  gallinks: ['DEFAULT_GALLERY_FOLDERS', 'normalizeGallerySections', 'galleryManualLayout', 'bhProjectGalleryScope', 'bhLinkedPostCount', 'bhProjectScopePostIds', 'bhProjectPostPaid', 'bhProjectUnpaidShare', 'bhProjectPostValue', 'bhProjectSetPostValues', 'bhProjectTogglePaid', 'bhProjectSetAllPaid', 'pomoLinkedExtra', 'pomoSectionSeconds', 'pomoSectionProjectSeconds'],
   postmerge: ['bhStripPostDate', 'bhMergePosts'],
   projtotal: ['bhProjectTotal', 'bhProjectAnimatics', 'bhProjectBudget'],
   imgclip: ['bhImgClipSrcOk', 'bhImgClipGet', 'bhImgClipSubscribe', 'bhImgClipHas', 'bhImgClipToggle', 'bhImgClipClear'],

@@ -41,3 +41,13 @@ test('animatics: typed number wins, else the linked posts', () => {
   assert.equal(bhProjectAnimatics({ animatics: 0 }, 0), 0);
   assert.equal(bhProjectAnimatics(null, 2), 2);
 });
+
+test('budget: animatics with their own value count at it, the rest at Valor', () => {
+  const p = { unitValue: 100, postValues: { a: 300, b: 300, zzz: 999 } };
+  // 5 animatics: two at 300 each, three at 100; "zzz" is not a post of the project.
+  assert.equal(bhProjectBudget(p, 5, ['a', 'b', 'c', 'd', 'e']), 900);
+  assert.equal(bhProjectBudget(p, 5, ['c', 'd', 'e']), 500, 'no own value among the posts: plain Valor × animatics');
+  assert.equal(bhProjectBudget({ unitValue: 100 }, 5, ['a']), 500);
+  assert.equal(bhProjectBudget({ unitValue: '', postValues: { a: 200, b: 50 } }, 2, ['a', 'b']), 250, 'no Valor: only the priced animatics add up');
+  assert.equal(bhProjectBudget({ unitValue: 100, animatics: 2, postValues: { a: 10, b: 10, c: 10 } }, 2, ['a', 'b', 'c']), 30);
+});

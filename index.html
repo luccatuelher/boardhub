@@ -11442,7 +11442,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
   // Each project's price now (animatics may come from its linked Gallery posts).
   const budgetOf=useMemo(()=>{
     const m=new Map();
-    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,bhLinkedPostCount(p,galleryFolders,galleryPosts)));});
+    (projects||[]).forEach(p=>{if(p)m.set(String(p.id),bhProjectBudget(p,bhLinkedPostCount(p,galleryFolders,galleryPosts),bhProjectScopePostIds(p,galleryFolders,galleryPosts)));});
     return m;
   },[projects,galleryFolders,galleryPosts]);
   // The share of each project's price still to receive (animatics are paid one by one).
@@ -11728,10 +11728,17 @@ const bhProjectAnimatics=(p,linkedPosts)=>{
   const a=Math.floor(Number(p&&p.animatics));
   return a>0?a:Math.max(0,Math.floor(Number(linkedPosts)||0));
 };
-const bhProjectBudget=(p,linkedPosts)=>{
+// `postValues` ({postId: value}) gives some animatics their own value (a group paid
+// differently): those count at their value, the rest at Valor. `ids` are the
+// project's animatic posts; only values of posts still in `ids` count.
+const bhProjectBudget=(p,linkedPosts,ids)=>{
   if(!p)return 0;
   const unit=p.unitValue===undefined||p.unitValue===null?p.budget:p.unitValue;
-  return bhProjectTotal(unit,bhProjectAnimatics(p,linkedPosts));
+  const own=p.postValues&&typeof p.postValues==='object'?p.postValues:null;
+  const mine=own&&Array.isArray(ids)?[...new Set(ids.map(String))].map(id=>Number(own[id])).filter(v=>v>0):[];
+  if(!mine.length)return bhProjectTotal(unit,bhProjectAnimatics(p,linkedPosts));
+  const u=Number(unit)>0?Number(unit):0,count=Math.max(bhProjectAnimatics(p,linkedPosts),mine.length);
+  return u*(count-mine.length)+mine.reduce((a,b)=>a+b,0);
 };
 // @bh-test-end projtotal
 const fmtBRL=v=>{const n=Number(v);if(!n||isNaN(n))return null;return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:0,maximumFractionDigits:2});};
@@ -12305,14 +12312,26 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     });
   };
   const upd=(field,value)=>edit(prev=>({...prev,[field]:typeof value==='function'?value(prev[field]):value}));
-  // Valor = price of one animatic; the project's Total (stored in `budget`, which
-  // the project list and the pending-payments sum read) is Valor × Animatics.
+  // Valor = price of one animatic; the project's Total is Valor × Animatics, with
+  // the animatics that have their own value (postValues) counted at it. The list and
+  // the pending-payments sum read it through bhProjectBudget (`budget` only keeps Valor × Animatics).
   // Older projects only have `budget`: it stands in for Valor until it is edited.
   const scopePostIds=useMemo(()=>bhProjectScopePostIds(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
   const paidCount=scopePostIds.filter(id=>bhProjectPostPaid(local,id)).length;
+  // Giving a group of animatics their own value (paid differently from Valor).
+  const [valueMode,setValueMode]=useState(false);
+  const [valuePicked,setValuePicked]=useState(()=>new Set());
+  const [valueDraft,setValueDraft]=useState('');
+  const leaveValueMode=()=>{setValueMode(false);setValuePicked(new Set());setValueDraft('');};
+  const applyPostValues=raw=>{
+    const ids=[...valuePicked];
+    if(!ids.length)return;
+    edit(prev=>({...prev,postValues:bhProjectSetPostValues(prev,ids,raw)}));
+    leaveValueMode();
+  };
   const togglePostPaid=postId=>edit(prev=>({...prev,...bhProjectTogglePaid(prev,scopePostIds,postId)}));
   const linkedPostCount=useMemo(()=>bhLinkedPostCount(local,galleryFolders,galleryPosts),[local.galleryFolder,local.gallerySection,local.galleryPost,galleryFolders,galleryPosts]);
-  const effectiveBudget=bhProjectBudget(local,linkedPostCount);
+  const effectiveBudget=bhProjectBudget(local,linkedPostCount,scopePostIds);
   const animaticsAuto=!(Number(local.animatics)>0);
   const animaticsCount=bhProjectAnimatics(local,linkedPostCount);
   const setUnitValue=raw=>edit(prev=>({...prev,unitValue:raw,budget:bhProjectTotal(raw,prev.animatics)}));
@@ -12982,10 +13001,22 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem',lineHeight:1.5}}><Icon name="image" size={22} style={{display:'block',margin:'0 auto 8px',opacity:.3}}/>Atribua uma pasta da galeria para ver os estudos aqui.</div>
                 :scopedFolderPosts.length===0
                   ?<div style={{textAlign:'center',padding:'24px 12px',color:'var(--muted)',fontSize:'.82rem'}}>{local.galleryPost?'O post vinculado não está mais na pasta.':local.gallerySection?'Nenhum post nesta seção ainda.':'Nenhum post nesta pasta ainda.'}</div>
-                  :<div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:isMobile?8:12}}>
+                  :<>
+                  {local.type==='work'&&scopedFolderPosts.length>0&&(valueMode
+                    ?<div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:10,fontSize:'.78rem'}}>
+                      <span style={{color:'var(--muted)'}}>{valuePicked.size} {valuePicked.size===1?'animatic selecionado':'animatics selecionados'}</span>
+                      <button type="button" className="btn btn-ghost" style={{padding:'4px 10px',fontSize:'.74rem'}} onClick={()=>setValuePicked(new Set(scopedFolderPosts.map(x=>String(x.id))))}>Selecionar todos</button>
+                      <input type="number" inputMode="decimal" min="0" step="any" className="input-box no-spin" aria-label="Valor de cada animatic selecionado (R$)" placeholder="Valor de cada (R$)" value={valueDraft} onChange={e=>setValueDraft(e.target.value)} style={{width:150,padding:'5px 9px'}}/>
+                      <button type="button" className="btn" style={{padding:'5px 12px',fontSize:'.76rem'}} disabled={!valuePicked.size||!(Number(valueDraft)>0)} onClick={()=>applyPostValues(valueDraft)}>Aplicar</button>
+                      <button type="button" className="btn btn-outline" style={{padding:'5px 12px',fontSize:'.76rem'}} disabled={!valuePicked.size} title="Volta ao valor padrão do projeto" onClick={()=>applyPostValues('')}>Usar valor padrão</button>
+                      <button type="button" className="btn btn-ghost" style={{padding:'5px 10px',fontSize:'.76rem'}} onClick={leaveValueMode}>Cancelar</button>
+                    </div>
+                    :<div style={{display:'flex',justifyContent:'flex-end',marginBottom:8}}><button type="button" className="btn btn-outline" style={{padding:'4px 12px',fontSize:'.74rem'}} onClick={()=>setValueMode(true)} title="Dar um valor diferente a um grupo de animatics"><Icon name="circle-dollar-sign" size={12}/> Valores por animatic</button></div>)}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:isMobile?8:12}}>
                     {scopedFolderPosts.map(post=>{const src=post.bannerImage||(post.images&&post.images[0]);return(
-                      <div key={post.id} className="card card-click" style={{overflow:'hidden',cursor:'pointer'}} onClick={()=>setGalleryPopup(post)}
-                        {...keyActivate(()=>setGalleryPopup(post),'Abrir post '+(post.title||''))}>
+                      <div key={post.id} className="card card-click" style={{overflow:'hidden',cursor:'pointer',...(valueMode&&valuePicked.has(String(post.id))?{outline:'2px solid var(--text)',outlineOffset:-2}:null)}}
+                        onClick={()=>{if(valueMode){setValuePicked(prev=>{const n=new Set(prev);const k=String(post.id);n.has(k)?n.delete(k):n.add(k);return n;});}else setGalleryPopup(post);}}
+                        {...keyActivate(()=>{if(valueMode){setValuePicked(prev=>{const n=new Set(prev);const k=String(post.id);n.has(k)?n.delete(k):n.add(k);return n;});}else setGalleryPopup(post);},(valueMode?'Selecionar post ':'Abrir post ')+(post.title||''))}>
                         <div style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center'}}>
                           {src
                             ?(isVideoSrc(src)
@@ -12995,13 +13026,14 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         </div>
                         <div style={{padding:'7px 9px'}}>
                           <div style={{fontWeight:600,fontSize:'.74rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title}</div>
+                          {local.type==='work'&&Number(local.postValues&&local.postValues[String(post.id)])>0&&<div title="Valor próprio deste animatic" style={{fontSize:'.68rem',fontWeight:600,color:'var(--text)',marginTop:2}}>{fmtBRL(local.postValues[String(post.id)])}</div>}
                           {effectiveBudget>0&&local.type==='work'&&<button type="button" className={'post-paid-chip'+(bhProjectPostPaid(local,post.id)?' on':'')} aria-pressed={bhProjectPostPaid(local,post.id)} title={bhProjectPostPaid(local,post.id)?'Recebido: clique para marcar como a receber':'A receber: clique para marcar como recebido'}
                             onClick={e=>{e.stopPropagation();togglePostPaid(post.id);}}><Icon name={bhProjectPostPaid(local,post.id)?'check-circle':'circle-dollar-sign'} size={11}/>{bhProjectPostPaid(local,post.id)?'Recebido':'A receber'}</button>}
                           {post.linkedTask&&<div style={{display:'flex',alignItems:'center',gap:4,marginTop:2,fontSize:'.66rem',color:'var(--muted)',overflow:'hidden',whiteSpace:'nowrap'}}><Icon name="list-checks" size={10} style={{flexShrink:0}}/><span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{post.linkedTask.taskTitle}</span></div>}
                         </div>
                       </div>
                     );})}
-                  </div>}
+                  </div></>}
             </div>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -13799,10 +13831,38 @@ const bhLinkedPostCount=(project,folders,posts)=>bhProjectScopePostIds(project,f
 // by one. The share still to receive is unpaid posts / posts; with no posts to
 // split by, it is all or nothing.
 const bhProjectPostPaid=(project,postId)=>!!project&&(!!project.paid||(Array.isArray(project.paidPosts)&&project.paidPosts.map(String).includes(String(postId))));
+// What one animatic is worth: its own value when it has one, else Valor (0 when none).
+const bhProjectPostValue=(project,postId)=>{
+  const own=project&&project.postValues&&typeof project.postValues==='object'?Number(project.postValues[String(postId)]):0;
+  if(own>0)return own;
+  const unit=project?(project.unitValue===undefined||project.unitValue===null?project.budget:project.unitValue):0;
+  return Number(unit)>0?Number(unit):0;
+};
+// The share still to receive. Without per-animatic values it is the plain count
+// ratio (unpaid / animatics). With them it is money: the received animatics add
+// up their own value (Valor for the others), against the project's total.
 const bhProjectUnpaidShare=(project,ids)=>{
   if(!project||project.paid)return 0;
   if(!ids||!ids.length)return 1;
-  return ids.filter(id=>!bhProjectPostPaid(project,id)).length/ids.length;
+  const unpaid=ids.filter(id=>!bhProjectPostPaid(project,id));
+  const own=project.postValues&&typeof project.postValues==='object'?project.postValues:null;
+  const mine=own?[...new Set(ids.map(String))].map(id=>Number(own[id])).filter(v=>v>0):[];
+  const unit=Number(project.unitValue===undefined||project.unitValue===null?project.budget:project.unitValue);
+  if(!mine.length||!(unit>0||mine.length))return unpaid.length/ids.length;
+  const typed=Math.floor(Number(project.animatics)),count=Math.max(typed>0?typed:ids.length,mine.length);
+  const u=unit>0?unit:0,total=u*(count-mine.length)+mine.reduce((a,b)=>a+b,0);
+  if(!(total>0))return unpaid.length/ids.length;
+  const received=ids.filter(id=>bhProjectPostPaid(project,id)).reduce((n,id)=>n+bhProjectPostValue(project,id),0);
+  return Math.max(0,total-Math.min(total,received))/total;
+};
+// The postValues to store after giving the animatics in `ids` the value `raw`
+// (empty or zero removes their own value).
+const bhProjectSetPostValues=(project,ids,raw)=>{
+  const next={...(project&&project.postValues&&typeof project.postValues==='object'?project.postValues:{})};
+  const v=Number(String(raw??'').trim().replace(',','.'));
+  if(String(raw??'').trim()!==''&&!(v>0))return next; // unreadable input changes nothing
+  (ids||[]).forEach(id=>{if(v>0)next[String(id)]=v;else delete next[String(id)];});
+  return next;
 };
 // The fields to write when one post is marked received (or not): once every post
 // of the scope is received the master switch turns on; turning one off while the
