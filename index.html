@@ -12096,6 +12096,9 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   const linkedPostOf=mini=>mini&&mini.galleryPostId!=null&&mini.galleryPostId!==''?(galleryPosts||[]).find(p=>p&&String(p.id)===String(mini.galleryPostId))||null:null;
   const projectGalleryFolder=local.galleryFolder?(galleryFolders||[]).find(f=>f&&String(f.id)===String(local.galleryFolder))||null:null;
   const linkablePosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder]);
+  // Posts already linked to ANOTHER task of this project (one post, one task): offered
+  // too, so a duplicate task (V1/V2) can take the link over.
+  const takeoverPosts=useMemo(()=>local.galleryFolder?(galleryPosts||[]).filter(p=>p&&!p.deleted&&p.linkedTask&&!p.linkedTask.archived&&String(p.linkedTask.projectId)===String(local.id)&&!isProjectScopedPost(p)&&String(p.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))):[],[galleryPosts,local.galleryFolder,local.id]);
   const linkTaskToNewPost=miniId=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     if(!mini||!local.galleryFolder||linkedPostOf(mini))return;
@@ -12104,10 +12107,21 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:post.id,postImagesSeparate:true});
   };
   // Linking shares time, never images: the post and the task keep their own.
-  const linkTaskToPost=(miniId,postId)=>{
+  const linkTaskToPost=async(miniId,postId)=>{
     const mini=(local.miniProjects||[]).find(m=>String(m.id)===String(miniId));
     const post=(galleryPosts||[]).find(p=>p&&String(p.id)===String(postId));
-    if(!mini||!post||post.linkedTask||(mini.galleryPostId!=null&&mini.galleryPostId!==''))return;
+    if(!mini||!post||(mini.galleryPostId!=null&&mini.galleryPostId!==''))return;
+    if(post.linkedTask){
+      const other=post.linkedTask;
+      if(String(other.projectId)!==String(local.id)||other.archived||String(other.taskId)===String(miniId))return;
+      if(!await bhConfirm({message:'Este post já está ligado à tarefa “'+other.taskTitle+'”. Passar a ligação para esta tarefa? A outra fica sem post.',confirmLabel:'Passar a ligação'}))return;
+      edit(prev=>({...prev,miniProjects:(prev.miniProjects||[]).map(m=>{
+        if(String(m.id)===String(other.taskId)){const {galleryPostId,...rest}=m;return rest;}
+        if(String(m.id)===String(miniId))return m.galleryPostId?m:{...m,galleryPostId:String(post.id),postImagesSeparate:true};
+        return m;
+      })}));
+      return;
+    }
     mapMini(miniId,m=>m.galleryPostId?m:{...m,galleryPostId:String(post.id),postImagesSeparate:true});
   };
   const unlinkTaskPost=async miniId=>{
@@ -12200,6 +12214,31 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   // A drop that did not start on a task row (a file, an inner note, an image
   // tile) arrives with fromIdx null, and splice(null,1) is splice(0,1): the
   // FIRST task used to jump to wherever the thing was dropped.
+  const dragNestRef=useRef(null);
+  const [nestOverId,setNestOverId]=useState(null);
+  // One level only: a task can go under a task that is not itself a sub-task,
+  // and a task that has sub-tasks cannot become one.
+  const canNestTask=(childId,parentId)=>{
+    const ms=local.miniProjects||[],ids=new Set(ms.map(x=>String(x.id)));
+    const child=ms.find(x=>String(x.id)===String(childId)),parent=ms.find(x=>String(x.id)===String(parentId));
+    if(!child||!parent||String(childId)===String(parentId))return false;
+    if(bhIsChildTask(parent,ids))return false;
+    if(ms.some(x=>x&&String(x.parentId||'')===String(childId)))return false;
+    return String(child.parentId||'')!==String(parentId);
+  };
+  // Dropping a task on another makes it a sub-task of that one (moved after the
+  // parent's last child), in the task cards and in the timeline tasks.
+  const nestTask=(childId,parentId)=>{
+    if(!canNestTask(childId,parentId))return;
+    const setParent=list=>{
+      const arr=Array.isArray(list)?list:[];
+      const item=arr.find(x=>x&&String(x.id)===String(childId));
+      if(!item)return arr;
+      return bhInsertChild(arr.filter(x=>x!==item),parentId,{...item,parentId});
+    };
+    edit(prev=>({...prev,miniProjects:setParent(prev.miniProjects),projectTasks:setParent(prev.projectTasks)}));
+    setExpandedMiniIds(x=>{const s2=new Set(x);s2.add(parentId);return s2;});
+  };
   const reorderMinis=(fromIdx,toIdx)=>{
     if(fromIdx==null||toIdx==null||fromIdx===toIdx)return;
     upd('miniProjects',ms=>bhMoveTaskGroup(ms||[],fromIdx,toIdx));
@@ -12688,13 +12727,21 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 <div key={m.id} style={isChildMini?{marginLeft:16,borderLeft:'1px solid var(--border)',paddingLeft:4}:undefined}
                   draggable
                   onDragStart={e=>{dragMiniRef.current=mIdx;e.dataTransfer.effectAllowed='move';}}
-                  onDragOver={e=>{if(dragNoteRef.current&&String(dragNoteRef.current.miniId)!==String(m.id)){e.preventDefault();return;}if(dragMiniRef.current==null)return;e.preventDefault();dragOverMiniRef.current=mIdx;}}
-                  onDrop={e=>{e.preventDefault();const dn=dragNoteRef.current;if(dn&&String(dn.miniId)!==String(m.id)){dragNoteRef.current=null;dragOverNoteRef.current=null;moveNoteToTask(dn.noteId,dn.miniId,m.id);return;}reorderMinis(dragMiniRef.current,dragOverMiniRef.current);dragMiniRef.current=null;dragOverMiniRef.current=null;}}
-                  onDragEnd={()=>{dragMiniRef.current=null;dragOverMiniRef.current=null;}}
+                  onDragOver={e=>{if(dragNoteRef.current&&String(dragNoteRef.current.miniId)!==String(m.id)){e.preventDefault();return;}if(dragMiniRef.current==null)return;e.preventDefault();dragOverMiniRef.current=mIdx;
+                    // The middle of a task's row nests the dragged task under it; the top and bottom edges reorder.
+                    const rowEl=e.currentTarget.firstElementChild,r=rowEl&&rowEl.getBoundingClientRect(),dragged=(local.miniProjects||[])[dragMiniRef.current];
+                    const nest=!!(r&&dragged&&e.clientY>r.top+r.height*.28&&e.clientY<r.bottom-r.height*.28&&canNestTask(dragged.id,m.id));
+                    dragNestRef.current=nest?m.id:null;
+                    if(nestOverId!==(nest?m.id:null))setNestOverId(nest?m.id:null);}}
+                  onDrop={e=>{e.preventDefault();const dn=dragNoteRef.current;if(dn&&String(dn.miniId)!==String(m.id)){dragNoteRef.current=null;dragOverNoteRef.current=null;moveNoteToTask(dn.noteId,dn.miniId,m.id);return;}
+                    const dragged=(local.miniProjects||[])[dragMiniRef.current],nestUnder=dragNestRef.current;
+                    if(dragged&&nestUnder!=null&&String(nestUnder)===String(m.id))nestTask(dragged.id,m.id);else reorderMinis(dragMiniRef.current,dragOverMiniRef.current);
+                    dragMiniRef.current=null;dragOverMiniRef.current=null;dragNestRef.current=null;setNestOverId(null);}}
+                  onDragEnd={()=>{dragMiniRef.current=null;dragOverMiniRef.current=null;dragNestRef.current=null;setNestOverId(null);}}
                 >
                   {/* Task row */}
                   <div onClick={()=>{setActiveMiniId(m.id);setActiveInnerNoteId(null);}} {...keyActivate(()=>{setActiveMiniId(m.id);setActiveInnerNoteId(null);},'Abrir '+(m.title||m.name||'item'))}
-                    style={{display:'flex',alignItems:'center',gap:6,padding:'8px 10px',borderRadius:8,cursor:'pointer',
+                    style={{display:'flex',alignItems:'center',gap:6,padding:'8px 10px',borderRadius:8,cursor:'pointer',...(nestOverId!=null&&String(nestOverId)===String(m.id)?{outline:'2px dashed var(--muted)',outlineOffset:-2}:null),
                       border:`1px solid ${isMiniActive?'var(--text)':'transparent'}`,
                       background:isMiniActive?'var(--text)':'transparent',transition:'all .15s'}}
                     onMouseEnter={e=>{if(!isMiniActive)e.currentTarget.style.background='var(--surface)';}}
@@ -12828,6 +12875,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       <option value="">Não publicada</option>
                       <option value="__new__">+ Criar post em “{projectGalleryFolder.label}”</option>
                       {linkablePosts.length>0&&<optgroup label={'Vincular a um post de “'+projectGalleryFolder.label+'”'}>{linkablePosts.map(p=><option key={p.id} value={String(p.id)}>{p.title||'Sem título'}</option>)}</optgroup>}
+                      {takeoverPosts.length>0&&<optgroup label="Já ligados a outra tarefa deste projeto">{takeoverPosts.map(p=><option key={p.id} value={String(p.id)}>{(p.title||'Sem título')+' · '+(p.linkedTask.taskTitle||'')}</option>)}</optgroup>}
                     </select></div></div>;
                 })()}
                 <div className="pd-rich" style={{display:'flex',flexDirection:'column',minHeight:140,marginBottom:16}}>
