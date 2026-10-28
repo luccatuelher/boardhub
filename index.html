@@ -1245,7 +1245,7 @@ const lsSave = s => {
       const quota=first&&(first.name==='QuotaExceededError'||first.code===22||first.code===1014||/quota/i.test(String(first.message||'')));
       if(!quota)throw first;
       bhLog('lsSave.quota',first,'dropping localStorage backup copies to keep the state');
-      const held=[BH_EMERGENCY_KEY,BH_FALLBACK_KEY].map(k=>[k,localStorage.getItem(k)]).filter(([,v])=>v!==null);
+      const held=[BH_EMERGENCY_KEY,BH_FALLBACK_KEY,BH_LOG_KEY].map(k=>[k,localStorage.getItem(k)]).filter(([,v])=>v!==null);
       held.forEach(([k])=>localStorage.removeItem(k));
       try{localStorage.setItem(LS_KEY,serialized);}
       catch(second){held.forEach(([k,v])=>{try{localStorage.setItem(k,v);}catch{/*silent-ok: nothing more to try; the original error is reported below*/}});throw second;}
@@ -17923,7 +17923,10 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
     try{
       const persisted=navigator.storage?.persisted?await navigator.storage.persisted():null;
       const est=navigator.storage?.estimate?await navigator.storage.estimate():{};
-      setStoreInfo({persisted,usage:est.usage||0,quota:est.quota||0});
+      // The app's text data (state, settings) lives in localStorage, which browsers
+      // cap at about 5 MB no matter how much room the images have.
+      let lsBytes=0;try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);lsBytes+=2*(k.length+(localStorage.getItem(k)||'').length);}}catch{/*silent-ok: just a diagnostic*/}
+      setStoreInfo({persisted,usage:est.usage||0,quota:est.quota||0,lsBytes});
     }catch{setStoreInfo(null);}
   };
   useEffect(()=>{let live=true;bhMediaCacheSize().then(b=>{if(live)setCacheBytes(b);});refreshStoreInfo();return()=>{live=false;};},[]);// eslint-disable-line react-hooks/exhaustive-deps
@@ -18280,7 +18283,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
                 {localImgs!=null&&<> <strong style={{color:'var(--text)'}}>Já neste computador: {Math.min(localImgs,cloudImgCount).toLocaleString('pt-BR')} de {cloudImgCount.toLocaleString('pt-BR')} imagens.</strong></>}
                 {hdImgs!=null&&hdImgs<cloudImgCount&&<> Em HD (WebP, até 1280×720): {hdImgs.toLocaleString('pt-BR')} de {cloudImgCount.toLocaleString('pt-BR')}{_bhDispAllowed()?' — este computador converte o resto ao baixar.':' — a conversão é feita no computador (Zen/Chrome), ao baixar as imagens lá.'}</>}
                 {cacheBytes!=null&&<> Agora: {bhFmtMB(cacheBytes)}{keepAll?' (mantendo tudo)':' (limite normal: 200 MB)'}.</>}
-                {storeInfo&&<> Espaço do navegador para este site: {bhFmtMB(storeInfo.usage)} de {storeInfo.quota?bhFmtMB(storeInfo.quota):'?'}{storeInfo.persisted===true?', protegido contra limpeza automática':storeInfo.persisted===false?', sem proteção contra limpeza automática':''}.</>}
+                {storeInfo&&<> Espaço do navegador para este site: {bhFmtMB(storeInfo.usage)} de {storeInfo.quota?bhFmtMB(storeInfo.quota):'?'}{storeInfo.persisted===true?', protegido contra limpeza automática':storeInfo.persisted===false?', sem proteção contra limpeza automática':''}. Dados de texto (limite do navegador: cerca de 5 MB): {bhFmtMB(storeInfo.lsBytes||0)}.</>}
               </div>
               {preload?(
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -21020,7 +21023,7 @@ const App=()=>{
       {storageRecovery&&<div role="alert" style={{position:'fixed',top:12,left:isMobile?12:232,right:12,zIndex:120001,padding:12,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{flex:1,minWidth:220}}>O estado local não pôde ser lido. Novos salvamentos foram pausados para não sobrescrever a única cópia.</span>{_lsBoot.raw&&<button className="btn btn-outline" onClick={exportUnreadableState}>Exportar bytes</button>}<button className="btn btn-danger" onClick={discardUnreadableState}>Descartar e continuar</button></div>}
       {backupError&&<div role="alert" style={{position:'fixed',bottom:16,left:'25%',right:16,zIndex:120000,padding:14,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10}}>{backupError} <button className="btn btn-outline" onClick={()=>{setBackupError('');navigate('sync');}}>Ver backups</button></div>}
       {localSaveStatus==='error'&&!localSaveAlertOff&&!backupError&&<div role="alert" style={{position:'fixed',bottom:isMobile?72:16,left:isMobile?12:'25%',right:16,zIndex:120000,padding:14,background:'var(--surface)',border:'1px solid var(--danger-fg)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <span style={{flex:1,minWidth:220}}>O armazenamento deste navegador está cheio: as últimas alterações ainda não foram salvas neste dispositivo. O BoardHub guarda uma cópia no Histórico de Backups; exporte um backup antes de fechar a aba.</span>
+        <span style={{flex:1,minWidth:220}}>O armazenamento de texto deste navegador (limite de cerca de 5 MB) está cheio: as últimas alterações ainda não foram salvas neste dispositivo. As imagens enviadas não são afetadas (ficam na nuvem). O BoardHub guarda uma cópia no Histórico de Backups; exporte um backup antes de fechar a aba e mantenha o sync ligado.</span>
         <button className="btn btn-outline" onClick={()=>{setLocalSaveAlertOff(true);navigate('sync');}}>Exportar backup</button>
         <button className="btn btn-ghost" onClick={()=>setLocalSaveAlertOff(true)} title="Fechar aviso" aria-label="Fechar aviso"><Icon name="x" size={14}/></button>
       </div>}
