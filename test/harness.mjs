@@ -28,7 +28,7 @@ export const EXPECTED = {
   automigrate: ['BH_AUTO_MIGRATE', 'bhAutoMigrateDecision'],
   agenda: ['bhAgendaAutoCode', 'bhAgendaSnapshot', 'bhAgendaRecent', 'bhAgendaSig', 'bhAgendaPost', 'BH_AGENDA_URL'],
   safehref: ['safeHref'],
-  rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'rankVoidFutureDecay', 'pomoRankMaintain', 'pomoMoveTaskSessions', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays', 'pomoRetargetSession', 'pomoSessionParts', 'pomoRetargetPlan', 'pomoApplyRetargets', 'pomoSeedCycle', 'pomoCreditParts', 'pomoRefilePosts', 'pomoBlankRows', 'pomoUnallocatedSeconds', 'pomoRedistributePlan', 'pomoRedistributeApply'],
+  rank: ['RANK_MAX', 'rankDefault', 'rankReconcileDecay', 'rankVoidFutureDecay', 'pomoRankMaintain', 'pomoMoveTaskSessions', 'pomoMergeProgress', 'pomoNormalize', 'rankSeasonOrdinal', 'rankPosition', 'rankDecayForSeconds', 'rankSeasonForDate', 'rankNormalize', 'bhMergeFocusDays', 'pomoRetargetSession', 'pomoSessionParts', 'pomoRetargetPlan', 'pomoApplyRetargets', 'pomoSeedCycle', 'pomoCreditParts', 'pomoRefilePosts', 'pomoBlankRows', 'pomoUnallocatedSeconds', 'pomoRedistributePlan', 'pomoRedistributeApply', 'pomoRepairAvailable', 'pomoRepairApply', 'pomoRepairWorkAvailable', 'pomoRepairMsRows'],
   dup: ['bhDuplicateProject'],
   notessec: ['bhNotesSectionOptions', 'bhNotesSectionItems'],
   notecreate: ['bhNoteCreateAt'],

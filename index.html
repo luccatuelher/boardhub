@@ -7619,6 +7619,7 @@ const pomoApplyRetargets=(side,other)=>{
   (((other&&other.rank&&other.rank.sessions)||[])).forEach(o=>{
     if(!o||!o.retarget||!o.retarget.from||!o.retarget.to)return;
     const m=mine.get(String(o.id));
+    if(!m&&o.redistribute&&o.redistribute.synthetic){out=pomoRetargetSession(out,o.retarget.from,o.retarget.to,o.retarget.parts);return;} // an adjustment row this side lacks: replay it once
     if(!m||m.retarget)return; // not on this side, or already counted there
     out=pomoRetargetSession(out,o.retarget.from,o.retarget.to,o.retarget.parts);
   });
@@ -7714,6 +7715,45 @@ const pomoRedistributeApply=(base,plan,batch)=>{
     return{...row,...sec,targetKey:key,targetLabel:(a.catKey?String(a.label||'').split(' › ')[0]:a.label)||row.targetLabel,retarget:{from,to:key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
   });
   return changed?{...out,rank:{...out.rank,sessions}}:base;
+};
+// One-time repair (2026-10-29, Lucca's data): the old "hours without sessions" option
+// put the focus days of March-August (time with no category) into Work. Lucca chose
+// to count them as "3 Palavrinhas". Only offered while every listed day still holds
+// exactly that amount in Work, so it never touches anything else and cannot run twice.
+const BH_REPAIR_WORK_DAYS=[["2026-03-04",1549],["2026-03-05",1534],["2026-03-06",11723],["2026-03-07",7245],["2026-03-09",6851],["2026-03-25",415],["2026-03-26",1786],["2026-03-27",1793],["2026-04-06",1763],["2026-04-14",1799],["2026-04-16",3541],["2026-04-17",1799],["2026-07-26",6464],["2026-07-27",3598],["2026-07-28",6319],["2026-08-03",4505],["2026-08-04",12623],["2026-08-05",7226],["2026-08-07",5327],["2026-08-08",943],["2026-08-10",5404],["2026-08-11",6602],["2026-08-12",7200],["2026-08-16",1887],["2026-08-17",3600]];
+const BH_REPAIR_WORK_FROM='cat:work',BH_REPAIR_WORK_TO='project:1771504227732';
+const pomoRepairWorkAvailable=base=>{
+  const daily=(base&&base.dailyAllocations)||{};
+  if(!BH_REPAIR_WORK_DAYS.every(([d,secs])=>Number((daily[d]||{})[BH_REPAIR_WORK_FROM])===secs))return 0;
+  return BH_REPAIR_WORK_DAYS.reduce((n,[,secs])=>n+secs,0);
+};
+// Movie Studies: hours that sit in the group without a session go to "Back from the
+// brink" (a marking row per day; the group's totals do not change).
+const BH_REPAIR_MS_DAYS=[['2026-08-28',1800],['2026-09-07',1861],['2026-09-09',1740]];
+const BH_REPAIR_MS_CAT='cat:movie-studies',BH_REPAIR_MS_SECTION='smuwplssmeah';
+const pomoRepairMsRows=base=>{
+  const daily=(base&&base.dailyAllocations)||{};
+  const have=new Set((((base&&base.rank&&base.rank.sessions)||[])).map(r=>String(r&&r.id)));
+  return BH_REPAIR_MS_DAYS.filter(([d,secs])=>!have.has('rp-20261029-ms-'+d)&&Number((daily[d]||{})[BH_REPAIR_MS_CAT])>=secs);
+};
+const pomoRepairAvailable=base=>pomoRepairWorkAvailable(base)+pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0);
+const pomoRepairApply=base=>{
+  let out=pomoRepairWorkApply(base);
+  const ms=pomoRepairMsRows(out);
+  if(!ms.length)return out;
+  const rows=ms.map(([d,secs])=>({id:'rp-20261029-ms-'+d,date:d,endedAt:d+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:BH_REPAIR_MS_CAT,targetLabel:'Movie Studies',sectionId:BH_REPAIR_MS_SECTION,sectionLabel:'Back from the brink',title:'Ajuste: horas sem sessão em Back from the brink',points:0,redistribute:{batch:'repair-20261029',synthetic:true}}));
+  return{...out,rank:{...out.rank,sessions:(out.rank.sessions||[]).concat(rows)}};
+};
+const pomoRepairWorkApply=base=>{
+  if(!base||!base.rank||!pomoRepairWorkAvailable(base))return base;
+  let out=base;const rows=[];
+  BH_REPAIR_WORK_DAYS.forEach(([d,secs])=>{
+    const parts=[{dateKey:d,secs}];
+    out=pomoRetargetSession(out,BH_REPAIR_WORK_FROM,BH_REPAIR_WORK_TO,parts);
+    rows.push({id:'rp-20261029-'+d,date:d,endedAt:d+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:BH_REPAIR_WORK_TO,targetLabel:'3 Palavrinhas',title:'Ajuste: horas de Work para 3 Palavrinhas',points:0,retarget:{from:BH_REPAIR_WORK_FROM,to:BH_REPAIR_WORK_TO,parts},redistribute:{batch:'repair-20261029',synthetic:true}});
+  });
+  const have=new Set((out.rank.sessions||[]).map(r=>String(r&&r.id)));
+  return{...out,rank:{...out.rank,sessions:(out.rank.sessions||[]).concat(rows.filter(r=>!have.has(r.id)))}};
 };
 // @bh-test-end rank
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -18425,11 +18465,12 @@ const RequireRegisterSwitch=()=>{
 // Sincronizar → "Redistribuir horas": move sessões de foco (sem categoria, de uma
 // categoria ou de categorias que não existem mais) para categorias, seções ou
 // projetos. Os totais não mudam, só passam de um lugar para o outro.
-const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
+const RedistributeHoursCard=({appState,onApply,onRepair,isMobile,showStatus})=>{
   const base=useMemo(()=>pomoNormalize(appState?.pomoData),[appState?.pomoData]);
   const folders=useMemo(()=>(appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&!f.archived&&f.id!=null),[appState?.galleryFolders]);
   const projectList=useMemo(()=>(appState?.projects||[]).filter(p=>p&&!p.deleted&&p.id!=null),[appState?.projects]);
   const liveCats=useMemo(()=>(appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&f.id!=null).map(f=>'cat:'+f.id),[appState?.galleryFolders]);
+  const repairSecs=useMemo(()=>pomoRepairAvailable(base),[base]);
   const [open,setOpen]=useState(false);
   const [busy,setBusy]=useState(false);
   const pendingN=useMemo(()=>((base.rank&&base.rank.sessions)||[]).filter(r=>r&&r.status==='pending').length,[base]);
@@ -18468,7 +18509,20 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
     }catch(e){showStatus('err',e?.message||'Falha ao mover.');}
     finally{setBusy(false);}
   };
-  if(!open&&!sources.length)return null;
+  const repair=async()=>{
+    if(busy||!onRepair)return;
+    const workSecs=pomoRepairWorkAvailable(base),msSecs=pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0);
+    const lines=[workSecs>0?`• ${pomoFmtSecs(workSecs)} de Work (dias de 4/mar a 17/ago, sem sessão) passam para o projeto 3 Palavrinhas.`:'',msSecs>0?`• ${pomoFmtSecs(msSecs)} de Movie Studios sem sessão passam para Back from the brink.`:''].filter(Boolean).join('\n');
+    if(!await bhConfirm({title:'Corrigir horas',confirmLabel:'Corrigir',message:`${lines}\n\nO total de horas não muda: só passam de um lugar para o outro. Uma cópia de segurança é salva antes. Isso é feito uma vez e não pode ser desfeito pelo app.`}))return;
+    setBusy(true);
+    try{
+      const r=await onRepair();
+      if(r&&r.ok)showStatus('ok','✓ Horas corrigidas.');
+      else showStatus('err',(r&&r.error)||'Falha ao corrigir.');
+    }catch(e){showStatus('err',e?.message||'Falha ao corrigir.');}
+    finally{setBusy(false);}
+  };
+  if(!open&&!sources.length&&!repairSecs)return null;
   return(
     <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
@@ -18482,6 +18536,11 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
         <button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>
       </div>
       {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
+        {repairSecs>0&&<div style={{fontSize:'.8rem',lineHeight:1.5,borderBottom:'1px solid var(--border)',paddingBottom:10}}>
+          <strong>Correção pendente ({pomoFmtSecs(repairSecs)})</strong>
+          <div style={{color:'var(--muted)'}}>Horas que a opção antiga colocou em Work e em Movie Studios. Escolhido por você: Work de março a agosto vira 3 Palavrinhas, e as horas sem sessão de Movie Studios vão para Back from the brink.</div>
+          <button type="button" className="btn" style={{marginTop:6}} disabled={busy||!onRepair} onClick={repair}>Corrigir…</button>
+        </div>}
         {sources.length>0&&<>
           <label style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.84rem'}}>
             <strong>De:</strong>
@@ -18509,7 +18568,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
       </div>}
     </div>);
 };
-const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,autoMigrate,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled,onRedistributeHours})=>{
+const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,syncStatus,syncDetail,syncNotice,onDismissNotice,onManualPush,onMigrateEntities,autoMigrate,onDiscardLocal,isMobile,onResetIdentity,ranksEnabled=true,onSetRanksEnabled,onRedistributeHours,onRepairHours})=>{
   // Where the running JS came from: 'cache' (a compiled bundle reused) or 'babel'
   // (transpiled just now). Free diagnostics for P1-1.
   const bundleSource=(typeof window!=='undefined'&&window.__bhBundleCache&&window.__bhBundleCache.source)||'?';
@@ -18976,7 +19035,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
 
       {/* Ranks on/off. Off freezes the score (no decay, no gain, no season
           reset); on resumes from exactly the same points. */}
-      {onRedistributeHours&&<RedistributeHoursCard appState={appState} onApply={onRedistributeHours} isMobile={isMobile} showStatus={showStatus}/>}
+      {onRedistributeHours&&<RedistributeHoursCard appState={appState} onApply={onRedistributeHours} onRepair={onRepairHours} isMobile={isMobile} showStatus={showStatus}/>}
       {onSetRanksEnabled&&(()=>{
         const rank=rankNormalize(appState?.pomoData?.rank);
         const pos=rankPosition(rank.points);
@@ -21581,6 +21640,17 @@ const App=()=>{
     setPomoData(prev=>pomoRedistributeApply(pomoNormalize(prev),plan,batch));
     return{ok:true,batch,moved};
   };
+  // One-time repair of the hours the old "hours without sessions" option misplaced (see pomoRepairApply). Same guards and backup as Redistribuir horas.
+  const repairHours=async()=>{
+    if(fbUser&&!_didInitialReconcile.current)return{ok:false,error:'Aguarde a leitura inicial da conta. Nada foi alterado.'};
+    if(bhPersistenceBusy())return{ok:false,error:'Há uma restauração em andamento. Nada foi alterado.'};
+    if(fbUser&&(syncStatus!=='synced'||_hasPendingLocalEdit.current))return{ok:false,error:'Aguarde o sync terminar (Local em dia) e deixe os outros aparelhos parados. Nada foi alterado.'};
+    const live=_latestState.current||appState;
+    if(bhStateHasData(live)&&!await bhCapture(live,'pre-repair-hours'))return{ok:false,error:'Não foi possível criar a cópia de segurança. Nada foi alterado.'};
+    if(!pomoRepairAvailable(pomoNormalize((_latestState.current||live).pomoData)))return{ok:false,error:'Nada a corrigir: os dados mudaram. Nada foi alterado.'};
+    setPomoData(prev=>pomoRepairApply(pomoNormalize(prev)));
+    return{ok:true};
+  };
   // A task (with its sub-tasks, notes and sessions) goes to another project: it is
   // added there and its sessions follow (project time moves with them). The project
   // it leaves removes it itself once this answers ok. Same guards as Redistribuir
@@ -21723,7 +21793,7 @@ const App=()=>{
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Inspirações" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}
         {view==='social'         &&<ViewBoundary key="social" name="Social" onHome={()=>navigate('dashboard')}><Social posts={socialPosts} setPosts={setSocialPosts} templates={socialTemplatesState} setTemplates={setSocialTemplatesState} isMobile={isMobile}/></ViewBoundary>} 
         {view==='clients'        &&<ViewBoundary key="clients" name="Contatos" onHome={()=>navigate('dashboard')}><Clients clients={clients} setClients={setClients} isMobile={isMobile} projects={projects} onSelectProject={handleSelectProject} onClientRenamed={handleClientRenamed}/></ViewBoundary>}
-        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity} onRedistributeHours={redistributeHours}/></ViewBoundary>}
+        {view==='sync'           &&<ViewBoundary key="sync" name="Sincronizar" onHome={()=>navigate('dashboard')}><SyncHub ranksEnabled={ranksEnabled} onSetRanksEnabled={setRanksEnabled} appState={appState} onImport={handleImport} onApplyMediaMap={applyMediaMap} onClearSave={clearSave} fbUser={fbUser} syncStatus={syncStatus} syncDetail={syncDetail} syncNotice={syncNotice} onDismissNotice={()=>setSyncNotice('')} onManualPush={manualPush} onMigrateEntities={migrateEntities} autoMigrate={autoV4} onDiscardLocal={discardLocalAndPull} isMobile={isMobile} onResetIdentity={handleResetIdentity} onRedistributeHours={redistributeHours} onRepairHours={repairHours}/></ViewBoundary>}
       </main>
     </div>
   );
