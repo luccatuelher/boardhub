@@ -115,3 +115,12 @@ test('a project and its section chip: project time + category sessions in the se
   const total = pomoSectionSeconds(sessions, ids, 's1', 'cat:F') + pomoSectionProjectSeconds([{ id: 1, galleryFolder: 'F', gallerySection: 's1' }], { 'project:1': 4000 }, 'F', 's1', ids);
   assert.equal(total, 4600);
 });
+
+test('section seconds: a section picked in Redistribuir horas wins over the post position', () => {
+  const sessions = [
+    { targetKey: 'cat:F', galleryPostId: 'p1', durationSeconds: 600, sectionId: 's2', redistribute: { batch: 'b' } },
+    { targetKey: 'cat:F', galleryPostId: 'p1', durationSeconds: 400 },
+  ];
+  assert.equal(pomoSectionSeconds(sessions, new Set(['p1']), 's1', 'cat:F'), 400);
+  assert.equal(pomoSectionSeconds(sessions, new Set(['p9']), 's2', 'cat:F'), 600);
+});

@@ -14047,6 +14047,8 @@ const pomoLinkedExtra=(pomoData,projects,folders,posts,dayKey=null)=>{
 // section picked in the timer. Each session counts once.
 const pomoSectionSeconds=(sessions,postIds,sectionId,catKey)=>(Array.isArray(sessions)?sessions:[]).reduce((sum,x)=>{
   if(!x||typeof x.targetKey!=='string'||!x.targetKey.startsWith('cat:'))return sum;
+  // A section picked by hand in Redistribuir horas wins over where the post sits.
+  if(x.redistribute&&x.sectionId!=null)return String(x.sectionId)===String(sectionId)&&x.targetKey===catKey?sum+Math.max(0,Number(x.durationSeconds)||0):sum;
   const inPost=x.galleryPostId!=null&&!!postIds&&postIds.has(String(x.galleryPostId));
   const unfiledHere=x.galleryPostId==null&&x.sectionId!=null&&String(x.sectionId)===String(sectionId)&&x.targetKey===catKey;
   return inPost||unfiledHere?sum+Math.max(0,Number(x.durationSeconds)||0):sum;
@@ -18487,7 +18489,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span className="label label-section" style={{display:'block',marginBottom:6}}><StaveGlyph name="half"/>Redistribuir horas</span>
           <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
             {blankAll.length
-              ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre categorias e projetos que já existem; nada novo é criado.</>
+              ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco {source==='none'?'sem categoria':'nessa categoria'} ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre categorias e projetos que já existem; nada novo é criado.</>
               :<>Nenhuma sessão de foco {source==='none'?'sem categoria':'nessa categoria'} para mover.</>}
             {stuck.pending.n>0&&<> {stuck.pending.n} {stuck.pending.n===1?'sessão ainda espera':'sessões ainda esperam'} o registro ({pomoFmtSecs(stuck.pending.secs)}); registre ou pule para poder mover.</>}
             {stuck.orphan.n>0&&<> {stuck.orphan.n} {stuck.orphan.n===1?'sessão está':'sessões estão'} em categorias que não existem mais ({pomoFmtSecs(stuck.orphan.secs)}).</>}
