@@ -30,7 +30,7 @@ test('plan: even split keeps every second and balances targets', () => {
 
 test('plan: weights and invalid targets', () => {
   const plan = pomoRedistributePlan(mk([row('a', 100, '2026-10-01'), row('b', 100, '2026-10-01'), row('c', 100, '2026-10-01'), row('d', 100, '2026-10-01')]),
-    { targets: [{ key: 'cat:1', weight: 3 }, { key: 'cat:2', weight: 1 }, { key: 'project:9' }, { key: 'cat:3', weight: 0 }] });
+    { targets: [{ key: 'cat:1', weight: 3 }, { key: 'cat:2', weight: 1 }, { key: 'bogus:9' }, { key: 'cat:3', weight: 0 }] });
   assert.deepEqual(plan.perTarget.map(t => t.secs), [300, 100]);
   assert.equal(pomoRedistributePlan(mk(rows()), { targets: [] }).assignments.length, 0);
 });
@@ -68,4 +68,17 @@ test('sync: the other device applying our retarget markers counts each session o
   const other = pomoApplyRetargets(base, moved);
   assert.equal(sum(other.allocations), 9000);
   assert.equal(pomoApplyRetargets(moved, moved).allocations['cat:1'], moved.allocations['cat:1']);
+});
+
+test('source category: its sessions move to a project, ledgers follow, source never a target', () => {
+  const r = { id: 'w1', targetKey: 'cat:work', durationSeconds: 600, date: '2026-10-01', status: 'registered' };
+  const base = { allocations: { 'cat:work': 600 }, dailyAllocations: { '2026-10-01': { 'cat:work': 600 } }, rank: { sessions: [r] } };
+  const plan = pomoRedistributePlan(base, { source: 'cat:work', targets: [{ key: 'cat:work' }, { key: 'project:P', label: 'P' }] });
+  assert.equal(plan.count, 1);
+  assert.equal(plan.perTarget.length, 1);
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:work'] || 0, 0);
+  assert.equal(out.allocations['project:P'], 600);
+  assert.equal(out.rank.sessions[0].targetKey, 'project:P');
+  assert.equal(out.rank.sessions[0].retarget.from, 'cat:work');
 });

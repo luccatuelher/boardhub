@@ -7627,16 +7627,25 @@ const pomoApplyRetargets=(side,other)=>{
 // Focus sessions that never got a category ('none'/empty), which is where the
 // time of someone who never filed her sessions sits. Pending rows are still in
 // the registration dialog and rows already moved (retarget) are left alone.
+// `range.source` ('cat:ID') instead takes the sessions filed under that category
+// (a hand-filed one keeps its marker, which must end at that category).
 const pomoBlankRows=(base,range)=>{
   const since=range&&range.since||'',until=range&&range.until||'';
+  const source=range&&typeof range.source==='string'&&range.source.startsWith('cat:')?range.source:'none';
   return((base&&base.rank&&base.rank.sessions)||[]).filter(r=>{
-    if(!r||r.id==null||r.status==='pending'||r.retarget)return false;
-    if(r.targetKey&&r.targetKey!=='none')return false;
+    if(!r||r.id==null||r.status==='pending')return false;
+    if(source==='none'){
+      if(r.retarget)return false;
+      if(r.targetKey&&r.targetKey!=='none')return false;
+    }else{
+      if(r.targetKey!==source)return false;
+      if(r.retarget&&r.retarget.to!==source)return false;
+    }
     if(!(Number(r.durationSeconds)>0))return false;
     // Only the row's own local day is trusted: the ledgers are keyed by it.
     const day=String(r.date||'');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
-    if(Array.isArray(r.chunks)&&r.chunks.some(c=>c&&c.targetKey&&c.targetKey!=='none'))return false;
+    if(source==='none'&&Array.isArray(r.chunks)&&r.chunks.some(c=>c&&c.targetKey&&c.targetKey!=='none'))return false;
     return(!since||day>=since)&&(!until||day<=until);
   });
 };
@@ -7655,13 +7664,13 @@ const pomoUnallocatedSeconds=base=>{
 // first, to the target furthest below its share, so no second is created or
 // lost. Pure: returns {assignments,perTarget,totalSecs,count}.
 const pomoRedistributePlan=(base,args)=>{
-  const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&t.key.startsWith('cat:')).map(t=>({key:t.key,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
+  const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&(t.key.startsWith('cat:')||t.key.startsWith('project:'))&&t.key!==(args&&args.source)).map(t=>({key:t.key,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
   const rows=pomoBlankRows(base,args).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
   const totalSecs=rows.reduce((n,r)=>n+Number(r.durationSeconds),0);
   const W=targets.reduce((n,t)=>n+t.weight,0);
   const perTarget=targets.map(t=>({key:t.key,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
   const assignments=[];
-  if(!perTarget.length)return{assignments,perTarget,totalSecs,count:rows.length};
+  if(!perTarget.length)return{assignments,perTarget,totalSecs,count:rows.length,source:(args&&args.source)||'none'};
   rows.forEach(r=>{
     let best=perTarget[0];
     perTarget.forEach(t=>{if(t.goal-t.secs>best.goal-best.secs)best=t;});
@@ -7669,7 +7678,7 @@ const pomoRedistributePlan=(base,args)=>{
     best.secs+=secs;best.count++;
     assignments.push({id:String(r.id),key:best.key,label:best.label,secs});
   });
-  return{assignments,perTarget,totalSecs,count:rows.length};
+  return{assignments,perTarget,totalSecs,count:rows.length,source:(args&&args.source)||'none'};
 };
 // Applies a plan: each session moves from "no category" to its target through
 // pomoRetargetSession (ledger totals, all-time and per day) and keeps the same
@@ -7681,11 +7690,14 @@ const pomoRedistributeApply=(base,plan,batch)=>{
   let out=base,changed=false;
   const sessions=(base.rank.sessions||[]).map(row=>{
     const a=row&&by.get(String(row.id));
-    if(!a||row.status==='pending'||row.retarget||(row.targetKey&&row.targetKey!=='none'))return row;
-    const parts=pomoSessionParts(row,'none');
-    out=pomoRetargetSession(out,'none',a.key,parts);
+    if(!a||row.status==='pending')return row;
+    const src=plan.source&&plan.source!=='none'?plan.source:'none';
+    if(src==='none'?(row.retarget||(row.targetKey&&row.targetKey!=='none')):(row.targetKey!==src||(row.retarget&&row.retarget.to!==src)))return row;
+    const parts=src!=='none'&&row.retarget&&Array.isArray(row.retarget.parts)?row.retarget.parts:pomoSessionParts(row,src);
+    out=pomoRetargetSession(out,src,a.key,parts);
     changed=true;
-    return{...row,targetKey:a.key,targetLabel:a.label||row.targetLabel,retarget:{from:'none',to:a.key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
+    const from=row.retarget&&row.retarget.from?row.retarget.from:src;
+    return{...row,targetKey:a.key,targetLabel:a.label||row.targetLabel,retarget:{from,to:a.key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
   });
   return changed?{...out,rank:{...out.rank,sessions}}:base;
 };
@@ -12199,9 +12211,21 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       const s=sessionById.get(String(id));
       if(s&&!filed.has(String(id))){filed.add(String(id));credit(t.id,s);}
     })));
-    sessionById.forEach((s,id)=>{if(!filed.has(id)&&s.taskId!=null&&s.taskNoteId==null&&String(s.targetKey)===String(projectFocusKey))credit(s.taskId,s);});
+    // Sessions whose note was deleted still count: the time really happened.
+    sessionById.forEach((s,id)=>{if(!filed.has(id)&&s.taskId!=null&&(String(s.targetKey)===String(projectFocusKey)||String(s.taskProjectId)===String(local.id)))credit(s.taskId,s);});
+    // A parent task also counts its subtasks' time.
+    const own=new Map(m),byId=new Map((local.miniProjects||[]).map(t=>[String(t.id),t]));
+    own.forEach((f,id)=>{
+      const seen=new Set([id]);let p=byId.get(id)?.parentId;
+      while(p!=null&&!seen.has(String(p))&&byId.has(String(p))){
+        seen.add(String(p));
+        const cur=m.get(String(p))||{secs:0,count:0};
+        m.set(String(p),{secs:cur.secs+f.secs,count:cur.count+f.count});
+        p=byId.get(String(p))?.parentId;
+      }
+    });
     return m;
-  },[local.miniProjects,sessionById,projectFocusKey]);
+  },[local.miniProjects,sessionById,projectFocusKey,local.id]);
   // The open post (a focus post or one from the linked gallery folder) is an
   // id resolved from galleryPosts, like the open project in App. The popup
   // used to hold a copy: moving or removing an image rebuilt the list from
@@ -14148,6 +14172,27 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const listScrollRef=useRef(null);
   const selectedNowRef=useRef(selected);
   selectedNowRef.current=selected;
+  // Opening a post adds a history step, so the browser / phone Back button closes
+  // the post and stays in the Gallery instead of leaving it.
+  const postHistoryRef=useRef(false);
+  useEffect(()=>{
+    if(selected&&!postHistoryRef.current){
+      try{window.history.pushState({bhGalleryPost:1},'',window.location.href);postHistoryRef.current=true;}catch{}
+    }else if(!selected)postHistoryRef.current=false;
+  },[!!selected]);
+  useEffect(()=>{
+    const onPop=()=>{
+      if(!postHistoryRef.current)return;
+      postHistoryRef.current=false;
+      if(selectedNowRef.current){setSelected(null);setLightbox(null);}
+    };
+    window.addEventListener('popstate',onPop);
+    return()=>window.removeEventListener('popstate',onPop);
+  },[]);
+  const closePost=()=>{
+    if(postHistoryRef.current&&window.history.state&&window.history.state.bhGalleryPost){window.history.back();return;}
+    postHistoryRef.current=false;setSelected(null);
+  };
   // The lightbox is tracked by POSITION in the post's image list, not by src:
   // storyboards repeat a frame (a hold), and identical files have the same
   // content-addressed URL, so "next" from the first copy found the same src
@@ -14836,7 +14881,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
       {fileDragOver&&<div className="post-file-drop" aria-hidden="true"><Icon name="image-plus" size={26}/><span>Solte para adicionar ao post</span></div>}
       <input ref={addImgRef} type="file" accept="image/*,video/*,.gif" multiple style={{display:'none'}} onChange={handleAddImages}/>
       <div style={{display:'flex',justifyContent:'space-between',marginBottom:24}}>
-        <button className="btn btn-outline" onClick={()=>setSelected(null)}><Icon name="arrow-left" size={13}/> Voltar</button>
+        <button className="btn btn-outline" onClick={closePost}><Icon name="arrow-left" size={13}/> Voltar</button>
         <button className="btn btn-danger" onClick={()=>{softDelete(selected.id);setSelected(null);}}><Icon name="trash-2" size={13}/> Mover para Lixeira</button>
       </div>
       <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
@@ -18366,13 +18411,18 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [open,setOpen]=useState(false);
   const [busy,setBusy]=useState(false);
   const [picked,setPicked]=useState({}); // folderId -> true
+  const [pickedP,setPickedP]=useState({}); // projectId -> true
+  const [source,setSource]=useState('none'); // 'none' (no category) or 'cat:ID'
+  const projectList=useMemo(()=>(appState?.projects||[]).filter(p=>p&&!p.deleted&&p.id!=null),[appState?.projects]);
   const [custom,setCustom]=useState(false);
   const [weights,setWeights]=useState({}); // folderId -> text
   const [since,setSince]=useState('');
   const [until,setUntil]=useState('');
-  const targets=folders.filter(f=>picked[f.id]).map(f=>({key:'cat:'+f.id,label:f.label,weight:custom?((weights[f.id]==null?1:parseFloat(String(weights[f.id]).replace(',','.'))||0)):1}));
-  const blankAll=useMemo(()=>pomoBlankRows(base,{}),[base]);
-  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until}),[base,picked,custom,weights,since,until,folders]);// eslint-disable-line react-hooks/exhaustive-deps
+  const wOf=id=>custom?((weights[id]==null?1:parseFloat(String(weights[id]).replace(',','.'))||0)):1;
+  const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
+  const blankAll=useMemo(()=>pomoBlankRows(base,{source}),[base,source]);
+  const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source}),[base,picked,pickedP,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Why hours may look "unallocated" yet are not movable here: sessions still
   // waiting in the registration dialog, and sessions filed under a category
@@ -18389,10 +18439,10 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
     if(busy||!plan.assignments.length)return;
     const lines=plan.perTarget.filter(t=>t.count>0).map(t=>`• ${t.label}: ${pomoFmtSecs(t.secs)} (${t.count} ${t.count===1?'sessão':'sessões'})`).join('\n');
     if(!await bhConfirm({title:'Redistribuir horas',confirmLabel:'Redistribuir',
-      message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} sem categoria (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
+      message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} ${source==='none'?'sem categoria':'dessa categoria'} (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
     setBusy(true);
     try{
-      const r=await onApply({targets,since,until});
+      const r=await onApply({targets,since,until,source});
       if(r&&r.ok)showStatus('ok',r.moved?`✓ ${r.moved} ${r.moved===1?'sessão redistribuída':'sessões redistribuídas'}.`:'Nada mudou: as sessões já tinham sido movidas.');
       else showStatus('err',(r&&r.error)||'Falha ao redistribuir.');
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
@@ -18406,15 +18456,22 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
             {blankAll.length
               ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre as categorias que já existem; nada novo é criado.</>
-              :<>Nenhuma sessão de foco sem categoria para mover.</>}
+              :<>Nenhuma sessão de foco {source==='none'?'sem categoria':'nessa categoria'} para mover.</>}
             {stuck.pending.n>0&&<> {stuck.pending.n} {stuck.pending.n===1?'sessão ainda espera':'sessões ainda esperam'} o registro ({pomoFmtSecs(stuck.pending.secs)}); registre ou pule para poder mover.</>}
             {stuck.orphan.n>0&&<> {stuck.orphan.n} {stuck.orphan.n===1?'sessão está':'sessões estão'} em categorias que não existem mais ({pomoFmtSecs(stuck.orphan.secs)}).</>}
             {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> O total diário tem ainda {pomoFmtSecs(unallocated)} sem destino; só as sessões listadas podem ser movidas.</>}
           </div>
         </div>
-        {blankAll.length>0&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
+        {(blankAll.length>0||catHeld.length>0)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
       </div>
-      {open&&blankAll.length>0&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+      {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+        <label style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
+          <span style={{color:'var(--muted)'}}>Tirar as horas de:</span>
+          <select className="input-box" value={source} onChange={e=>setSource(e.target.value)} style={{padding:'4px 8px',width:'auto'}} aria-label="Origem das horas">
+            <option value="none">Sem categoria</option>
+            {catHeld.map(f=><option key={f.id} value={'cat:'+f.id}>{f.label}</option>)}
+          </select>
+        </label>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
           <span style={{color:'var(--muted)'}}>Período (opcional):</span>
           <BhDateInput value={since} onChange={e=>setSince(e.target.value)} aria-label="De" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
@@ -18427,10 +18484,16 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:4}}>
           {folders.length===0&&<div style={{fontSize:'.78rem',color:'var(--muted)'}}>Nenhuma categoria na Galeria.</div>}
-          {folders.map(f=><label key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
+          {folders.filter(f=>'cat:'+f.id!==source).map(f=><label key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
             <input type="checkbox" checked={!!picked[f.id]} onChange={e=>setPicked(p=>({...p,[f.id]:e.target.checked}))}/>
             <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{f.label}</span>
             {custom&&picked[f.id]&&<input type="text" inputMode="decimal" value={weights[f.id]==null?'1':weights[f.id]} onChange={e=>setWeights(w=>({...w,[f.id]:e.target.value}))} aria-label={'Peso de '+f.label} className="input-box" style={{width:56,padding:'3px 6px',textAlign:'right'}}/>}
+          </label>)}
+          {projectList.length>0&&<div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginTop:6}}>Projetos</div>}
+          {projectList.map(p=><label key={'p'+p.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
+            <input type="checkbox" checked={!!pickedP[p.id]} onChange={e=>setPickedP(m=>({...m,[p.id]:e.target.checked}))}/>
+            <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{p.title||'Projeto'}</span>
+            {custom&&pickedP[p.id]&&<input type="text" inputMode="decimal" value={weights['p'+p.id]==null?'1':weights['p'+p.id]} onChange={e=>setWeights(w=>({...w,['p'+p.id]:e.target.value}))} aria-label={'Peso de '+(p.title||'Projeto')} className="input-box" style={{width:56,padding:'3px 6px'}}/>}
           </label>)}
         </div>
         <div style={{fontSize:'.8rem',lineHeight:1.6,borderTop:'1px solid var(--border)',paddingTop:8}}>
