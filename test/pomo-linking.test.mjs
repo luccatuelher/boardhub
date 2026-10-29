@@ -134,3 +134,25 @@ test('section link also counts hours put into the section by hand (no post), onc
   const p = { id: 1, galleryFolder: 'F', gallerySection: 's1' };
   assert.equal(pomoLinkedExtra(data, [p], folders, posts)['project:1'], 1200);
 });
+
+// One thing, two names: project 1 is linked to section s1 of folder F. A session in
+// either must show once in the project, once in the category and once in the section.
+test('project linked to a section: a section session counts once everywhere', () => {
+  const p = { id: 1, galleryFolder: 'F', gallerySection: 's1' };
+  const data = { allocations: { 'cat:F': 600 }, rank: { sessions: [sess({ id: 'h', targetKey: 'cat:F', sectionId: 's1', durationSeconds: 600, redistribute: { batch: 'b' } })] } };
+  const extra = pomoLinkedExtra(data, [p], folders, posts);
+  assert.equal((data.allocations['project:1'] || 0) + (extra['project:1'] || 0), 600); // project
+  assert.equal(data.allocations['cat:F'] + (extra['cat:F'] || 0), 600);              // category
+  const sec = pomoSectionSeconds(data.rank.sessions, new Set(), 's1', 'cat:F') + pomoSectionProjectSeconds([p], data.allocations, 'F', 's1', new Set());
+  assert.equal(sec, 600);                                                              // section
+});
+
+test('project linked to a section: a project session counts once everywhere', () => {
+  const p = { id: 1, galleryFolder: 'F', gallerySection: 's1' };
+  const data = { allocations: { 'project:1': 600 }, rank: { sessions: [sess({ id: 'h', targetKey: 'project:1', durationSeconds: 600 })] } };
+  const extra = pomoLinkedExtra(data, [p], folders, posts);
+  assert.equal(data.allocations['project:1'] + (extra['project:1'] || 0), 600);
+  assert.equal((data.allocations['cat:F'] || 0) + (extra['cat:F'] || 0), 600);
+  const sec = pomoSectionSeconds(data.rank.sessions, new Set(), 's1', 'cat:F') + pomoSectionProjectSeconds([p], data.allocations, 'F', 's1', new Set());
+  assert.equal(sec, 600);
+});

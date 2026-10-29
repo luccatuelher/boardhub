@@ -94,17 +94,6 @@ test('section target inside the source group only sets the section, ledgers unch
   assert.equal(out.rank.sessions[0].retarget, undefined);
 });
 
-test('unallocated day time can be moved: ledgers gain it once, never more than left', () => {
-  const base = { days: { '2026-10-01': 5000 }, allocations: { 'cat:a': 1000 }, dailyAllocations: { '2026-10-01': { 'cat:a': 1000 } }, rank: { sessions: [] } };
-  const plan = pomoRedistributePlan(base, { unallocated: true, targets: [{ key: 'cat:b', label: 'B' }] });
-  assert.equal(plan.totalSecs, 4000);
-  const out = pomoRedistributeApply(base, plan, 'b');
-  assert.equal(out.allocations['cat:b'], 4000);
-  assert.equal(out.dailyAllocations['2026-10-01']['cat:b'], 4000);
-  const again = pomoRedistributeApply(out, plan, 'b');
-  assert.equal(again.allocations['cat:b'], 4000);
-});
-
 test('source group with noSection skips sessions already in a category of the group', () => {
   const mkr = (id, extra) => ({ id, targetKey: 'cat:ms', durationSeconds: 600, date: '2026-10-01', status: 'registered', ...extra });
   const base = { allocations: { 'cat:ms': 1800 }, dailyAllocations: { '2026-10-01': { 'cat:ms': 1800 } }, rank: { sessions: [mkr('a'), mkr('b', { sectionId: 's9' }), mkr('c', { galleryPostId: 'p1' })] } };
@@ -125,24 +114,3 @@ test('orphan source: sessions of a category that no longer exists move to a live
   assert.equal(out.rank.sessions[0].retarget.from, 'cat:gone');
 });
 
-test('unallocated day time into a section leaves a row that marks the section', () => {
-  const base = { days: { '2026-10-01': 5000 }, allocations: {}, dailyAllocations: {}, rank: { sessions: [] } };
-  const plan = pomoRedistributePlan(base, { unallocated: true, targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'MS › Brink' }] });
-  const out = pomoRedistributeApply(base, plan, 'b');
-  assert.equal(out.allocations['cat:ms'], 5000);
-  assert.equal(out.rank.sessions.length, 1);
-  assert.equal(out.rank.sessions[0].sectionId, 's1');
-  assert.equal(out.rank.sessions[0].durationSeconds, 5000);
-});
-
-test('hours a category holds without session rows can be given a section', () => {
-  const r = { id: 'x', targetKey: 'cat:ms', durationSeconds: 1000, date: '2026-10-01', status: 'saved' };
-  const base = { allocations: { 'cat:ms': 6000 }, dailyAllocations: { '2026-10-01': { 'cat:ms': 6000 } }, rank: { sessions: [r] } };
-  const plan = pomoRedistributePlan(base, { source: 'cat:ms', unallocated: true, noSection: true, targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'MS › Brink' }] });
-  const out = pomoRedistributeApply(base, plan, 'b');
-  assert.equal(out.allocations['cat:ms'], 6000);
-  const added = out.rank.sessions.filter(x => x.redistribute && x.redistribute.synthetic);
-  assert.equal(added.length, 1);
-  assert.equal(added[0].durationSeconds, 5000);
-  assert.equal(added[0].sectionId, 's1');
-});
