@@ -14174,7 +14174,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   selectedNowRef.current=selected;
   // Opening a post adds a history step, so the browser / phone Back button closes
   // the post and stays in the Gallery instead of leaving it.
-  const postHistoryRef=useRef(false);
+  const postHistoryRef=useRef(!!(window.history.state&&window.history.state.bhGalleryPost));
   useEffect(()=>{
     if(selected&&!postHistoryRef.current){
       try{window.history.pushState({bhGalleryPost:1},'',window.location.href);postHistoryRef.current=true;}catch{}
@@ -18455,7 +18455,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span className="label label-section" style={{display:'block',marginBottom:6}}><StaveGlyph name="half"/>Redistribuir horas</span>
           <div style={{fontSize:'.8rem',color:'var(--muted)',lineHeight:1.5}}>
             {blankAll.length
-              ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre as categorias que já existem; nada novo é criado.</>
+              ?<>{blankAll.length} {blankAll.length===1?'sessão':'sessões'} de foco sem categoria ({pomoFmtSecs(blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0))}). Distribua entre categorias e projetos que já existem; nada novo é criado.</>
               :<>Nenhuma sessão de foco {source==='none'?'sem categoria':'nessa categoria'} para mover.</>}
             {stuck.pending.n>0&&<> {stuck.pending.n} {stuck.pending.n===1?'sessão ainda espera':'sessões ainda esperam'} o registro ({pomoFmtSecs(stuck.pending.secs)}); registre ou pule para poder mover.</>}
             {stuck.orphan.n>0&&<> {stuck.orphan.n} {stuck.orphan.n===1?'sessão está':'sessões estão'} em categorias que não existem mais ({pomoFmtSecs(stuck.orphan.secs)}).</>}
