@@ -47,11 +47,10 @@ test('retarget: a key that reaches zero is dropped; never goes negative', () => 
   assert.equal('cat:a' in r.dailyAllocations['2026-10-09'], false);
 });
 
-test('retarget: project and same-key moves change nothing', () => {
+test('retarget: same-key and empty moves change nothing', () => {
   const base = { allocations: { 'cat:a': 10 }, dailyAllocations: {} };
   const parts = [{ dateKey: '2026-10-09', secs: 5 }];
-  assert.equal(pomoRetargetSession(base, 'cat:a', 'project:1', parts), base);
-  assert.equal(pomoRetargetSession(base, 'project:1', 'cat:a', parts), base);
+  assert.equal(pomoRetargetSession(base, 'project:1', 'project:1', parts), base);
   assert.equal(pomoRetargetSession(base, 'cat:a', 'cat:a', parts), base);
   assert.equal(pomoRetargetSession(base, 'cat:a', 'cat:b', []), base);
   assert.equal(pomoRetargetSession(base, 'none', 'none', parts), base);

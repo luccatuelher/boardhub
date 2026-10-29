@@ -2091,6 +2091,30 @@ const bhPromoteSubTasks=projects=>{
   });
   return changed?next:projects;
 };
+// Moving a task to another project: the task and its sub-tasks, as task cards
+// (with their notes and sessions) and as timeline tasks. A sub-task moved on its
+// own leaves its parent behind and becomes a task of its own.
+const bhTaskMoveBundle=(project,taskId)=>{
+  const id=String(taskId);
+  const mine=list=>(Array.isArray(list)?list:[]).filter(x=>x&&(String(x.id)===id||String(x.parentId||'')===id));
+  const top=x=>String(x.id)===id?(({parentId,...rest})=>rest)(x):x;
+  const minis=mine(project&&project.miniProjects).map(top),tasks=mine(project&&project.projectTasks).map(top);
+  if(!minis.length&&!tasks.length)return null;
+  const sessionIds=[];
+  minis.forEach(m=>(Array.isArray(m.innerNotes)?m.innerNotes:[]).forEach(n=>(Array.isArray(n&&n.sessionIds)?n.sessionIds:[]).forEach(sid=>sessionIds.push(String(sid)))));
+  return{ids:[...new Set([...minis,...tasks].map(x=>String(x.id)))],minis,tasks,sessionIds};
+};
+const bhTaskMoveAdd=(project,bundle)=>{
+  if(!project||!bundle)return project;
+  const have=list=>new Set((Array.isArray(list)?list:[]).filter(Boolean).map(x=>String(x.id)));
+  const hm=have(project.miniProjects),ht=have(project.projectTasks);
+  return{...project,miniProjects:[...(project.miniProjects||[]),...bundle.minis.filter(m=>!hm.has(String(m.id)))],projectTasks:[...(project.projectTasks||[]),...bundle.tasks.filter(t=>!ht.has(String(t.id)))]};
+};
+const bhTaskMoveRemove=(project,bundle)=>{
+  if(!project||!bundle)return project;
+  const ids=new Set(bundle.ids);
+  return{...project,miniProjects:(project.miniProjects||[]).filter(m=>!(m&&ids.has(String(m.id)))),projectTasks:(project.projectTasks||[]).filter(t=>!(t&&ids.has(String(t.id))))};
+};
 // @bh-test-end tasklinks
 // Where a task note is now (it may have been moved to another task): live
 // projects only.
@@ -7487,7 +7511,7 @@ const pomoCreditParts=(base,parts,tk)=>{
 // Category → category, or no category → a category; project sessions are left alone.
 // `parts` are [{dayKey|dateKey, secs}] (the session's chunks).
 const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
-  const isCat=k=>typeof k==='string'&&k.startsWith('cat:');
+  const isCat=k=>typeof k==='string'&&(k.startsWith('cat:')||k.startsWith('project:'));
   // 'none' (no category) never credited anything, so moving out of it only adds.
   if(!base||fromKey===toKey||!(isCat(fromKey)||fromKey==='none')||!isCat(toKey))return base;
   const list=(Array.isArray(parts)?parts:[]).map(p=>({dayKey:p&&(p.dayKey||p.dateKey),secs:Math.max(0,Number(p&&p.secs)||0)})).filter(p=>p.dayKey&&p.secs>0);
@@ -7516,6 +7540,33 @@ const pomoRetargetSession=(base,fromKey,toKey,parts)=>{
 const pomoSessionParts=(session,fromKey)=>{
   const chunks=Array.isArray(session&&session.chunks)?session.chunks.filter(c=>c&&(c.targetKey==null||String(c.targetKey)===String(fromKey))):[];
   return chunks.length?chunks.map(c=>({dayKey:c.dateKey||session.date,secs:c.secs})):[{dayKey:session&&session.date,secs:Number(session&&session.durationSeconds)||0}];
+};
+// A task (and its sub-tasks) moved to another project: its sessions follow. A
+// project session's time moves from the old project to the new one (all-time and
+// per day) and its row takes the new project; a category session filed into the
+// task only changes which project it is filed under (its time is read through
+// taskProjectId). `taskIds` are the moved tasks, `sessionIds` the sessions of
+// their notes; `to` is {id,title}. Returns
+// `base` itself when nothing changes.
+const pomoMoveTaskSessions=(base,taskIds,fromProjectId,to,sessionIds)=>{
+  const ids=new Set((taskIds||[]).map(String)),sids=new Set((sessionIds||[]).map(String));
+  if(!base||!base.rank||!(ids.size||sids.size)||!to||to.id==null||String(fromProjectId)===String(to.id))return base;
+  const fromKey='project:'+String(fromProjectId),newKey='project:'+String(to.id);
+  let out=base,changed=false;
+  const sessions=(base.rank.sessions||[]).map(row=>{
+    if(!row||!((row.taskId!=null&&ids.has(String(row.taskId)))||(row.id!=null&&sids.has(String(row.id)))))return row;
+    let next=row;
+    if(row.targetKey===fromKey&&row.status!=='pending'){
+      const parts=row.retarget&&row.retarget.to===row.targetKey&&Array.isArray(row.retarget.parts)?row.retarget.parts:pomoSessionParts(row,row.targetKey);
+      out=pomoRetargetSession(out,row.targetKey,newKey,parts);
+      const from=row.retarget&&row.retarget.from?row.retarget.from:row.targetKey;
+      next={...next,targetKey:newKey,targetLabel:to.title||row.targetLabel,retarget:{from,to:newKey,parts:(row.retarget&&row.retarget.parts)||parts}};
+      changed=true;
+    }
+    if(row.taskProjectId!=null&&String(row.taskProjectId)===String(fromProjectId)){next={...next,taskProjectId:String(to.id)};changed=true;}
+    return next;
+  });
+  return changed?{...out,rank:{...out.rank,sessions}}:base;
 };
 // Posts filed under another category or section in the Gallery: the sessions
 // filed in them follow. A category session's time moves from its old category to
@@ -12109,7 +12160,7 @@ const projectTaskNamed=(tasks,minis)=>{
 };
 
 const PROJECT_TABS=['Visão Geral','Narrativa','História','Tarefas','Pesquisa','Inspirações'];
-const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote})=>{
+const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicate,globalMentors,onAddGlobalMentor,galleryPosts,setGalleryPosts,onPostsPurged,onPlacePost,focus,galleryFolders,pomoData,isMobile,notes,onOpenNote,onPeekNote,projectChoices,onMoveTask})=>{
   const [local,setLocal]=useState(()=>{
     const tasks=projectTaskNamed(applyAutoLate(project.projectTasks),project.miniProjects);
     const minis=[...(project.miniProjects||[])];
@@ -12520,6 +12571,22 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
       return{...prev,projectTasks:(prev.projectTasks||[]).filter(t=>String(t.id)!==String(taskId)),miniProjects:(prev.miniProjects||[]).filter(m=>String(m.id)!==String(taskId)),taskTrash:[entry,...(prev.taskTrash||[])]};
     });
     setActiveMiniId(current=>String(current)===String(taskId)?null:current);
+    setActiveInnerNoteId(null);
+  };
+  // Moves the open task (with its sub-tasks, notes and sessions) to another project.
+  const [moveMenuOpen,setMoveMenuOpen]=useState(false);
+  const moveTaskTo=async toId=>{
+    setMoveMenuOpen(false);
+    const task=activeMini,target=(projectChoices||[]).find(x=>String(x.id)===String(toId));
+    if(!task||!target||!onMoveTask)return;
+    const bundle=bhTaskMoveBundle(local,task.id);
+    if(!bundle)return;
+    const subCount=bundle.minis.length-1,sessionCount=bundle.sessionIds.length;
+    if(!await bhConfirm({title:'Mover para outro projeto',confirmLabel:'Mover',message:`Mover “${task.title||'Tarefa'}”${subCount>0?` com ${subCount} ${subCount===1?'subtarefa':'subtarefas'}`:''} e ${sessionCount} ${sessionCount===1?'sessão':'sessões'} para o projeto “${target.title}”?\n\nO tempo das sessões do projeto passa para o outro projeto; sessões de categoria da Galeria continuam onde estão. Uma cópia de segurança é salva antes. Para desfazer, mova a tarefa de volta.`}))return;
+    const r=await onMoveTask({fromId:local.id,toId:target.id,bundle});
+    if(!r||!r.ok){await bhAlert((r&&r.error)||'Não foi possível mover a tarefa. Nada foi alterado.');return;}
+    edit(prev=>bhTaskMoveRemove(prev,bundle));
+    setActiveMiniId((local.miniProjects||[]).find(m=>!bundle.ids.includes(String(m.id)))?.id||null);
     setActiveInnerNoteId(null);
   };
   const deleteMini=id=>{
@@ -13026,7 +13093,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                         </div>
                         <div style={{padding:'7px 9px'}}>
                           <div style={{fontWeight:600,fontSize:'.74rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title}</div>
-                          {local.type==='work'&&Number(local.postValues&&local.postValues[String(post.id)])>0&&<div title="Valor próprio deste animatic" style={{fontSize:'.68rem',fontWeight:600,color:'var(--text)',marginTop:2}}>{fmtBRL(local.postValues[String(post.id)])}</div>}
+                          {local.type==='work'&&bhProjectPostValue(local,post.id)>0&&<div title={Number(local.postValues&&local.postValues[String(post.id)])>0?'Valor próprio deste animatic':'Valor padrão do projeto'} style={{fontSize:'.68rem',fontWeight:600,color:Number(local.postValues&&local.postValues[String(post.id)])>0?'var(--text)':'var(--muted)',marginTop:2}}>{fmtBRL(bhProjectPostValue(local,post.id))}</div>}
                           {effectiveBudget>0&&local.type==='work'&&<button type="button" className={'post-paid-chip'+(bhProjectPostPaid(local,post.id)?' on':'')} aria-pressed={bhProjectPostPaid(local,post.id)} title={bhProjectPostPaid(local,post.id)?'Recebido: clique para marcar como a receber':'A receber: clique para marcar como recebido'}
                             onClick={e=>{e.stopPropagation();togglePostPaid(post.id);}}><Icon name={bhProjectPostPaid(local,post.id)?'check-circle':'circle-dollar-sign'} size={11}/>{bhProjectPostPaid(local,post.id)?'Recebido':'A receber'}</button>}
                           {post.linkedTask&&<div style={{display:'flex',alignItems:'center',gap:4,marginTop:2,fontSize:'.66rem',color:'var(--muted)',overflow:'hidden',whiteSpace:'nowrap'}}><Icon name="list-checks" size={10} style={{flexShrink:0}}/><span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{post.linkedTask.taskTitle}</span></div>}
@@ -13347,6 +13414,16 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                       <button className="btn btn-ghost" style={{padding:5}} disabled={i<=0} onClick={()=>nudgeMini(activeMini.id,-1)} title="Subir tarefa na lista" aria-label="Subir tarefa na lista"><Icon name="arrow-up" size={14}/></button>
                       <button className="btn btn-ghost" style={{padding:5}} disabled={i<0||i>=n-1} onClick={()=>nudgeMini(activeMini.id,1)} title="Descer tarefa na lista" aria-label="Descer tarefa na lista"><Icon name="arrow-down" size={14}/></button>
                     </>;})()}
+                    {onMoveTask&&(projectChoices||[]).some(x=>String(x.id)!==String(local.id))&&<span style={{position:'relative',display:'inline-flex'}}>
+                      <button className="btn btn-ghost" style={{padding:5}} onClick={()=>setMoveMenuOpen(v=>!v)} title="Mover para outro projeto" aria-label="Mover para outro projeto" aria-haspopup="menu" aria-expanded={moveMenuOpen}><Icon name="folder-input" size={14}/></button>
+                      {moveMenuOpen&&<>
+                        <div onClick={()=>setMoveMenuOpen(false)} style={{position:'fixed',inset:0,zIndex:40}}/>
+                        <div role="menu" style={{position:'absolute',top:30,right:0,zIndex:41,width:230,maxHeight:280,overflowY:'auto',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,boxShadow:'0 6px 20px rgba(0,0,0,.18)',padding:4,display:'flex',flexDirection:'column',gap:2}}>
+                          <div style={{fontSize:'.66rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--muted)',padding:'4px 8px'}}>Mover para o projeto</div>
+                          {(projectChoices||[]).filter(x=>String(x.id)!==String(local.id)).map(x=><button key={x.id} role="menuitem" className="btn btn-ghost" style={{justifyContent:'flex-start',padding:'6px 10px',fontSize:'.78rem',color:'var(--text)',textAlign:'left'}} onClick={()=>moveTaskTo(x.id)}>{x.title}</button>)}
+                        </div>
+                      </>}
+                    </span>}
                     <button onClick={()=>deleteMini(activeMini.id)} className="btn btn-ghost text-link-danger" style={{padding:6}} title="Mover tarefa para a lixeira" aria-label="Mover tarefa para a lixeira">
                       <Icon name="trash-2" size={16}/>
                     </button>
@@ -19884,6 +19961,7 @@ const App=()=>{
 
   // Initialize from localStorage if available, else seed
   const [projects,setProjects]=useState(()=>bhRecordArray(persisted?.projects,SEED.projects));
+  const projectChoices=useMemo(()=>(projects||[]).filter(p=>p&&!p.deleted).map(p=>({id:p.id,title:p.title||'Projeto sem nome'})),[projects]);
   const selectedProject=useMemo(()=>selectedProjectId==null?null
     :projects.find(p=>p&&!p.deleted&&String(p.id)===selectedProjectId)||null,[projects,selectedProjectId]);
   // A project that stops existing while its page is the route (trashed, gone
@@ -21441,6 +21519,23 @@ const App=()=>{
     setPomoData(prev=>pomoRedistributeApply(pomoNormalize(prev),plan,batch));
     return{ok:true,batch,moved};
   };
+  // A task (with its sub-tasks, notes and sessions) goes to another project: it is
+  // added there and its sessions follow (project time moves with them). The project
+  // it leaves removes it itself once this answers ok. Same guards as Redistribuir
+  // horas: time totals move, so sync must be idle and other devices still.
+  const moveTaskToProject=async({fromId,toId,bundle})=>{
+    if(!bundle||String(fromId)===String(toId))return{ok:false,error:'Nada a mover.'};
+    if(fbUser&&!_didInitialReconcile.current)return{ok:false,error:'Aguarde a leitura inicial da conta antes de mover. Nada foi alterado.'};
+    if(bhPersistenceBusy())return{ok:false,error:'Há uma restauração em andamento. Nada foi alterado.'};
+    if(fbUser&&(syncStatus!=='synced'||_hasPendingLocalEdit.current))return{ok:false,error:'Aguarde o sync terminar (Local em dia) e deixe os outros aparelhos parados. Nada foi alterado.'};
+    const live=_latestState.current||appState;
+    const to=(live.projects||[]).find(p=>p&&String(p.id)===String(toId)&&!p.deleted);
+    if(!to)return{ok:false,error:'O projeto de destino não está mais disponível. Nada foi alterado.'};
+    if(bhStateHasData(live)&&!await bhCapture(live,'pre-move-task'))return{ok:false,error:'Não foi possível criar a cópia de segurança. Nada foi alterado.'};
+    setProjects(prev=>prev.map(p=>p&&String(p.id)===String(toId)?bhTaskMoveAdd(p,bundle):p));
+    setPomoData(prev=>pomoMoveTaskSessions(pomoNormalize(prev),bundle.ids,fromId,{id:to.id,title:to.title},bundle.sessionIds));
+    return{ok:true};
+  };
   const handleImportUnlocked=async (data,{incomingWins=false,mediaUpdate=false}={})=>{
     // Shape validation. v22 checked truthiness only — an object where an array
     // was expected passed the check and crashed every .filter() downstream.
@@ -21559,7 +21654,7 @@ const App=()=>{
       <main ref={mainRef} className={(isMobile?'main-mobile':'')+' view-enter'} style={isMobile?{flex:1,padding:'16px 16px 80px',overflowY:'auto',minHeight:'calc(100vh - 56px)',paddingTop:0}:{marginLeft:220,flex:1,padding:'clamp(16px, 2.5vh, 40px) clamp(20px, 3vw, 48px)',overflowY:view==='dashboard'?'hidden':'auto',height:'100vh',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
-        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile}/></ViewBoundary>} 
+        {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile} projectChoices={projectChoices} onMoveTask={moveTaskToProject}/></ViewBoundary>} 
         {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='studies'        &&<ViewBoundary key="studies" name="Estudos" onHome={()=>navigate('dashboard')}><StudiesHub studies={studies} setStudies={setStudies} isMobile={isMobile}/></ViewBoundary>}
