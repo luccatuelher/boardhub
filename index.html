@@ -7664,11 +7664,11 @@ const pomoUnallocatedSeconds=base=>{
 // first, to the target furthest below its share, so no second is created or
 // lost. Pure: returns {assignments,perTarget,totalSecs,count}.
 const pomoRedistributePlan=(base,args)=>{
-  const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&(t.key.startsWith('cat:')||t.key.startsWith('project:'))&&t.key!==(args&&args.source)).map(t=>({key:t.key,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
+  const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&(t.key.startsWith('cat:')||t.key.startsWith('project:')||t.key.startsWith('sec:'))&&t.key!==(args&&args.source)).map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
   const rows=pomoBlankRows(base,args).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
   const totalSecs=rows.reduce((n,r)=>n+Number(r.durationSeconds),0);
   const W=targets.reduce((n,t)=>n+t.weight,0);
-  const perTarget=targets.map(t=>({key:t.key,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
+  const perTarget=targets.map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
   const assignments=[];
   if(!perTarget.length)return{assignments,perTarget,totalSecs,count:rows.length,source:(args&&args.source)||'none'};
   rows.forEach(r=>{
@@ -7676,7 +7676,7 @@ const pomoRedistributePlan=(base,args)=>{
     perTarget.forEach(t=>{if(t.goal-t.secs>best.goal-best.secs)best=t;});
     const secs=Number(r.durationSeconds);
     best.secs+=secs;best.count++;
-    assignments.push({id:String(r.id),key:best.key,label:best.label,secs});
+    assignments.push({id:String(r.id),key:best.key,catKey:best.catKey,sectionId:best.sectionId,label:best.label,secs});
   });
   return{assignments,perTarget,totalSecs,count:rows.length,source:(args&&args.source)||'none'};
 };
@@ -7693,11 +7693,16 @@ const pomoRedistributeApply=(base,plan,batch)=>{
     if(!a||row.status==='pending')return row;
     const src=plan.source&&plan.source!=='none'?plan.source:'none';
     if(src==='none'?(row.retarget||(row.targetKey&&row.targetKey!=='none')):(row.targetKey!==src||(row.retarget&&row.retarget.to!==src)))return row;
+    // A section target is a category of the group (a Gallery folder): the time
+    // belongs to that folder's key and the row also takes the section.
+    const key=a.catKey||a.key;
+    const sec=a.sectionId!=null?{sectionId:a.sectionId,sectionLabel:String(a.label||'').split(' › ').pop()}:{};
+    if(key===src&&a.sectionId!=null){changed=true;return{...row,...sec,redistribute:{batch:String(batch),prevLabel:row.sectionLabel||''}};}
     const parts=src!=='none'&&row.retarget&&Array.isArray(row.retarget.parts)?row.retarget.parts:pomoSessionParts(row,src);
-    out=pomoRetargetSession(out,src,a.key,parts);
+    out=pomoRetargetSession(out,src,key,parts);
     changed=true;
     const from=row.retarget&&row.retarget.from?row.retarget.from:src;
-    return{...row,targetKey:a.key,targetLabel:a.label||row.targetLabel,retarget:{from,to:a.key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
+    return{...row,...sec,targetKey:key,targetLabel:(a.catKey?String(a.label||'').split(' › ')[0]:a.label)||row.targetLabel,retarget:{from,to:key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
   });
   return changed?{...out,rank:{...out.rank,sessions}}:base;
 };
@@ -18412,6 +18417,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [busy,setBusy]=useState(false);
   const [picked,setPicked]=useState({}); // folderId -> true
   const [pickedP,setPickedP]=useState({}); // projectId -> true
+  const [pickedS,setPickedS]=useState({}); // 'folderId|sectionId' -> true
   const [source,setSource]=useState('none'); // 'none' (no category) or 'cat:ID'
   const projectList=useMemo(()=>(appState?.projects||[]).filter(p=>p&&!p.deleted&&p.id!=null),[appState?.projects]);
   const [custom,setCustom]=useState(false);
@@ -18419,10 +18425,10 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [since,setSince]=useState('');
   const [until,setUntil]=useState('');
   const wOf=id=>custom?((weights[id]==null?1:parseFloat(String(weights[id]).replace(',','.'))||0)):1;
-  const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
+  const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
   const blankAll=useMemo(()=>pomoBlankRows(base,{source}),[base,source]);
   const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
-  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source}),[base,picked,pickedP,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source}),[base,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Why hours may look "unallocated" yet are not movable here: sessions still
   // waiting in the registration dialog, and sessions filed under a category
@@ -18459,7 +18465,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
               :<>Nenhuma sessão de foco {source==='none'?'sem categoria':'nessa categoria'} para mover.</>}
             {stuck.pending.n>0&&<> {stuck.pending.n} {stuck.pending.n===1?'sessão ainda espera':'sessões ainda esperam'} o registro ({pomoFmtSecs(stuck.pending.secs)}); registre ou pule para poder mover.</>}
             {stuck.orphan.n>0&&<> {stuck.orphan.n} {stuck.orphan.n===1?'sessão está':'sessões estão'} em categorias que não existem mais ({pomoFmtSecs(stuck.orphan.secs)}).</>}
-            {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> O total diário tem ainda {pomoFmtSecs(unallocated)} sem destino; só as sessões listadas podem ser movidas.</>}
+            {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> Além disso, {pomoFmtSecs(unallocated)} de foco nos totais dos dias não estão em nenhuma categoria, projeto ou sessão individual (tempo antigo, sem registro por sessão); esse tempo não pode ser movido por aqui.</>}
           </div>
         </div>
         {(blankAll.length>0||catHeld.length>0)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
@@ -18484,11 +18490,17 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:4}}>
           {folders.length===0&&<div style={{fontSize:'.78rem',color:'var(--muted)'}}>Nenhuma categoria na Galeria.</div>}
-          {folders.filter(f=>'cat:'+f.id!==source).map(f=><label key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
+          {folders.filter(f=>'cat:'+f.id!==source).map(f=><div key={f.id}><label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
             <input type="checkbox" checked={!!picked[f.id]} onChange={e=>setPicked(p=>({...p,[f.id]:e.target.checked}))}/>
             <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{f.label}</span>
             {custom&&picked[f.id]&&<input type="text" inputMode="decimal" value={weights[f.id]==null?'1':weights[f.id]} onChange={e=>setWeights(w=>({...w,[f.id]:e.target.value}))} aria-label={'Peso de '+f.label} className="input-box" style={{width:56,padding:'3px 6px',textAlign:'right'}}/>}
-          </label>)}
+          </label>
+            {normalizeGallerySections(f.sections).map(x=><label key={f.id+'|'+x.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.8rem',padding:'2px 0 2px 22px'}}>
+              <input type="checkbox" checked={!!pickedS[f.id+'|'+x.id]} onChange={e=>setPickedS(m=>({...m,[f.id+'|'+x.id]:e.target.checked}))}/>
+              <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',color:'var(--muted)'}}>{x.label}</span>
+              {custom&&pickedS[f.id+'|'+x.id]&&<input type="text" inputMode="decimal" value={weights['s'+f.id+'|'+x.id]==null?'1':weights['s'+f.id+'|'+x.id]} onChange={e=>setWeights(w=>({...w,['s'+f.id+'|'+x.id]:e.target.value}))} aria-label={'Peso de '+x.label} className="input-box" style={{width:56,padding:'3px 6px',textAlign:'right'}}/>}
+            </label>)}
+          </div>)}
           {projectList.length>0&&<div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.09em',color:'var(--muted)',marginTop:6}}>Projetos</div>}
           {projectList.map(p=><label key={'p'+p.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',padding:'3px 0'}}>
             <input type="checkbox" checked={!!pickedP[p.id]} onChange={e=>setPickedP(m=>({...m,[p.id]:e.target.checked}))}/>

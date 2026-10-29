@@ -82,3 +82,14 @@ test('source category: its sessions move to a project, ledgers follow, source ne
   assert.equal(out.rank.sessions[0].targetKey, 'project:P');
   assert.equal(out.rank.sessions[0].retarget.from, 'cat:work');
 });
+
+test('section target inside the source group only sets the section, ledgers unchanged', () => {
+  const r = { id: 'w1', targetKey: 'cat:ms', durationSeconds: 600, date: '2026-10-01', status: 'registered' };
+  const base = { allocations: { 'cat:ms': 600 }, dailyAllocations: { '2026-10-01': { 'cat:ms': 600 } }, rank: { sessions: [r] } };
+  const plan = pomoRedistributePlan(base, { source: 'cat:ms', targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'Movie Studies › Noir' }] });
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:ms'], 600);
+  assert.equal(out.rank.sessions[0].sectionId, 's1');
+  assert.equal(out.rank.sessions[0].sectionLabel, 'Noir');
+  assert.equal(out.rank.sessions[0].retarget, undefined);
+});
