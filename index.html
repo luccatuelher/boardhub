@@ -7659,13 +7659,23 @@ const pomoUnallocatedSeconds=base=>{
     return n+Math.max(0,(Number(v)||0)-held);
   },0);
 };
+// Per day, the seconds in the day totals that no category or project holds
+// (old time with no session row). Pseudo-rows `day:YYYY-MM-DD`, planned like sessions.
+const pomoUnallocatedRows=(base,range)=>{
+  const since=range&&range.since||'',until=range&&range.until||'';
+  const days=(base&&base.days)||{},daily=(base&&base.dailyAllocations)||{};
+  return Object.entries(days).filter(([k])=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&(!since||k>=since)&&(!until||k<=until)).map(([k,v])=>{
+    const held=Object.values(daily[k]||{}).reduce((a,b)=>a+(Number(b)||0),0);
+    return{id:'day:'+k,date:k,durationSeconds:Math.max(0,Math.floor((Number(v)||0)-held))};
+  }).filter(r=>r.durationSeconds>=30);
+};
 // Splits the blank sessions across `targets` ([{key:'cat:ID',label,weight}],
 // weight defaults to 1 = even split). Whole sessions are assigned, largest
 // first, to the target furthest below its share, so no second is created or
 // lost. Pure: returns {assignments,perTarget,totalSecs,count}.
 const pomoRedistributePlan=(base,args)=>{
   const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&(t.key.startsWith('cat:')||t.key.startsWith('project:')||t.key.startsWith('sec:'))&&t.key!==(args&&args.source)).map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
-  const rows=pomoBlankRows(base,args).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
+  const rows=pomoBlankRows(base,args).concat(args&&args.unallocated&&!(args.source&&args.source!=='none')?pomoUnallocatedRows(base,args):[]).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
   const totalSecs=rows.reduce((n,r)=>n+Number(r.durationSeconds),0);
   const W=targets.reduce((n,t)=>n+t.weight,0);
   const perTarget=targets.map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
@@ -7688,6 +7698,18 @@ const pomoRedistributeApply=(base,plan,batch)=>{
   if(!base||!base.rank||!plan||!(plan.assignments||[]).length)return base;
   const by=new Map(plan.assignments.map(a=>[String(a.id),a]));
   let out=base,changed=false;
+  // Day time with no session: added to the target's all-time and that day's ledger,
+  // never more than the day still has unallocated.
+  plan.assignments.filter(a=>String(a.id).startsWith('day:')).forEach(a=>{
+    const day=String(a.id).slice(4),key=a.catKey||a.key;
+    const left=pomoUnallocatedRows(out,{since:day,until:day}).find(r=>r.date===day);
+    const secs=Math.min(Number(a.secs)||0,left?left.durationSeconds:0);
+    if(!(secs>0))return;
+    const daily={...(out.dailyAllocations||{})};
+    daily[day]={...(daily[day]||{}),[key]:((daily[day]||{})[key]||0)+secs};
+    out={...out,allocations:{...(out.allocations||{}),[key]:((out.allocations||{})[key]||0)+secs},dailyAllocations:daily};
+    changed=true;
+  });
   const sessions=(base.rank.sessions||[]).map(row=>{
     const a=row&&by.get(String(row.id));
     if(!a||row.status==='pending')return row;
@@ -18419,6 +18441,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [pickedP,setPickedP]=useState({}); // projectId -> true
   const [pickedS,setPickedS]=useState({}); // 'folderId|sectionId' -> true
   const [source,setSource]=useState('none'); // 'none' (no category) or 'cat:ID'
+  const [withDays,setWithDays]=useState(false);
   const projectList=useMemo(()=>(appState?.projects||[]).filter(p=>p&&!p.deleted&&p.id!=null),[appState?.projects]);
   const [custom,setCustom]=useState(false);
   const [weights,setWeights]=useState({}); // folderId -> text
@@ -18428,7 +18451,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
   const blankAll=useMemo(()=>pomoBlankRows(base,{source}),[base,source]);
   const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
-  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source}),[base,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,unallocated:withDays}),[base,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Why hours may look "unallocated" yet are not movable here: sessions still
   // waiting in the registration dialog, and sessions filed under a category
@@ -18448,7 +18471,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
       message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} ${source==='none'?'sem categoria':'dessa categoria'} (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
     setBusy(true);
     try{
-      const r=await onApply({targets,since,until,source});
+      const r=await onApply({targets,since,until,source,unallocated:withDays});
       if(r&&r.ok)showStatus('ok',r.moved?`✓ ${r.moved} ${r.moved===1?'sessão redistribuída':'sessões redistribuídas'}.`:'Nada mudou: as sessões já tinham sido movidas.');
       else showStatus('err',(r&&r.error)||'Falha ao redistribuir.');
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
@@ -18468,7 +18491,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
             {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> Além disso, {pomoFmtSecs(unallocated)} de foco nos totais dos dias não estão em nenhuma categoria, projeto ou sessão individual (tempo antigo, sem registro por sessão); esse tempo não pode ser movido por aqui.</>}
           </div>
         </div>
-        {(blankAll.length>0||catHeld.length>0)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
+        {(blankAll.length>0||catHeld.length>0||unallocated>=30)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
       </div>
       {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
         <label style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
@@ -18484,6 +18507,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span style={{color:'var(--muted)'}}>até</span>
           <BhDateInput value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
         </div>
+ {source==='none'&&unallocated>=30&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={withDays} onChange={e=>setWithDays(e.target.checked)}/><span>Incluir também o tempo dos dias sem sessão ({pomoFmtSecs(unallocated)}). É somado direto às categorias e projetos escolhidos.</span></label>}
         <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
           <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>
           <button type="button" className={custom?'btn':'btn btn-outline'} aria-pressed={custom} onClick={()=>setCustom(true)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Pesos personalizados</button>

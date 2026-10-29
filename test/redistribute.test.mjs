@@ -93,3 +93,14 @@ test('section target inside the source group only sets the section, ledgers unch
   assert.equal(out.rank.sessions[0].sectionLabel, 'Noir');
   assert.equal(out.rank.sessions[0].retarget, undefined);
 });
+
+test('unallocated day time can be moved: ledgers gain it once, never more than left', () => {
+  const base = { days: { '2026-10-01': 5000 }, allocations: { 'cat:a': 1000 }, dailyAllocations: { '2026-10-01': { 'cat:a': 1000 } }, rank: { sessions: [] } };
+  const plan = pomoRedistributePlan(base, { unallocated: true, targets: [{ key: 'cat:b', label: 'B' }] });
+  assert.equal(plan.totalSecs, 4000);
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:b'], 4000);
+  assert.equal(out.dailyAllocations['2026-10-01']['cat:b'], 4000);
+  const again = pomoRedistributeApply(out, plan, 'b');
+  assert.equal(again.allocations['cat:b'], 4000);
+});
