@@ -124,3 +124,25 @@ test('orphan source: sessions of a category that no longer exists move to a live
   assert.equal(out.allocations['cat:ms'], 900);
   assert.equal(out.rank.sessions[0].retarget.from, 'cat:gone');
 });
+
+test('unallocated day time into a section leaves a row that marks the section', () => {
+  const base = { days: { '2026-10-01': 5000 }, allocations: {}, dailyAllocations: {}, rank: { sessions: [] } };
+  const plan = pomoRedistributePlan(base, { unallocated: true, targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'MS › Brink' }] });
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:ms'], 5000);
+  assert.equal(out.rank.sessions.length, 1);
+  assert.equal(out.rank.sessions[0].sectionId, 's1');
+  assert.equal(out.rank.sessions[0].durationSeconds, 5000);
+});
+
+test('hours a category holds without session rows can be given a section', () => {
+  const r = { id: 'x', targetKey: 'cat:ms', durationSeconds: 1000, date: '2026-10-01', status: 'saved' };
+  const base = { allocations: { 'cat:ms': 6000 }, dailyAllocations: { '2026-10-01': { 'cat:ms': 6000 } }, rank: { sessions: [r] } };
+  const plan = pomoRedistributePlan(base, { source: 'cat:ms', unallocated: true, noSection: true, targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'MS › Brink' }] });
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:ms'], 6000);
+  const added = out.rank.sessions.filter(x => x.redistribute && x.redistribute.synthetic);
+  assert.equal(added.length, 1);
+  assert.equal(added[0].durationSeconds, 5000);
+  assert.equal(added[0].sectionId, 's1');
+});

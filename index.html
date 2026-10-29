@@ -7677,13 +7677,25 @@ const pomoUnallocatedRows=(base,range)=>{
     return{id:'day:'+k,date:k,durationSeconds:Math.max(0,Math.floor((Number(v)||0)-held))};
   }).filter(r=>r.durationSeconds>=30);
 };
+// Per day, time a category holds in its day ledger beyond its session rows
+// (hours added without a session). Pseudo-rows `held:YYYY-MM-DD`.
+const pomoHeldRows=(base,catKey,range)=>{
+  const since=range&&range.since||'',until=range&&range.until||'';
+  const daily=(base&&base.dailyAllocations)||{};
+  const sess=((base&&base.rank&&base.rank.sessions)||[]).filter(r=>r&&r.targetKey===catKey&&r.status!=='pending');
+  return Object.keys(daily).filter(k=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&(!since||k>=since)&&(!until||k<=until)).map(k=>{
+    const held=Number((daily[k]||{})[catKey])||0;
+    const rows=sess.filter(r=>String(r.date)===k).reduce((n,r)=>n+(Number(r.durationSeconds)||0),0);
+    return{id:'held:'+k,date:k,durationSeconds:Math.max(0,Math.floor(held-rows))};
+  }).filter(r=>r.durationSeconds>=30);
+};
 // Splits the blank sessions across `targets` ([{key:'cat:ID',label,weight}],
 // weight defaults to 1 = even split). Whole sessions are assigned, largest
 // first, to the target furthest below its share, so no second is created or
 // lost. Pure: returns {assignments,perTarget,totalSecs,count}.
 const pomoRedistributePlan=(base,args)=>{
   const targets=((args&&args.targets)||[]).filter(t=>t&&typeof t.key==='string'&&(t.key.startsWith('cat:')||t.key.startsWith('project:')||t.key.startsWith('sec:'))&&t.key!==(args&&args.source)).map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:String(t.label||''),weight:t.weight==null?1:Number(t.weight)})).filter(t=>t.weight>0&&isFinite(t.weight));
-  const rows=pomoBlankRows(base,args).concat(args&&args.unallocated&&!(args.source&&args.source!=='none')?pomoUnallocatedRows(base,args):[]).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
+  const rows=pomoBlankRows(base,args).concat(args&&args.unallocated?(args.source&&String(args.source).startsWith('cat:')?pomoHeldRows(base,args.source,args):(args.source&&args.source!=='none'?[]:pomoUnallocatedRows(base,args))):[]).slice().sort((a,b)=>(Number(b.durationSeconds)-Number(a.durationSeconds))||String(a.id).localeCompare(String(b.id)));
   const totalSecs=rows.reduce((n,r)=>n+Number(r.durationSeconds),0);
   const W=targets.reduce((n,t)=>n+t.weight,0);
   const perTarget=targets.map(t=>({key:t.key,catKey:t.catKey,sectionId:t.sectionId,label:t.label,secs:0,count:0,goal:W>0?totalSecs*t.weight/W:0}));
@@ -7708,6 +7720,20 @@ const pomoRedistributeApply=(base,plan,batch)=>{
   let out=base,changed=false;
   // Day time with no session: added to the target's all-time and that day's ledger,
   // never more than the day still has unallocated.
+  const dayRows=[];
+  // Hours a category holds with no session row: they move (or just get a section) like day time.
+  plan.assignments.filter(a=>String(a.id).startsWith('held:')).forEach(a=>{
+    const day=String(a.id).slice(5),src=plan.source,key=a.catKey||a.key;
+    const left=pomoHeldRows(out,src,{since:day,until:day}).find(r=>r.date===day);
+    const secs=Math.min(Number(a.secs)||0,left?left.durationSeconds:0);
+    if(!(secs>0))return;
+    if(key!==src)out=pomoRetargetSession(out,src,key,[{dateKey:day,secs}]);
+    changed=true;
+    if(a.sectionId!=null){
+      const parts=String(a.label||'').split(' › ');
+      dayRows.push({id:'rd-'+String(batch)+'-'+day+'-'+String(a.sectionId),date:day,endedAt:day+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:key,targetLabel:parts[0]||'',sectionId:a.sectionId,sectionLabel:parts.pop()||'',title:'Horas sem sessão (ajuste)',points:0,redistribute:{batch:String(batch),synthetic:true}});
+    }
+  });
   plan.assignments.filter(a=>String(a.id).startsWith('day:')).forEach(a=>{
     const day=String(a.id).slice(4),key=a.catKey||a.key;
     const left=pomoUnallocatedRows(out,{since:day,until:day}).find(r=>r.date===day);
@@ -7717,6 +7743,11 @@ const pomoRedistributeApply=(base,plan,batch)=>{
     daily[day]={...(daily[day]||{}),[key]:((daily[day]||{})[key]||0)+secs};
     out={...out,allocations:{...(out.allocations||{}),[key]:((out.allocations||{})[key]||0)+secs},dailyAllocations:daily};
     changed=true;
+    // Into a section: a row records it, since a section is told apart by its sessions.
+    if(a.sectionId!=null){
+      const parts=String(a.label||'').split(' › ');
+      dayRows.push({id:'rd-'+String(batch)+'-'+day+'-'+String(a.sectionId),date:day,endedAt:day+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:key,targetLabel:parts[0]||'',sectionId:a.sectionId,sectionLabel:parts.pop()||'',title:'Horas sem sessão (ajuste)',points:0,redistribute:{batch:String(batch),synthetic:true}});
+    }
   });
   const sessions=(base.rank.sessions||[]).map(row=>{
     const a=row&&by.get(String(row.id));
@@ -7735,7 +7766,7 @@ const pomoRedistributeApply=(base,plan,batch)=>{
     const from=row.retarget&&row.retarget.from?row.retarget.from:src;
     return{...row,...sec,targetKey:key,targetLabel:(a.catKey?String(a.label||'').split(' › ')[0]:a.label)||row.targetLabel,retarget:{from,to:key,parts},redistribute:{batch:String(batch),prevLabel:row.targetLabel||''}};
   });
-  return changed?{...out,rank:{...out.rank,sessions}}:base;
+  return changed?{...out,rank:{...out.rank,sessions:dayRows.length?sessions.concat(dayRows):sessions}}:base;
 };
 // @bh-test-end rank
 const pomoSyncGalleryCategories=(data,folders)=>{
@@ -18466,6 +18497,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
   const liveCats=useMemo(()=>(appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&f.id!=null).map(f=>'cat:'+f.id),[appState?.galleryFolders]);
   const blankAll=useMemo(()=>pomoBlankRows(base,{source,noSection,live:liveCats}),[base,source,noSection,liveCats]);
+  const heldSecs=useMemo(()=>source.startsWith('cat:')?pomoHeldRows(base,source,{}).reduce((n,r)=>n+r.durationSeconds,0):0,[base,source]);
   const orphanRows=useMemo(()=>pomoBlankRows(base,{source:'orphan',live:liveCats}),[base,liveCats]);
   const catHeld=useMemo(()=>folders.filter(f=>'cat:'+f.id===source||pomoBlankRows(base,{source:'cat:'+f.id,noSection}).length>0),[base,folders,noSection,source]);
   const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,live:liveCats,unallocated:withDays}),[base,liveCats,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
@@ -18542,6 +18574,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
         </div>
  {source.startsWith('cat:')&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={noSection} onChange={e=>setNoSection(e.target.checked)}/><span>Só as horas que ainda não estão em uma categoria dentro do grupo</span></label>}
  {source==='none'&&unallocated>=30&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={withDays} onChange={e=>setWithDays(e.target.checked)}/><span>Incluir também o tempo dos dias sem sessão ({pomoFmtSecs(unallocated)}). É somado direto às categorias e projetos escolhidos.</span></label>}
+ {source.startsWith('cat:')&&heldSecs>=30&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={withDays} onChange={e=>setWithDays(e.target.checked)}/><span>Incluir também as horas adicionadas sem sessão ({pomoFmtSecs(heldSecs)}).</span></label>}
         <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
           <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>
           <button type="button" className={custom?'btn':'btn btn-outline'} aria-pressed={custom} onClick={()=>setCustom(true)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Pesos personalizados</button>
