@@ -18458,6 +18458,18 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
   const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,unallocated:withDays}),[base,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
+  // Where the source group's hours sit now, by category inside it (so a move can be checked).
+  const sourceBreakdown=useMemo(()=>{
+    if(!source.startsWith('cat:'))return null;
+    const f=folders.find(x=>'cat:'+x.id===source);if(!f)return null;
+    const sessions=((base.rank&&base.rank.sessions)||[]).filter(r=>r&&r.targetKey===source&&Number(r.durationSeconds)>0);
+    const total=sessions.reduce((n,r)=>n+Number(r.durationSeconds),0);
+    const rows=normalizeGallerySections(f.sections).map(x=>{
+      const scope=bhProjectGalleryScope({galleryFolder:f.id,gallerySection:x.id},appState?.galleryFolders,appState?.galleryPosts);
+      return{label:x.label,secs:pomoSectionSeconds(sessions,scope?scope.postIds:null,x.id,source)};
+    });
+    return{name:f.label,rows,rest:Math.max(0,total-rows.reduce((n,r)=>n+r.secs,0)),total};
+  },[base,source,folders,appState?.galleryFolders,appState?.galleryPosts]);
   // Why hours may look "unallocated" yet are not movable here: sessions still
   // waiting in the registration dialog, and sessions filed under a category
   // that no longer exists. Shown so the card never just disappears.
@@ -18499,6 +18511,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
         {(blankAll.length>0||catHeld.length>0||unallocated>=30)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
       </div>
       {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+        {sourceBreakdown&&<div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>Agora em {sourceBreakdown.name} ({pomoFmtSecs(sourceBreakdown.total)} em sessões): {sourceBreakdown.rows.filter(r=>r.secs>0).map(r=>r.label+' '+pomoFmtSecs(r.secs)).concat(['sem categoria interna '+pomoFmtSecs(sourceBreakdown.rest)]).join(' · ')}</div>}
         <label style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'.78rem'}}>
           <span style={{color:'var(--muted)'}}>Tirar as horas de:</span>
           <select className="input-box" value={source} onChange={e=>setSource(e.target.value)} style={{padding:'4px 8px',width:'auto'}} aria-label="Origem das horas">
