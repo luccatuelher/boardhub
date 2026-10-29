@@ -104,3 +104,11 @@ test('unallocated day time can be moved: ledgers gain it once, never more than l
   const again = pomoRedistributeApply(out, plan, 'b');
   assert.equal(again.allocations['cat:b'], 4000);
 });
+
+test('source group with noSection skips sessions already in a category of the group', () => {
+  const mkr = (id, extra) => ({ id, targetKey: 'cat:ms', durationSeconds: 600, date: '2026-10-01', status: 'registered', ...extra });
+  const base = { allocations: { 'cat:ms': 1800 }, dailyAllocations: { '2026-10-01': { 'cat:ms': 1800 } }, rank: { sessions: [mkr('a'), mkr('b', { sectionId: 's9' }), mkr('c', { galleryPostId: 'p1' })] } };
+  const plan = pomoRedistributePlan(base, { source: 'cat:ms', noSection: true, targets: [{ key: 'sec:ms:s1', catKey: 'cat:ms', sectionId: 's1', label: 'MS › Noir' }] });
+  assert.equal(plan.count, 1);
+  assert.equal(plan.assignments[0].id, 'a');
+});

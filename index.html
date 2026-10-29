@@ -7640,6 +7640,8 @@ const pomoBlankRows=(base,range)=>{
     }else{
       if(r.targetKey!==source)return false;
       if(r.retarget&&r.retarget.to!==source)return false;
+      // Only the hours not yet in a category inside the group.
+      if(range.noSection&&(r.sectionId||r.galleryPostId!=null))return false;
     }
     if(!(Number(r.durationSeconds)>0))return false;
     // Only the row's own local day is trusted: the ledgers are keyed by it.
@@ -18442,6 +18444,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [pickedS,setPickedS]=useState({}); // 'folderId|sectionId' -> true
   const [source,setSource]=useState('none'); // 'none' (no category) or 'cat:ID'
   const [withDays,setWithDays]=useState(false);
+  const [noSection,setNoSection]=useState(true);
   const projectList=useMemo(()=>(appState?.projects||[]).filter(p=>p&&!p.deleted&&p.id!=null),[appState?.projects]);
   const [custom,setCustom]=useState(false);
   const [weights,setWeights]=useState({}); // folderId -> text
@@ -18449,9 +18452,9 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [until,setUntil]=useState('');
   const wOf=id=>custom?((weights[id]==null?1:parseFloat(String(weights[id]).replace(',','.'))||0)):1;
   const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
-  const blankAll=useMemo(()=>pomoBlankRows(base,{source}),[base,source]);
+  const blankAll=useMemo(()=>pomoBlankRows(base,{source,noSection}),[base,source,noSection]);
   const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
-  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,unallocated:withDays}),[base,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,unallocated:withDays}),[base,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Why hours may look "unallocated" yet are not movable here: sessions still
   // waiting in the registration dialog, and sessions filed under a category
@@ -18471,7 +18474,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
       message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} ${source==='none'?'sem categoria':'dessa categoria'} (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
     setBusy(true);
     try{
-      const r=await onApply({targets,since,until,source,unallocated:withDays});
+      const r=await onApply({targets,since,until,source,noSection,unallocated:withDays});
       if(r&&r.ok)showStatus('ok',r.moved?`✓ ${r.moved} ${r.moved===1?'sessão redistribuída':'sessões redistribuídas'}.`:'Nada mudou: as sessões já tinham sido movidas.');
       else showStatus('err',(r&&r.error)||'Falha ao redistribuir.');
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
@@ -18507,6 +18510,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span style={{color:'var(--muted)'}}>até</span>
           <BhDateInput value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
         </div>
+ {source!=='none'&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={noSection} onChange={e=>setNoSection(e.target.checked)}/><span>Só as horas que ainda não estão em uma categoria dentro do grupo</span></label>}
  {source==='none'&&unallocated>=30&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={withDays} onChange={e=>setWithDays(e.target.checked)}/><span>Incluir também o tempo dos dias sem sessão ({pomoFmtSecs(unallocated)}). É somado direto às categorias e projetos escolhidos.</span></label>}
         <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
           <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>
