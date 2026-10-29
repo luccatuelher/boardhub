@@ -18494,6 +18494,8 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
     finally{setBusy(false);}
   };
+  // Nothing left to move: the card stays out of the way (kept while it is open).
+  if(!open&&!blankAll.length&&!catHeld.length&&unallocated<30)return null;
   return(
     <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
