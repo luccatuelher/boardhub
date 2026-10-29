@@ -7729,12 +7729,12 @@ const pomoRepairWorkAvailable=base=>{
 };
 // Movie Studies: hours that sit in the group without a session go to "Back from the
 // brink" (a marking row per day; the group's totals do not change).
-const BH_REPAIR_MS_DAYS=[['2026-08-28',1800]];
+const BH_REPAIR_MS_DAYS=[['2026-08-28',1800,'rp-20261029-ms-'],['2026-09-07',73,'rp-20261029-ms2-'],['2026-10-06',1,'rp-20261029-ms2-']];
 const BH_REPAIR_MS_CAT='cat:movie-studies',BH_REPAIR_MS_SECTION='smuwplssmeah';
 const pomoRepairMsRows=base=>{
   const daily=(base&&base.dailyAllocations)||{};
   const have=new Set((((base&&base.rank&&base.rank.sessions)||[])).map(r=>String(r&&r.id)));
-  return BH_REPAIR_MS_DAYS.filter(([d,secs])=>!have.has('rp-20261029-ms-'+d)&&Number((daily[d]||{})[BH_REPAIR_MS_CAT])>=secs);
+  return BH_REPAIR_MS_DAYS.filter(([d,secs,pre])=>!have.has(pre+d)&&Number((daily[d]||{})[BH_REPAIR_MS_CAT])>=secs);
 };
 // Seconds of sessions whose ledger time was left in Movie Studios when their old
 // category was merged into it: they go to the key their session rows already say
@@ -7758,7 +7758,7 @@ const pomoRepairApply=base=>{
   if(bRows.length)out={...out,rank:{...out.rank,sessions:(out.rank.sessions||[]).concat(bRows)}};
   const ms=pomoRepairMsRows(out);
   if(!ms.length)return out;
-  const rows=ms.map(([d,secs])=>({id:'rp-20261029-ms-'+d,date:d,endedAt:d+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:BH_REPAIR_MS_CAT,targetLabel:'Movie Studies',sectionId:BH_REPAIR_MS_SECTION,sectionLabel:'Back from the brink',title:'Ajuste: horas sem sessão em Back from the brink',points:0,redistribute:{batch:'repair-20261029',synthetic:true}}));
+  const rows=ms.map(([d,secs,pre])=>({id:pre+d,date:d,endedAt:d+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:BH_REPAIR_MS_CAT,targetLabel:'Movie Studies',sectionId:BH_REPAIR_MS_SECTION,sectionLabel:'Back from the brink',title:'Ajuste: horas sem sessão em Back from the brink',points:0,redistribute:{batch:'repair-20261029',synthetic:true}}));
   return{...out,rank:{...out.rank,sessions:(out.rank.sessions||[]).concat(rows)}};
 };
 const pomoRepairWorkApply=base=>{
@@ -18531,7 +18531,7 @@ const RedistributeHoursCard=({appState,onApply,onRepair,isMobile,showStatus})=>{
   const repair=async()=>{
     if(busy||!onRepair)return;
     const workSecs=pomoRepairWorkAvailable(base),msSecs=pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0),bRows=pomoRepairBRows(base);
-    const lines=[workSecs>0?`• ${pomoFmtSecs(workSecs)} de Work (dias de 4/mar a 17/ago, sem sessão) passam para o projeto 3 Palavrinhas.`:'',...bRows.map(([d,secs,,label])=>`• ${pomoFmtSecs(secs)} de ${d.slice(8)}/${d.slice(5,7)} que estavam guardados em Movie Studios passam para ${label}.`),msSecs>0?`• ${pomoFmtSecs(msSecs)} de Movie Studios sem sessão (28/ago) passam para Back from the brink.`:''].filter(Boolean).join('\n');
+    const lines=[workSecs>0?`• ${pomoFmtSecs(workSecs)} de Work (dias de 4/mar a 17/ago, sem sessão) passam para o projeto 3 Palavrinhas.`:'',...bRows.map(([d,secs,,label])=>`• ${pomoFmtSecs(secs)} de ${d.slice(8)}/${d.slice(5,7)} que estavam guardados em Movie Studios passam para ${label}.`),msSecs>0?`• ${pomoFmtSecs(msSecs)} de Movie Studios sem sessão passam para Back from the brink.`:''].filter(Boolean).join('\n');
     if(!await bhConfirm({title:'Corrigir horas',confirmLabel:'Corrigir',message:`${lines}\n\nO total de horas não muda: só passam de um lugar para o outro. Uma cópia de segurança é salva antes. Isso é feito uma vez e não pode ser desfeito pelo app.`}))return;
     setBusy(true);
     try{

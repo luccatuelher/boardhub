@@ -29,8 +29,8 @@ test('repair moves Work days to 3 Palavrinhas and marks Movie Studies hours; eve
   assert.equal(JSON.stringify(out.days), JSON.stringify(base.days));
   Object.keys(base.dailyAllocations).forEach(d => assert.equal(sum(out.dailyAllocations[d]), sum(base.dailyAllocations[d])));
   const ms = out.rank.sessions.filter(r => r.sectionId === 'smuwplssmeah');
-  assert.equal(ms.reduce((n, r) => n + r.durationSeconds, 0), 1800);
-  assert.equal(pomoSectionSeconds(out.rank.sessions, new Set(), 'smuwplssmeah', 'cat:movie-studies'), 1800);
+  assert.equal(ms.reduce((n, r) => n + r.durationSeconds, 0), 1873);
+  assert.equal(pomoSectionSeconds(out.rank.sessions, new Set(), 'smuwplssmeah', 'cat:movie-studies'), 1873);
 });
 
 test('repair runs once and only on matching data', () => {
@@ -65,10 +65,10 @@ test('data already repaired by the first version: only the new step runs, sectio
   WORK.forEach(([d, s]) => { base.dailyAllocations[d] = { [P]: s }; });
   base.allocations = {}; Object.values(base.dailyAllocations).forEach(m => Object.entries(m).forEach(([k, v]) => { base.allocations[k] = (base.allocations[k] || 0) + v; }));
   base.rank.sessions = [['2026-08-28', 1800], ['2026-09-07', 1861], ['2026-09-09', 1740]].map(([d, s]) => ({ id: 'rp-20261029-ms-' + d, targetKey: 'cat:movie-studies', durationSeconds: s, sectionId: 'smuwplssmeah', redistribute: { synthetic: true } }));
-  assert.equal(pomoRepairAvailable(base), 1788 + 1740);
+  assert.equal(pomoRepairAvailable(base), 1788 + 1740 + 73);
   const out = pomoRepairApply(base);
   assert.equal(sum(out.allocations), sum(base.allocations));
   assert.equal(out.allocations['cat:work'], 1740);
-  assert.equal(pomoSectionSeconds(out.rank.sessions, new Set(), 'smuwplssmeah', 'cat:movie-studies'), 1800);
+  assert.equal(pomoSectionSeconds(out.rank.sessions, new Set(), 'smuwplssmeah', 'cat:movie-studies'), 1873);
   assert.equal(pomoRepairAvailable(out), 0);
 });
