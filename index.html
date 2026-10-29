@@ -14039,9 +14039,12 @@ const pomoLinkedExtra=(pomoData,projects,folders,posts,dayKey=null)=>{
       ?sessions.reduce((sum,x)=>{
         if(!x)return sum;
         const key=typeof x.targetKey==='string'?x.targetKey:'';
-        const inScope=key.startsWith('cat:')&&x.galleryPostId!=null&&scope.postIds.has(String(x.galleryPostId));
+        const handPicked=!!x.redistribute&&x.sectionId!=null&&!!scope.sectionId;
+        const inScope=key.startsWith('cat:')&&x.galleryPostId!=null&&scope.postIds.has(String(x.galleryPostId))&&!(handPicked&&String(x.sectionId)!==String(scope.sectionId));
         const viaTask=key===ck&&x.taskProjectId!=null&&String(x.taskProjectId)===String(p.id);
-        return inScope||viaTask?sum+(Number(x.durationSeconds)||0):sum;
+        // Hours put into this section by hand (Redistribuir horas), with no post.
+        const viaSection=!!scope.sectionId&&!scope.postId&&!!x.redistribute&&x.sectionId!=null&&String(x.sectionId)===String(scope.sectionId)&&key===ck;
+        return inScope||viaTask||viaSection?sum+(Number(x.durationSeconds)||0):sum;
       },0)
       :(alloc[ck]||0);
     extra[pk]=(extra[pk]||0)+catPart;

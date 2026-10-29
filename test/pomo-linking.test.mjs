@@ -124,3 +124,13 @@ test('section seconds: a section picked in Redistribuir horas wins over the post
   assert.equal(pomoSectionSeconds(sessions, new Set(['p1']), 's1', 'cat:F'), 400);
   assert.equal(pomoSectionSeconds(sessions, new Set(['p9']), 's2', 'cat:F'), 600);
 });
+
+test('section link also counts hours put into the section by hand (no post), once', () => {
+  const data = { allocations: {}, rank: { sessions: [
+    sess({ id: 'h', targetKey: 'cat:F', sectionId: 's1', redistribute: { batch: 'b' } }),
+    sess({ id: 'm', targetKey: 'cat:F', galleryPostId: 'p3', sectionId: 's2', redistribute: { batch: 'b' } }), // post in s1, hand-picked s2
+    sess({ id: 'a', targetKey: 'cat:F', galleryPostId: 'p3' }),
+  ] } };
+  const p = { id: 1, galleryFolder: 'F', gallerySection: 's1' };
+  assert.equal(pomoLinkedExtra(data, [p], folders, posts)['project:1'], 1200);
+});
