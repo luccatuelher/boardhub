@@ -7729,16 +7729,33 @@ const pomoRepairWorkAvailable=base=>{
 };
 // Movie Studies: hours that sit in the group without a session go to "Back from the
 // brink" (a marking row per day; the group's totals do not change).
-const BH_REPAIR_MS_DAYS=[['2026-08-28',1800],['2026-09-07',1861],['2026-09-09',1740]];
+const BH_REPAIR_MS_DAYS=[['2026-08-28',1800]];
 const BH_REPAIR_MS_CAT='cat:movie-studies',BH_REPAIR_MS_SECTION='smuwplssmeah';
 const pomoRepairMsRows=base=>{
   const daily=(base&&base.dailyAllocations)||{};
   const have=new Set((((base&&base.rank&&base.rank.sessions)||[])).map(r=>String(r&&r.id)));
   return BH_REPAIR_MS_DAYS.filter(([d,secs])=>!have.has('rp-20261029-ms-'+d)&&Number((daily[d]||{})[BH_REPAIR_MS_CAT])>=secs);
 };
-const pomoRepairAvailable=base=>pomoRepairWorkAvailable(base)+pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0);
+// Seconds of sessions whose ledger time was left in Movie Studios when their old
+// category was merged into it: they go to the key their session rows already say
+// (the project / Work). Each is a row with a retarget marker, so a stale device
+// replays it once. durationSeconds is 0 so row-based views do not count it twice.
+const BH_REPAIR_B=[['2026-09-07',1788,'project:1771504227732','3 Palavrinhas'],['2026-09-09',1740,'cat:work','Work']];
+const pomoRepairBRows=base=>{
+  const daily=(base&&base.dailyAllocations)||{};
+  const have=new Set((((base&&base.rank&&base.rank.sessions)||[])).map(r=>String(r&&r.id)));
+  return BH_REPAIR_B.filter(([d,secs])=>!have.has('rp-20261029-b-'+d)&&Number((daily[d]||{})[BH_REPAIR_MS_CAT])>=secs);
+};
+const pomoRepairAvailable=base=>pomoRepairWorkAvailable(base)+pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0)+pomoRepairBRows(base).reduce((n,[,x])=>n+x,0);
 const pomoRepairApply=base=>{
   let out=pomoRepairWorkApply(base);
+  const bRows=[];
+  pomoRepairBRows(out).forEach(([d,secs,to,label])=>{
+    const parts=[{dateKey:d,secs}];
+    out=pomoRetargetSession(out,BH_REPAIR_MS_CAT,to,parts);
+    bRows.push({id:'rp-20261029-b-'+d,date:d,endedAt:d+'T12:00:00',durationSeconds:0,status:'saved',targetKey:to,targetLabel:label,title:'Ajuste: horas guardadas em Movie Studios',points:0,retarget:{from:BH_REPAIR_MS_CAT,to,parts},redistribute:{batch:'repair-20261029',synthetic:true}});
+  });
+  if(bRows.length)out={...out,rank:{...out.rank,sessions:(out.rank.sessions||[]).concat(bRows)}};
   const ms=pomoRepairMsRows(out);
   if(!ms.length)return out;
   const rows=ms.map(([d,secs])=>({id:'rp-20261029-ms-'+d,date:d,endedAt:d+'T12:00:00',durationSeconds:secs,status:'saved',targetKey:BH_REPAIR_MS_CAT,targetLabel:'Movie Studies',sectionId:BH_REPAIR_MS_SECTION,sectionLabel:'Back from the brink',title:'Ajuste: horas sem sessão em Back from the brink',points:0,redistribute:{batch:'repair-20261029',synthetic:true}}));
@@ -14075,6 +14092,8 @@ const pomoLinkedExtra=(pomoData,projects,folders,posts,dayKey=null)=>{
 // section picked in the timer. Each session counts once.
 const pomoSectionSeconds=(sessions,postIds,sectionId,catKey)=>(Array.isArray(sessions)?sessions:[]).reduce((sum,x)=>{
   if(!x||typeof x.targetKey!=='string'||!x.targetKey.startsWith('cat:'))return sum;
+  // Two marking rows of the first repair were other sessions' time (see BH_REPAIR_B): not counted here.
+  if(x.id==='rp-20261029-ms-2026-09-07'||x.id==='rp-20261029-ms-2026-09-09')return sum;
   // A section picked by hand in Redistribuir horas wins over where the post sits.
   if(x.redistribute&&x.sectionId!=null)return String(x.sectionId)===String(sectionId)&&x.targetKey===catKey?sum+Math.max(0,Number(x.durationSeconds)||0):sum;
   const inPost=x.galleryPostId!=null&&!!postIds&&postIds.has(String(x.galleryPostId));
@@ -18511,8 +18530,8 @@ const RedistributeHoursCard=({appState,onApply,onRepair,isMobile,showStatus})=>{
   };
   const repair=async()=>{
     if(busy||!onRepair)return;
-    const workSecs=pomoRepairWorkAvailable(base),msSecs=pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0);
-    const lines=[workSecs>0?`• ${pomoFmtSecs(workSecs)} de Work (dias de 4/mar a 17/ago, sem sessão) passam para o projeto 3 Palavrinhas.`:'',msSecs>0?`• ${pomoFmtSecs(msSecs)} de Movie Studios sem sessão passam para Back from the brink.`:''].filter(Boolean).join('\n');
+    const workSecs=pomoRepairWorkAvailable(base),msSecs=pomoRepairMsRows(base).reduce((n,[,x])=>n+x,0),bRows=pomoRepairBRows(base);
+    const lines=[workSecs>0?`• ${pomoFmtSecs(workSecs)} de Work (dias de 4/mar a 17/ago, sem sessão) passam para o projeto 3 Palavrinhas.`:'',...bRows.map(([d,secs,,label])=>`• ${pomoFmtSecs(secs)} de ${d.slice(8)}/${d.slice(5,7)} que estavam guardados em Movie Studios passam para ${label}.`),msSecs>0?`• ${pomoFmtSecs(msSecs)} de Movie Studios sem sessão (28/ago) passam para Back from the brink.`:''].filter(Boolean).join('\n');
     if(!await bhConfirm({title:'Corrigir horas',confirmLabel:'Corrigir',message:`${lines}\n\nO total de horas não muda: só passam de um lugar para o outro. Uma cópia de segurança é salva antes. Isso é feito uma vez e não pode ser desfeito pelo app.`}))return;
     setBusy(true);
     try{
@@ -18538,7 +18557,7 @@ const RedistributeHoursCard=({appState,onApply,onRepair,isMobile,showStatus})=>{
       {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
         {repairSecs>0&&<div style={{fontSize:'.8rem',lineHeight:1.5,borderBottom:'1px solid var(--border)',paddingBottom:10}}>
           <strong>Correção pendente ({pomoFmtSecs(repairSecs)})</strong>
-          <div style={{color:'var(--muted)'}}>Horas que a opção antiga colocou em Work e em Movie Studios. Escolhido por você: Work de março a agosto vira 3 Palavrinhas, e as horas sem sessão de Movie Studios vão para Back from the brink.</div>
+          <div style={{color:'var(--muted)'}}>Horas que a opção antiga e a mudança de categorias deixaram no lugar errado. Escolhido por você: Work de março a agosto vira 3 Palavrinhas; as horas de sessões de 3 Palavrinhas/Work guardadas em Movie Studios voltam ao lugar certo; o resto vai para Back from the brink.</div>
           <button type="button" className="btn" style={{marginTop:6}} disabled={busy||!onRepair} onClick={repair}>Corrigir…</button>
         </div>}
         {sources.length>0&&<>
