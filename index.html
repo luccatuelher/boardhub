@@ -7631,12 +7631,18 @@ const pomoApplyRetargets=(side,other)=>{
 // (a hand-filed one keeps its marker, which must end at that category).
 const pomoBlankRows=(base,range)=>{
   const since=range&&range.since||'',until=range&&range.until||'';
-  const source=range&&typeof range.source==='string'&&range.source.startsWith('cat:')?range.source:'none';
+  const orphan=!!range&&range.source==='orphan';
+  const live=new Set(orphan?(range.live||[]):[]);
+  const source=range&&typeof range.source==='string'&&range.source.startsWith('cat:')?range.source:(orphan?'orphan':'none');
   return((base&&base.rank&&base.rank.sessions)||[]).filter(r=>{
     if(!r||r.id==null||r.status==='pending')return false;
     if(source==='none'){
       if(r.retarget)return false;
       if(r.targetKey&&r.targetKey!=='none')return false;
+    }else if(source==='orphan'){
+      // Filed under a category that no longer exists.
+      if(typeof r.targetKey!=='string'||!r.targetKey.startsWith('cat:')||live.has(r.targetKey))return false;
+      if(r.retarget&&r.retarget.to!==r.targetKey)return false;
     }else{
       if(r.targetKey!==source)return false;
       if(r.retarget&&r.retarget.to!==source)return false;
@@ -7715,7 +7721,8 @@ const pomoRedistributeApply=(base,plan,batch)=>{
   const sessions=(base.rank.sessions||[]).map(row=>{
     const a=row&&by.get(String(row.id));
     if(!a||row.status==='pending')return row;
-    const src=plan.source&&plan.source!=='none'?plan.source:'none';
+    const src=plan.source==='orphan'?(typeof row.targetKey==='string'&&row.targetKey.startsWith('cat:')?row.targetKey:'none'):(plan.source&&plan.source!=='none'?plan.source:'none');
+    if(plan.source==='orphan'&&src==='none')return row;
     if(src==='none'?(row.retarget||(row.targetKey&&row.targetKey!=='none')):(row.targetKey!==src||(row.retarget&&row.retarget.to!==src)))return row;
     // A section target is a category of the group (a Gallery folder): the time
     // belongs to that folder's key and the row also takes the section.
@@ -18454,9 +18461,11 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const [until,setUntil]=useState('');
   const wOf=id=>custom?((weights[id]==null?1:parseFloat(String(weights[id]).replace(',','.'))||0)):1;
   const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
-  const blankAll=useMemo(()=>pomoBlankRows(base,{source,noSection}),[base,source,noSection]);
+  const liveCats=useMemo(()=>(appState?.galleryFolders||[]).filter(f=>f&&!f.deleted&&f.id!=null).map(f=>'cat:'+f.id),[appState?.galleryFolders]);
+  const blankAll=useMemo(()=>pomoBlankRows(base,{source,noSection,live:liveCats}),[base,source,noSection,liveCats]);
+  const orphanRows=useMemo(()=>pomoBlankRows(base,{source:'orphan',live:liveCats}),[base,liveCats]);
   const catHeld=useMemo(()=>folders.filter(f=>'cat:'+f.id===source||pomoBlankRows(base,{source:'cat:'+f.id,noSection}).length>0),[base,folders,noSection,source]);
-  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,unallocated:withDays}),[base,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
+  const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,live:liveCats,unallocated:withDays}),[base,liveCats,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Where the source group's hours sit now, by category inside it (so a move can be checked).
   const sourceBreakdown=useMemo(()=>{
@@ -18488,14 +18497,14 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
       message:`Mover ${plan.count} ${plan.count===1?'sessão':'sessões'} ${source==='none'?'sem categoria':'dessa categoria'} (${pomoFmtSecs(plan.totalSecs)}) para:\n\n${lines}\n\nUma cópia de segurança do app é salva antes. Isso não pode ser desfeito pelo app, e os pontos de rank não mudam.`}))return;
     setBusy(true);
     try{
-      const r=await onApply({targets,since,until,source,noSection,unallocated:withDays});
+      const r=await onApply({targets,since,until,source,noSection,live:liveCats,unallocated:withDays});
       if(r&&r.ok)showStatus('ok',r.moved?`✓ ${r.moved} ${r.moved===1?'sessão redistribuída':'sessões redistribuídas'}.`:'Nada mudou: as sessões já tinham sido movidas.');
       else showStatus('err',(r&&r.error)||'Falha ao redistribuir.');
     }catch(e){showStatus('err',e?.message||'Falha ao redistribuir.');}
     finally{setBusy(false);}
   };
   // Nothing left to move: the card stays out of the way (kept while it is open).
-  if(!open&&!blankAll.length&&!catHeld.length&&unallocated<30)return null;
+  if(!open&&!blankAll.length&&!catHeld.length&&!orphanRows.length&&unallocated<30)return null;
   return(
     <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
@@ -18510,7 +18519,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
             {unallocated>blankAll.reduce((n,r)=>n+Number(r.durationSeconds),0)+60&&<> Além disso, {pomoFmtSecs(unallocated)} de foco nos totais dos dias não estão em nenhuma categoria, projeto ou sessão individual (tempo antigo, sem registro por sessão); esse tempo não pode ser movido por aqui.</>}
           </div>
         </div>
-        {(blankAll.length>0||catHeld.length>0||unallocated>=30)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
+        {(blankAll.length>0||catHeld.length>0||orphanRows.length>0||unallocated>=30)&&<button type="button" className="btn btn-outline" style={{flexShrink:0}} onClick={()=>setOpen(v=>!v)} aria-expanded={open}>{open?'Fechar':'Abrir'}</button>}
       </div>
       {open&&<div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
         {sourceBreakdown&&<div style={{fontSize:'.76rem',color:'var(--muted)',lineHeight:1.5}}>Agora em {sourceBreakdown.name} ({pomoFmtSecs(sourceBreakdown.total)} em sessões): {sourceBreakdown.rows.filter(r=>r.secs>0).map(r=>r.label+' '+pomoFmtSecs(r.secs)).concat(['sem categoria interna '+pomoFmtSecs(sourceBreakdown.rest)]).join(' · ')}</div>}
@@ -18518,6 +18527,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span style={{color:'var(--muted)'}}>Tirar as horas de:</span>
           <select className="input-box" value={source} onChange={e=>setSource(e.target.value)} style={{padding:'4px 8px',width:'auto'}} aria-label="Origem das horas">
             <option value="none">Sem categoria</option>
+            {orphanRows.length>0&&<option value="orphan">Categorias que não existem mais</option>}
             {catHeld.map(f=><option key={f.id} value={'cat:'+f.id}>{f.label}</option>)}
           </select>
         </label>
@@ -18527,7 +18537,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
           <span style={{color:'var(--muted)'}}>até</span>
           <BhDateInput value={until} onChange={e=>setUntil(e.target.value)} aria-label="Até" className="input-box" style={{padding:'4px 8px',width:'auto'}}/>
         </div>
- {source!=='none'&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={noSection} onChange={e=>setNoSection(e.target.checked)}/><span>Só as horas que ainda não estão em uma categoria dentro do grupo</span></label>}
+ {source.startsWith('cat:')&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={noSection} onChange={e=>setNoSection(e.target.checked)}/><span>Só as horas que ainda não estão em uma categoria dentro do grupo</span></label>}
  {source==='none'&&unallocated>=30&&<label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.78rem'}}><input type="checkbox" checked={withDays} onChange={e=>setWithDays(e.target.checked)}/><span>Incluir também o tempo dos dias sem sessão ({pomoFmtSecs(unallocated)}). É somado direto às categorias e projetos escolhidos.</span></label>}
         <div role="group" aria-label="Divisão" style={{display:'flex',gap:6}}>
           <button type="button" className={custom?'btn btn-outline':'btn'} aria-pressed={!custom} onClick={()=>setCustom(false)} style={{padding:'4px 10px',fontSize:'.76rem'}}>Dividir por igual</button>

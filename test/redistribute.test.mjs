@@ -112,3 +112,15 @@ test('source group with noSection skips sessions already in a category of the gr
   assert.equal(plan.count, 1);
   assert.equal(plan.assignments[0].id, 'a');
 });
+
+test('orphan source: sessions of a category that no longer exists move to a live target', () => {
+  const r = { id: 'o1', targetKey: 'cat:gone', durationSeconds: 900, date: '2026-10-01', status: 'registered' };
+  const live = ['cat:ms'];
+  const base = { allocations: { 'cat:gone': 900 }, dailyAllocations: { '2026-10-01': { 'cat:gone': 900 } }, rank: { sessions: [r, { id: 'o2', targetKey: 'cat:ms', durationSeconds: 100, date: '2026-10-01', status: 'registered' }] } };
+  const plan = pomoRedistributePlan(base, { source: 'orphan', live, targets: [{ key: 'cat:ms', label: 'MS' }] });
+  assert.equal(plan.count, 1);
+  const out = pomoRedistributeApply(base, plan, 'b');
+  assert.equal(out.allocations['cat:gone'] || 0, 0);
+  assert.equal(out.allocations['cat:ms'], 900);
+  assert.equal(out.rank.sessions[0].retarget.from, 'cat:gone');
+});
