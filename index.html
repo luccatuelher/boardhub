@@ -18455,7 +18455,7 @@ const RedistributeHoursCard=({appState,onApply,isMobile,showStatus})=>{
   const wOf=id=>custom?((weights[id]==null?1:parseFloat(String(weights[id]).replace(',','.'))||0)):1;
   const targets=[...folders.filter(f=>picked[f.id]&&'cat:'+f.id!==source).map(f=>({key:'cat:'+f.id,label:f.label,weight:wOf(f.id)})),...folders.flatMap(f=>normalizeGallerySections(f.sections).filter(x=>pickedS[f.id+'|'+x.id]).map(x=>({key:'sec:'+f.id+':'+x.id,catKey:'cat:'+f.id,sectionId:x.id,label:f.label+' › '+x.label,weight:wOf('s'+f.id+'|'+x.id)}))),...projectList.filter(p=>pickedP[p.id]).map(p=>({key:'project:'+p.id,label:p.title||'Projeto',weight:wOf('p'+p.id)}))];
   const blankAll=useMemo(()=>pomoBlankRows(base,{source,noSection}),[base,source,noSection]);
-  const catHeld=useMemo(()=>folders.filter(f=>pomoBlankRows(base,{source:'cat:'+f.id}).length>0),[base,folders]);
+  const catHeld=useMemo(()=>folders.filter(f=>'cat:'+f.id===source||pomoBlankRows(base,{source:'cat:'+f.id,noSection}).length>0),[base,folders,noSection,source]);
   const plan=useMemo(()=>pomoRedistributePlan(base,{targets,since,until,source,noSection,unallocated:withDays}),[base,noSection,withDays,picked,pickedP,pickedS,source,custom,weights,since,until,folders,projectList]);// eslint-disable-line react-hooks/exhaustive-deps
   const unallocated=useMemo(()=>pomoUnallocatedSeconds(base),[base]);
   // Where the source group's hours sit now, by category inside it (so a move can be checked).
