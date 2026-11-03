@@ -10082,7 +10082,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
   const unpinRecent=n=>setNotes(prev=>bhTogglePin(prev,n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:{kind:'note',id:n.id},Date.now()).notes);
   const openRecentNote=n=>{
     const ui=bhUiLoad('ideas');
-    const selected=n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:(n._recentKind==='folder'||n._recentKind==='category')?null:{kind:'note',id:n.id};
+    const selected=n._recentKind==='entry'?{kind:'entry',id:n.id,folderId:n._recentFolderId}:n._recentKind==='folder'?(()=>{const first=(n.entries||[]).find(e=>e&&!e.deleted);return first?{kind:'entry',id:first.id,folderId:n.id}:null;})():n._recentKind==='category'?null:{kind:'note',id:n.id};
     bhUiReplace('ideas',{...ui,selected,showTrash:false,expanded:n._recentExpanded||[],mobileDetail:!!isMobile,treeScroll:0});
     setView('ideas');
   };
