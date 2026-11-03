@@ -1736,6 +1736,8 @@ const _purgeTrash=s=>{
   }).filter(x=>{
     if(!x||!x.deleted||!x.deletedAt)return true;
     if(protectedByKey[key]?.has(String(x.id)))return true;
+    // A post a focus session created is archived, never purged.
+    if(key==='galleryPosts'&&((x.sourceSessionId!=null&&x.sourceSessionId!=='')||(Array.isArray(x.sourceSessionIds)&&x.sourceSessionIds.length)))return true;
     const t=new Date(x.deletedAt).getTime();
     return !Number.isFinite(t)||now-t<TRASH_TTL_MS;
   }):arr;
@@ -14208,7 +14210,142 @@ const bhPostUploadEnqueue=async(postId,files)=>{
   if(!_bhPostUploads.size&&typeof window!=='undefined')window.removeEventListener('beforeunload',_bhPostUploadWarn);
   _bhPostUploadNotify();
 };
-const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects})=>{
+// Daily sessions: the first Gallery category (a virtual tab, not a folder). It
+// lists the Gallery posts a focus session created (sourceSessionId/s), newest
+// first, in pages over a time range (last 30 days by default). A session post
+// can be archived and unarchived (post.sessionArchived, an added field: nothing
+// existing changes shape) but never deleted from here.
+// @bh-test-begin sessgallery
+const BH_SESSIONS_TAB='__sessions__';
+const BH_SESSION_PRESETS=[['30d','Últimos 30 dias'],['month','Este mês'],['3m','3 meses'],['6m','Semestre'],['year','Ano'],['all','Tudo'],['custom','Personalizado']];
+const BH_SESSIONS_PER_PAGE=24;
+const bhIsSessionPost=p=>!!p&&((p.sourceSessionId!=null&&p.sourceSessionId!=='')||(Array.isArray(p.sourceSessionIds)&&p.sourceSessionIds.some(x=>x!=null&&x!=='')));
+const bhSessionIdsOf=p=>[...new Set([p&&p.sourceSessionId,...(p&&Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[])].filter(x=>x!=null&&x!=='').map(String))];
+const bhSessionDay=p=>{const d=String(p&&p.date||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(d)?d:'';};
+const bhIsoShift=(iso,{days=0,months=0}={})=>{
+  const d=new Date(iso+'T12:00:00');
+  if(months){const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+months);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));}
+  if(days)d.setDate(d.getDate()+days);
+  return localDateISO(d);
+};
+// {from,to} as ISO days, '' = open end. 'month' is the calendar month; 3 months, semester and year are rolling windows ending today.
+const bhSessionRange=(preset,today,custom)=>{
+  switch(preset){
+    case 'month':return{from:today.slice(0,8)+'01',to:today};
+    case '3m':return{from:bhIsoShift(bhIsoShift(today,{months:-3}),{days:1}),to:today};
+    case '6m':return{from:bhIsoShift(bhIsoShift(today,{months:-6}),{days:1}),to:today};
+    case 'year':return{from:bhIsoShift(bhIsoShift(today,{months:-12}),{days:1}),to:today};
+    case 'all':return{from:'',to:''};
+    case 'custom':{const f=/^\d{4}-\d{2}-\d{2}$/.test(custom&&custom.from)?custom.from:'',t=/^\d{4}-\d{2}-\d{2}$/.test(custom&&custom.to)?custom.to:'';return f&&t&&f>t?{from:t,to:f}:{from:f,to:t};}
+    default:return{from:bhIsoShift(today,{days:-29}),to:today};
+  }
+};
+// Focus facts of a post from the session rows: minutes (all its sessions) and the latest end time.
+const bhSessionRowMap=rows=>{const m=new Map();(Array.isArray(rows)?rows:[]).forEach(r=>{if(r&&r.id!=null)m.set(String(r.id),r);});return m;};
+const bhSessionFacts=(post,rows)=>{
+  const byId=rows instanceof Map?rows:bhSessionRowMap(rows);
+  let secs=0,endedAt='';
+  bhSessionIdsOf(post).forEach(id=>{const r=byId.get(id);if(r){secs+=Math.max(0,Number(r.durationSeconds)||0);if(String(r.endedAt||'')>endedAt)endedAt=String(r.endedAt||'');}});
+  return{secs,endedAt};
+};
+const bhLocalDay=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?localDateISO(d):'';};
+// The day a post counts for: the latest of its date and its sessions (a session appended to an old post moves it up).
+const bhSessionEffDay=(post,facts)=>[bhSessionDay(post),bhLocalDay(post&&post.lastSessionAt),bhLocalDay(facts.endedAt)].reduce((a,b)=>b>a?b:a,'');
+const bhSessionList=(posts,rows,{from='',to='',archived=false,query=''}={})=>{
+  const tokens=String(query||'').toLowerCase().split(/\s+/).filter(Boolean);
+  const byId=bhSessionRowMap(rows);
+  return (Array.isArray(posts)?posts:[]).filter(p=>bhIsSessionPost(p)&&!p.deleted&&!!p.sessionArchived===!!archived)
+    .map(p=>{const f=bhSessionFacts(p,byId);return{post:p,day:bhSessionEffDay(p,f),...f};})
+    .filter(x=>{
+      if(from&&(!x.day||x.day<from))return false;
+      if(to&&(!x.day||x.day>to))return false;
+      if(tokens.length){const hay=(String(x.post.title||'')+' '+String(x.post.content||'').replace(/<[^>]*>/g,' ')+' '+x.day).toLowerCase();if(!tokens.every(t=>hay.includes(t)))return false;}
+      return true;
+    })
+    .sort((a,b)=>b.day.localeCompare(a.day)||b.endedAt.localeCompare(a.endedAt)||String(b.post.id).localeCompare(String(a.post.id)));
+};
+const bhSessionPage=(list,page,perPage=BH_SESSIONS_PER_PAGE)=>{
+  const pageCount=Math.max(1,Math.ceil(list.length/perPage));
+  const at=Math.max(0,Math.min(pageCount-1,Number(page)||0));
+  return{page:at,pageCount,items:list.slice(at*perPage,(at+1)*perPage)};
+};
+// Archive flag only, on session posts only. Nothing else about the post changes.
+const bhSessionArchive=(posts,id,archived)=>(Array.isArray(posts)?posts:[]).map(p=>p&&String(p.id)===String(id)&&bhIsSessionPost(p)?{...p,sessionArchived:!!archived}:p);
+// @bh-test-end sessgallery
+// Survives the unmount when a post is opened and closed again (not saved anywhere).
+let _bhSessionsUi={preset:'30d',custom:{from:'',to:''},showArchived:false,query:'',page:0};
+const GallerySessions=({posts,sessionRows,isMobile,onOpen,onArchive})=>{
+  const today=localDateISO();
+  const [preset,setPreset]=useState(_bhSessionsUi.preset);
+  const [custom,setCustom]=useState(_bhSessionsUi.custom);
+  const [showArchived,setShowArchived]=useState(_bhSessionsUi.showArchived);
+  const [query,setQuery]=useState(_bhSessionsUi.query);
+  const [page,setPage]=useState(_bhSessionsUi.page);
+  _bhSessionsUi={preset,custom,showArchived,query,page};
+  const firstRun=useRef(true);
+  const range=useMemo(()=>bhSessionRange(preset,today,custom),[preset,today,custom]);
+  const archivedCount=useMemo(()=>posts.filter(p=>bhIsSessionPost(p)&&!p.deleted&&p.sessionArchived).length,[posts]);
+  const list=useMemo(()=>bhSessionList(posts,sessionRows,{...range,archived:showArchived,query}),[posts,sessionRows,range,showArchived,query]);
+  const paged=bhSessionPage(list,page);
+  useEffect(()=>{if(firstRun.current){firstRun.current=false;return;}setPage(0);},[preset,custom,showArchived,query]);
+  useEffect(()=>{if(archivedCount===0&&showArchived)setShowArchived(false);},[archivedCount,showArchived]);
+  const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}).replace(/\./g,'');}catch{return day;}};
+  const fmtTime=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';};
+  return <div className="gallery-sessions">
+    <div className="gallery-sortbar" style={{flexWrap:'wrap'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flex:'1 1 220px',minWidth:0}}>
+        <span className="gallery-sortbar-label">Período</span>
+        <select value={preset} onChange={e=>setPreset(e.target.value)} aria-label="Período das sessões" className="gallery-sort-select">
+          {BH_SESSION_PRESETS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+        </select>
+        {preset==='custom'&&<>
+          <input type="date" value={custom.from} max={custom.to||today} onChange={e=>setCustom(c=>({...c,from:e.target.value}))} aria-label="Início do período" className="gallery-sort-select"/>
+          <span style={{color:'var(--muted)',fontSize:'.75rem'}}>até</span>
+          <input type="date" value={custom.to} min={custom.from||undefined} max={today} onChange={e=>setCustom(c=>({...c,to:e.target.value}))} aria-label="Fim do período" className="gallery-sort-select"/>
+        </>}
+        <label className="gallery-search">
+          <Icon name="search" size={12}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar sessões" aria-label="Buscar sessões" onKeyDown={e=>{if(e.key==='Escape')setQuery('');}}/>
+          {query&&<button type="button" onClick={()=>setQuery('')} aria-label="Limpar busca"><Icon name="x" size={11}/></button>}
+        </label>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <span style={{fontSize:'.72rem',color:'var(--muted)'}}>{list.length} {list.length===1?'sessão':'sessões'}</span>
+        {(archivedCount>0||showArchived)&&<button type="button" className={'btn '+(showArchived?'btn-dark':'btn-outline')} style={{padding:'5px 10px',fontSize:'.72rem'}} aria-pressed={showArchived} onClick={()=>setShowArchived(v=>!v)}><Icon name="archive" size={11}/> Arquivadas ({archivedCount})</button>}
+      </div>
+    </div>
+    {list.length===0
+      ?<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={query?'search-x':'timer'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{query?'Nenhuma sessão encontrada.':showArchived?'Nenhuma sessão arquivada neste período.':'Nenhuma sessão neste período.'}</div>
+      :<div className="gallery-grid" style={{gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
+        {paged.items.map(({post,day,secs,endedAt})=>{
+          const images=Array.isArray(post.images)?post.images:[];
+          const src=images.length>0?(post.bannerImage||images[0]):null;
+          const time=fmtTime(endedAt);
+          return <div key={post.id} className="card" style={{overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>onOpen(post)}
+            {...keyActivate(()=>onOpen(post),'Abrir sessão '+(post.title||''),true)}>
+            <div className="cover-wrap" style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+              {src==null?<Icon name="image" size={28} style={{opacity:.2}}/>
+                :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
+                :<Img src={src} className="img-zoom" alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
+            </div>
+            <div style={{padding:'12px 14px'}}>
+              <div style={{fontWeight:600,fontSize:'.82rem',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title||'Sem título'}</div>
+              <div style={{fontSize:'.72rem',color:'var(--muted)',marginBottom:8}}>{dayLabel(day)}{time&&' · '+time}{secs>0&&' · '+pomoFmtSecs(secs)+' de foco'}</div>
+              <button type="button" className="btn btn-outline" style={{width:'100%',justifyContent:'center',padding:'4px 0',fontSize:'.72rem'}}
+                onClick={e=>{e.stopPropagation();onArchive(post,!showArchived);}}>
+                <Icon name={showArchived?'archive-restore':'archive'} size={10}/> {showArchived?'Desarquivar':'Arquivar'}</button>
+            </div>
+          </div>;
+        })}
+      </div>}
+    {paged.pageCount>1&&<div className="rank-session-pagination" style={{marginTop:18}}>
+      <button className="btn btn-outline" disabled={paged.page===0} onClick={()=>setPage(paged.page-1)} aria-label="Página anterior"><Icon name="arrow-left" size={13}/> Anterior</button>
+      <span>Página {paged.page+1} de {paged.pageCount}</span>
+      <button className="btn btn-outline" disabled={paged.page>=paged.pageCount-1} onClick={()=>setPage(paged.page+1)}>Próxima <Icon name="arrow-right" size={13}/></button>
+    </div>}
+  </div>;
+};
+const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects,sessionRows})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -14225,7 +14362,8 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     .filter(p=>p&&(!isProjectScopedPost(p)||(projectIds&&!projectIds.has(projectIdOfPost(p)))))
     .map(p=>({...p,images:Array.isArray(p.images)?p.images:[]})),[posts,projectIds]);
   const FOLDERS=liveFolders;
-  const [activeFolder,setActiveFolder]=useState(()=>liveFolders.some(f=>String(f.id)===String(_galleryUi.activeFolder))?_galleryUi.activeFolder:(liveFolders[0]||{id:'work'}).id);
+  // The daily-sessions tab is the first category and the default one.
+  const [activeFolder,setActiveFolder]=useState(()=>_galleryUi.activeFolder===BH_SESSIONS_TAB||liveFolders.some(f=>String(f.id)===String(_galleryUi.activeFolder))?_galleryUi.activeFolder:(_galleryUi.activeFolder==null?BH_SESSIONS_TAB:(liveFolders[0]||{id:'work'}).id));
   const [folderTrash,setFolderTrash]=useState(()=>!!_galleryUi.folderTrash);
   const [folderArchive,setFolderArchive]=useState(()=>!!_galleryUi.folderArchive);
   // Auto-close each panel when its list empties (otherwise the toggle button vanishes
@@ -14233,7 +14371,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   useEffect(()=>{if(archivedFolders.length===0&&folderArchive)setFolderArchive(false);},[archivedFolders.length,folderArchive]);
   useEffect(()=>{if(trashedFolders.length===0&&folderTrash)setFolderTrash(false);},[trashedFolders.length,folderTrash]);
   useEffect(()=>{
-    if(liveFolders.some(f=>String(f.id)===String(activeFolder)))return;
+    if(activeFolder===BH_SESSIONS_TAB||liveFolders.some(f=>String(f.id)===String(activeFolder)))return;
     setActiveFolder(liveFolders[0]?.id||'');
   },[liveFolders,activeFolder]);
   const [editingFolderId,setEditingFolderId]=useState(null);
@@ -14329,7 +14467,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     listScrollRef.current=null;
     setSelected(null);setLightbox(null);
     setFolderTrash(false);setFolderArchive(false);setTrash(false);
-    const first=(liveFolders[0]||{id:'work'}).id;
+    const first=BH_SESSIONS_TAB;
     setActiveFolder(first);
     bhUiReplace('gallery',{activeFolder:first,folderTrash:false,folderArchive:false,trash:false,selectedId:null});
     let raf2=0;
@@ -14377,6 +14515,10 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     return p=>known.has(String(p.folder))||!fallback?String(p.folder):fallback;
   },[folders,liveFolders]);
   const active=useMemo(()=>galleryOnlyPosts.filter(p=>trash?p.deleted:(!p.deleted&&homeOf(p)===String(activeFolder))),[galleryOnlyPosts,trash,activeFolder,homeOf]);
+  const sessionsTab=!trash&&activeFolder===BH_SESSIONS_TAB;
+  const sessionPosts=useMemo(()=>galleryOnlyPosts.filter(p=>bhIsSessionPost(p)&&!p.deleted),[galleryOnlyPosts]);
+  const sessionTabCount=useMemo(()=>sessionPosts.filter(p=>!p.sessionArchived).length,[sessionPosts]);
+  const archiveSessionPost=(post,archived)=>{setPosts(prev=>bhSessionArchive(prev,post.id,archived));setSelected(cur=>cur&&String(cur.id)===String(post.id)?{...cur,sessionArchived:!!archived}:cur);};
   const activeFolderData=useMemo(()=>liveFolders.find(f=>String(f.id)===String(activeFolder))||null,[liveFolders,activeFolder]);
   const sortMode=trash?'month':(activeFolderData?.sortMode||'month');
   const sortOrder=trash?'newest':(activeFolderData?.sortOrder||'newest');
@@ -14661,7 +14803,8 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const goLightboxNext=()=>{if(canLightboxNext)setLightbox(lightboxIndex+1);};
   // Position of selected.images[i] among the images the lightbox shows (videos are skipped).
   const lightboxPosOf=i=>(selected?.images||[]).slice(0,i).filter(x=>!isVideoSrc(x)).length;
-  const softDelete=id=>setPosts(p=>p.map(x=>String(x.id)===String(id)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
+  // A session post is archived, never deleted.
+  const softDelete=id=>setPosts(p=>p.map(x=>String(x.id)===String(id)&&!bhIsSessionPost(x)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x));
   // A post whose folder is itself in the trash or archived used to come back
   // into no visible folder at all. Send it to a live folder and say where.
   const restore=id=>{
@@ -14671,7 +14814,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     setPosts(p=>p.map(x=>String(x.id)===String(id)?{...x,deleted:false,deletedAt:null,...(target?{folder:target.id}:{})}:x));
     if(target)bhAlert(`A pasta original deste post não está disponível (lixeira ou arquivo). Ele foi restaurado em “${target.label}”.`);
   };
-  const hardDelete=async id=>{if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){
+  const hardDelete=async id=>{if(bhIsSessionPost((posts||[]).find(x=>x&&String(x.id)===String(id))))return;if(await bhConfirm({message:'Excluir permanentemente?',danger:true,confirmLabel:'Excluir'})){
     // Notes linked to this post keep the images it had (as individual notes).
     const gone=(posts||[]).find(x=>x&&String(x.id)===String(id));
     if(gone)onPostsPurged?.([gone]);
@@ -14762,7 +14905,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           {trash&&(
             <div style={{display:'flex',gap:5}}>
               <button onClick={e=>{e.stopPropagation();restore(post.id);}} className="btn btn-outline" style={{flex:1,justifyContent:'center',padding:'4px 0',fontSize:'.72rem'}}><Icon name="undo-2" size={10}/> Restaurar</button>
-              <button onClick={e=>{e.stopPropagation();hardDelete(post.id);}} className="btn btn-danger" style={{flex:1,justifyContent:'center',padding:'4px 0',fontSize:'.72rem'}}><Icon name="trash-2" size={10}/> Excluir</button>
+              {!bhIsSessionPost(post)&&<button onClick={e=>{e.stopPropagation();hardDelete(post.id);}} className="btn btn-danger" style={{flex:1,justifyContent:'center',padding:'4px 0',fontSize:'.72rem'}}><Icon name="trash-2" size={10}/> Excluir</button>}
             </div>
           )}
         </div>
@@ -14795,7 +14938,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const [selIds,setSelIds]=useState(()=>new Set());
   const [mergeDraft,setMergeDraft]=useState(null); // {ids:[],keepId,name}
   const multiDragRef=useRef(false);
-  const mergeable=p=>!!p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p);
+  const mergeable=p=>!!p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p)&&!bhIsSessionPost(p);
   const lastSelRef=useRef(null);
   // Shift (range=true) ticks every card between the last one ticked and this one,
   // in the order they are shown, whatever the sorting.
@@ -14960,7 +15103,9 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
       <input ref={addImgRef} type="file" accept="image/*,video/*,.gif" multiple style={{display:'none'}} onChange={handleAddImages}/>
       <div style={{display:'flex',justifyContent:'space-between',marginBottom:24}}>
         <button className="btn btn-outline" onClick={closePost}><Icon name="arrow-left" size={13}/> Voltar</button>
-        <button className="btn btn-danger" onClick={()=>{softDelete(selected.id);setSelected(null);}}><Icon name="trash-2" size={13}/> Mover para Lixeira</button>
+        {bhIsSessionPost(selected)
+          ?<button className="btn btn-outline" onClick={()=>archiveSessionPost(selected,!selected.sessionArchived)}><Icon name={selected.sessionArchived?'archive-restore':'archive'} size={13}/> {selected.sessionArchived?'Desarquivar':'Arquivar'}</button>
+          :<button className="btn btn-danger" onClick={()=>{softDelete(selected.id);setSelected(null);}}><Icon name="trash-2" size={13}/> Mover para Lixeira</button>}
       </div>
       <div className="card" style={{padding:'clamp(16px,2.5vh,32px)'}}>
         <input value={selected.title} onChange={e=>upd('title',e.target.value)} aria-label="Título do estudo"
@@ -15106,6 +15251,11 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
       {/* Tab bar with folder trash toggle */}
       {!trash&&(
         <div style={{display:'flex',alignItems:'stretch',borderBottom:'1px solid var(--border)',marginBottom:'clamp(10px,1.5vh,18px)',flexShrink:0,gap:0,overflowX:'auto'}}>
+          <div style={{display:'flex',alignItems:'center',paddingRight:2,marginRight:4,borderBottom:activeFolder===BH_SESSIONS_TAB?'2px solid var(--text)':'2px solid transparent',marginBottom:-1}}>
+            <button className="tab-btn" onClick={()=>setActiveFolder(BH_SESSIONS_TAB)} aria-pressed={activeFolder===BH_SESSIONS_TAB}
+              style={{color:activeFolder===BH_SESSIONS_TAB?'var(--text)':'var(--muted)',borderBottom:'none',margin:0,padding:'10px 6px 10px 8px',whiteSpace:'nowrap',userSelect:'none'}}
+            >Sessões diárias{sessionTabCount?<span className="gallery-tab-count">{sessionTabCount}</span>:null}</button>
+          </div>
           {liveFolders.map((f,idx)=>(
             <div key={f.id}
               className="drag-item"
@@ -15296,7 +15446,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           </div>
         </div>
       )}
-      {sortMode==='manual' ? (
+      {sessionsTab?<GallerySessions posts={sessionPosts} sessionRows={sessionRows} isMobile={isMobile} onOpen={setSelected} onArchive={archiveSessionPost}/>:sortMode==='manual' ? (
         (filtering?shown.length===0:active.length===0&&!hasSections)
           ? <div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={filtering?'search-x':'image'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{filtering?'Nenhum post encontrado.':'Pasta vazia.'}</div>
           : <>{(()=>{let budget=renderLimit;hasMoreRef.current=false;return manualLayout.map((g,gi)=>{
@@ -21806,7 +21956,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile} projectChoices={projectChoices} onMoveTask={moveTaskToProject}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} sessionRows={pomoData?.rank?.sessions} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='studies'        &&<ViewBoundary key="studies" name="Estudos" onHome={()=>navigate('dashboard')}><StudiesHub studies={studies} setStudies={setStudies} isMobile={isMobile}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Inspirações" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}

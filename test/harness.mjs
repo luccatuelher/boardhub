@@ -56,6 +56,7 @@ export const EXPECTED = {
   studies: ['BH_STUDY_KINDS', 'bhNewStudy', 'bhStudyMatches', 'bhStudyList', 'bhStudyTeam', 'bhStudyTeamSummary'],
   brdate: ['bhIsoToBR', 'bhBRToIso'],
   lsstate: ['BH_LS_PACKED', 'bhLsPack', 'bhLsIsPacked', 'bhLsUnpack'],
+  sessgallery: ['BH_SESSIONS_TAB', 'BH_SESSION_PRESETS', 'BH_SESSIONS_PER_PAGE', 'bhIsSessionPost', 'bhSessionIdsOf', 'bhSessionDay', 'bhIsoShift', 'bhSessionRange', 'bhSessionRowMap', 'bhSessionFacts', 'bhLocalDay', 'bhSessionEffDay', 'bhSessionList', 'bhSessionPage', 'bhSessionArchive'],
   embed: ['bhEmbedCheck', 'bhEmbedParse', 'sanitizeHTML'],
 };
 
