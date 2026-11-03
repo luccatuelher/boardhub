@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
 const g = load(['date', 'sessgallery']);
-const { bhIsSessionPost, bhSessionRange, bhSessionList, bhSessionPage, bhSessionByCategory, bhSessionFacts, bhIsoShift } = g;
+const { bhIsSessionPost, bhSessionRange, bhSessionList, bhSessionPage, bhSessionByCategory, bhSessionGroupBy, bhSessionFacts, bhIsoShift } = g;
 
 const post = (id, date, extra = {}) => ({ id, date, title: 't' + id, images: [], deleted: false, folder: 'f', ...extra });
 const posts = [
@@ -34,11 +34,12 @@ test('presets: default is the last 30 days; month, 3 months, semester, year, all
   assert.equal(bhIsoShift('2026-03-31', { months: -1 }), '2026-02-28');
 });
 
-test('list: range and search by the post date; deleted and non-session posts left out; nothing is modified', () => {
+test('list: range and search by the post date; deleted posts left out; every other gallery post counts; nothing is modified', () => {
   const before = JSON.stringify(posts);
   const r = bhSessionRange('30d', '2026-11-03');
-  assert.deepEqual(bhSessionList(posts, r).map(p => p.id), ['a', 'b']);
-  assert.deepEqual(bhSessionList(posts, { from: '', to: '' }).map(p => p.id), ['a', 'b', 'c']);
+  assert.deepEqual(bhSessionList(posts, r).map(p => p.id), ['a', 'b', 'd']);
+  assert.deepEqual(bhSessionList(posts, { from: '', to: '' }).map(p => p.id), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(bhSessionList(posts, { from: '2026-11-01', to: '2026-11-01' }).map(p => p.id), ['d']);
   assert.deepEqual(bhSessionList(posts, { query: 'ta' }).map(p => p.id), ['a']);
   assert.equal(JSON.stringify(posts), before);
 });
@@ -65,4 +66,13 @@ test('pages cover every post once and keep group labels', () => {
   assert.deepEqual(p2.groups.map(([l, ps]) => [l, ps.length]), [['out', 6]]);
   assert.equal(bhSessionPage(groups, 9, 24).page, 1);
   assert.equal(bhSessionPage([], 0).pageCount, 1);
+});
+
+test('week (Monday-Sunday) and day groups', () => {
+  const ps = [post('a', '2026-11-03'), post('b', '2026-11-02'), post('c', '2026-11-01'), post('u', '')];
+  const w = bhSessionGroupBy(ps, 'week');
+  assert.deepEqual(w.map(([, x]) => x.map(p => p.id)), [['a', 'b'], ['c'], ['u']]);
+  assert.equal(w[2][0], 'Sem data');
+  const d = bhSessionGroupBy(ps, 'day');
+  assert.deepEqual(d.map(([, x]) => x.length), [1, 1, 1, 1]);
 });

@@ -14212,15 +14212,15 @@ const bhPostUploadEnqueue=async(postId,files)=>{
   _bhPostUploadNotify();
 };
 // Daily: the first Gallery tab (a virtual tab, not a folder). It is a unified
-// view of the Gallery posts that focus sessions created (sourceSessionId/s):
-// the SAME posts as in their own category tabs, only also shown here, so
-// nothing about them changes. Grouped like the other tabs (month, year, list),
+// view of every Gallery post in a time range: the SAME posts as in their own
+// category tabs, only also shown here, so nothing about them changes. Grouped like the other tabs (month, year, list),
 // inside a group in category order, with a time range (last 30 days by
 // default) and pages. No action here deletes anything.
 // @bh-test-begin sessgallery
 const BH_SESSIONS_TAB='__sessions__';
 const BH_SESSION_PRESETS=[['30d','Últimos 30 dias'],['month','Este mês'],['3m','3 meses'],['6m','Semestre'],['year','Ano'],['all','Tudo'],['custom','Personalizado']];
 const BH_SESSIONS_PER_PAGE=24;
+const BH_SESSION_MODES=[['day','Dia'],['week','Semana'],['month','Mês'],['year','Ano'],['flat','Lista']];
 const bhIsSessionPost=p=>!!p&&((p.sourceSessionId!=null&&p.sourceSessionId!=='')||(Array.isArray(p.sourceSessionIds)&&p.sourceSessionIds.some(x=>x!=null&&x!=='')));
 const bhSessionIdsOf=p=>[...new Set([p&&p.sourceSessionId,...(p&&Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[])].filter(x=>x!=null&&x!=='').map(String))];
 const bhSessionDay=p=>{const d=String(p&&p.date||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(d)?d:'';};
@@ -14250,11 +14250,11 @@ const bhSessionFacts=(post,rows)=>{
   bhSessionIdsOf(post).forEach(id=>{const r=byId.get(id);if(r){secs+=Math.max(0,Number(r.durationSeconds)||0);if(String(r.endedAt||'')>endedAt)endedAt=String(r.endedAt||'');}});
   return{secs,endedAt};
 };
-// Session posts in the range (by the post's own date, like the other tabs) matching the search.
+// Every live Gallery post in the range (by the post's own date, like the other tabs) matching the search.
 const bhSessionList=(posts,{from='',to='',query=''}={})=>{
   const tokens=String(query||'').toLowerCase().split(/\s+/).filter(Boolean);
   return (Array.isArray(posts)?posts:[]).filter(p=>{
-    if(!bhIsSessionPost(p)||p.deleted)return false;
+    if(!p||p.deleted)return false;
     const day=bhSessionDay(p);
     if(from&&(!day||day<from))return false;
     if(to&&(!day||day>to))return false;
@@ -14274,6 +14274,28 @@ const bhSessionPage=(groups,page,perPage=BH_SESSIONS_PER_PAGE)=>{
   groups.forEach(([label,ps])=>{const slice=ps.slice(Math.max(0,from),Math.max(0,to));from-=ps.length;to-=ps.length;if(slice.length)out.push([label,slice]);});
   return{page:at,pageCount,total,groups:out};
 };
+// Week (Monday to Sunday) and day groups over a list already sorted by date; undated posts form a last group.
+const bhSessionGroupBy=(sorted,mode)=>{
+  const groups=new Map(),undated=[];
+  (Array.isArray(sorted)?sorted:[]).forEach(p=>{
+    const day=bhSessionDay(p);
+    if(!day){undated.push(p);return;}
+    let key=day,label;
+    const d=new Date(day+'T12:00:00');
+    if(mode==='week'){
+      const back=(d.getDay()+6)%7;
+      key=bhIsoShift(day,{days:-back});
+      const end=bhIsoShift(key,{days:6});
+      const f=x=>new Date(x+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');
+      label='Semana de '+f(key)+' a '+f(end)+' de '+end.slice(0,4);
+    }else label=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+    if(!groups.has(key))groups.set(key,[label,[]]);
+    groups.get(key)[1].push(p);
+  });
+  const out=[...groups.values()];
+  if(undated.length)out.push(['Sem data',undated]);
+  return out;
+};
 // @bh-test-end sessgallery
 // Survives the unmount when a post is opened and closed again (not saved anywhere).
 let _bhSessionsUi={preset:'30d',custom:{from:'',to:''},query:'',page:0,mode:'month',order:'newest'};
@@ -14289,7 +14311,7 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
   const firstRun=useRef(true);
   const range=useMemo(()=>bhSessionRange(preset,today,custom),[preset,today,custom]);
   const list=useMemo(()=>bhSessionList(posts,{...range,query}),[posts,range,query]);
-  const groups=useMemo(()=>bhSessionByCategory(galleryGroupPosts(list,mode,order),meta),[list,mode,order,meta]);
+  const groups=useMemo(()=>bhSessionByCategory(mode==='day'||mode==='week'?bhSessionGroupBy(galleryGroupPosts(list,'flat',order).flatMap(([,ps])=>ps),mode):galleryGroupPosts(list,mode,order),meta),[list,mode,order,meta]);
   const rowMap=useMemo(()=>bhSessionRowMap(sessionRows),[sessionRows]);
   const paged=bhSessionPage(groups,page);
   useEffect(()=>{if(firstRun.current){firstRun.current=false;return;}setPage(0);},[preset,custom,query,mode,order]);
@@ -14302,7 +14324,7 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
     const info=meta.get(String(post.id));
     const time=fmtTime(endedAt);
     return <div key={post.id} className="card" style={{overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>onOpen(post)}
-      {...keyActivate(()=>onOpen(post),'Abrir sessão '+(post.title||''),true)}>
+      {...keyActivate(()=>onOpen(post),'Abrir post '+(post.title||''),true)}>
       <div className="cover-wrap" style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
         {src==null?<Icon name="image" size={28} style={{opacity:.2}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
@@ -14319,7 +14341,7 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
     <div className="gallery-sortbar" style={{flexWrap:'wrap'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flex:'1 1 220px',minWidth:0}}>
         <span className="gallery-sortbar-label">Período</span>
-        <select value={preset} onChange={e=>setPreset(e.target.value)} aria-label="Período das sessões" className="gallery-sort-select">
+        <select value={preset} onChange={e=>setPreset(e.target.value)} aria-label="Período dos posts" className="gallery-sort-select">
           {BH_SESSION_PRESETS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
         </select>
         {preset==='custom'&&<>
@@ -14329,22 +14351,22 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
         </>}
         <label className="gallery-search">
           <Icon name="search" size={12}/>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar sessões" aria-label="Buscar sessões" onKeyDown={e=>{if(e.key==='Escape')setQuery('');}}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar posts" aria-label="Buscar posts" onKeyDown={e=>{if(e.key==='Escape')setQuery('');}}/>
           {query&&<button type="button" onClick={()=>setQuery('')} aria-label="Limpar busca"><Icon name="x" size={11}/></button>}
         </label>
       </div>
       <div role="radiogroup" aria-label="Agrupamento" style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
-        {GALLERY_SORT_MODES.filter(([m])=>m!=='manual').map(([m,label])=>(
+        {BH_SESSION_MODES.map(([m,label])=>(
           <button key={m} role="radio" aria-checked={mode===m} onClick={()=>setMode(m)} className={`btn ${mode===m?'btn-dark':'btn-outline'}`} style={{padding:'5px 10px',fontSize:'.72rem'}}>{label}</button>
         ))}
         <select value={order} onChange={e=>setOrder(e.target.value)} aria-label="Ordem dos posts" className="gallery-sort-select">
           {GALLERY_SORT_ORDERS.map(([o,label])=><option key={o} value={o}>{label}</option>)}
         </select>
-        <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:6}}>{paged.total} {paged.total===1?'sessão':'sessões'}</span>
+        <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:6}}>{paged.total} {paged.total===1?'post':'posts'}</span>
       </div>
     </div>
     {paged.total===0
-      ?<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={query?'search-x':'timer'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{query?'Nenhuma sessão encontrada.':'Nenhuma sessão neste período.'}</div>
+      ?<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={query?'search-x':'timer'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{query?'Nenhum post encontrado.':'Nenhum post neste período.'}</div>
       :paged.groups.map(([label,ps],gi)=><div key={label||'__all'} className={label&&gi%2===1?'gallery-period-alt':undefined} style={{marginBottom:isMobile?16:'clamp(16px,3vh,36px)'}}>
         {label&&<div style={{borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:16}}><span className="label label-section"><StaveGlyph name="quarter"/>{label}<span className="gallery-section-count">{ps.length}</span></span></div>}
         <div className="gallery-grid" style={{gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>{ps.map(renderCard)}</div>
@@ -14527,7 +14549,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   },[folders,liveFolders]);
   const active=useMemo(()=>galleryOnlyPosts.filter(p=>trash?p.deleted:(!p.deleted&&homeOf(p)===String(activeFolder))),[galleryOnlyPosts,trash,activeFolder,homeOf]);
   const sessionsTab=!trash&&activeFolder===BH_SESSIONS_TAB;
-  const sessionPosts=useMemo(()=>galleryOnlyPosts.filter(p=>bhIsSessionPost(p)&&!p.deleted),[galleryOnlyPosts]);
+  const sessionPosts=useMemo(()=>galleryOnlyPosts.filter(p=>!p.deleted),[galleryOnlyPosts]);
   const sessionTabCount=sessionPosts.length;
   // Where each session post lives in the other tabs: category (tab order) and section.
   const sessionMeta=useMemo(()=>{
