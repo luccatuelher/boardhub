@@ -135,3 +135,14 @@ test('sanitizer keeps target=_blank/_self and drops other targets', () => {
   assert.ok(clean('<a href="https://a.com" target="_blank">x</a>').includes('target="_blank"'));
   assert.ok(!clean('<a href="https://a.com" target="evilframe">x</a>').includes('target'));
 });
+
+test('sanitize: keeps text/image alignment classes, drops inline text-align and bad targets', () => {
+  const out = sanitizeHTML('<p class="note-ta-c" style="text-align:right">a</p><div class="note-ta-j">b</div><span class="note-ta-c">c</span><img class="note-al-r" src="https://x.test/a.png"><img class="note-al-f" src="https://x.test/b.png"><img class="note-al-x" src="https://x.test/c.png">');
+  assert.match(out, /<p class="note-ta-c">a<\/p>/);
+  assert.match(out, /<div class="note-ta-j">b<\/div>/);
+  assert.match(out, /<span>c<\/span>/);
+  assert.match(out, /<img class="note-al-r"/);
+  assert.match(out, /<img class="note-al-f"/);
+  assert.doesNotMatch(out, /note-al-x/);
+  assert.doesNotMatch(out, /style=/);
+});

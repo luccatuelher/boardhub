@@ -623,6 +623,9 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .rich-editor:empty:before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
 .rich-editor img{max-width:100%;border-radius:8px;margin:8px 0;display:block;cursor:grab;}
 .rich-editor img.note-al-c{margin-left:auto;margin-right:auto;}
+.rich-editor img.note-al-r{margin-left:auto;margin-right:0;}
+.rich-editor img.note-al-f{width:100%;max-width:100%;}
+.rich-editor .note-ta-l{text-align:left;}.rich-editor .note-ta-c{text-align:center;}.rich-editor .note-ta-r{text-align:right;}.rich-editor .note-ta-j{text-align:justify;}
 .rich-editor video{max-width:100%;max-height:70vh;border-radius:8px;margin:8px 0;display:block;background:#000;}
 .rich-editor img:active{cursor:grabbing;}
 /* Note-image uploads reserve their final place immediately. The placeholder is
@@ -15698,7 +15701,7 @@ const sanitizeHTML=html=>{
           if(!ok)el.removeAttribute(a.name);
         }
         else if(n==='class'){
-          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(c==='note-al-c'&&el.tagName==='IMG')||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&(/^note-all-[1-5]$/.test(c)||c==='note-embed'||c==='note-embed-audio'))||(el.tagName==='IFRAME'&&c==='note-embed-frame'));
+          const allowed=[...el.classList].filter(c=>['note-image-grid','note-image-row'].includes(c)||(/^note-w-[2-9][05]$/.test(c)&&(el.tagName==='IMG'||el.classList.contains('note-image-grid')))||(/^note-al-[crf]$/.test(c)&&el.tagName==='IMG')||(/^note-ta-[lcrj]$/.test(c)&&/^(?:P|DIV|H[1-6]|BLOCKQUOTE|LI|UL|OL)$/.test(el.tagName))||(el.tagName==='SPAN'&&(c==='note-image-cell'||c==='note-cell-text'||/^note-fs-[1-5]$/.test(c)))||(el.tagName==='DIV'&&(/^note-all-[1-5]$/.test(c)||c==='note-embed'||c==='note-embed-audio'))||(el.tagName==='IFRAME'&&c==='note-embed-frame'));
           if(allowed.length)el.className=allowed.join(' ');else el.removeAttribute('class');
         }
         else if(n==='href'&&!/^(?:https?:|mailto:|#)/i.test(compact))el.removeAttribute(a.name);
@@ -15997,6 +16000,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   const [fmt,setFmt]=useState({});
   const [noteLightbox,setNoteLightbox]=useState(null); // {images,index}|null
   const clip=React.useSyncExternalStore(bhImgClipSubscribe,bhImgClipGet);
+  const [pickedImg,setPickedImg]=useState(null); // loose image last clicked: the top-bar image alignment buttons act on it
   const [toolsEl,setToolsElState]=useState(null); // the image/video under the pointer: copy / delete buttons
   const setToolsEl=el=>setToolsElState(cur=>cur===el?cur:el);
   const [undoDel,setUndoDel]=useState(false);
@@ -16217,7 +16221,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
         else while(ed.firstChild)w.appendChild(ed.firstChild);
         ed.appendChild(w);
       }
-      w.className='note-all-'+level;
+      w.className=('note-all-'+level)+((w.className.match(/note-ta-[lcrj]/)||[''])[0]?' '+w.className.match(/note-ta-[lcrj]/)[0]:'');
     }
     emit();
   };
@@ -16383,6 +16387,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const img=e.target?.closest?.('img');
     imagePointerRef.current=img&&ref.current?.contains(img)?{img,x:e.clientX,y:e.clientY,moved:false,touch:e.pointerType!=='mouse'}:null;
     if(!img&&!resizingRef.current){setResizeEl(null);setCapImg(null);setToolsEl(null);}
+    setPickedImg(img&&ref.current?.contains(img)&&!img.closest('.note-image-grid,.note-image-row,.note-image-cell')?img:null);
   };
   const handleEditorPointerMove=e=>{
     const g=imagePointerRef.current;
@@ -16446,6 +16451,7 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
     const apply=clientX=>{
       const pct=Math.max(20,Math.min(100,Math.round(((centered?(clientX-centerX)*2:clientX-left)/full*100)/5)*5));
       const old=widthClassOf(el);if(old)el.classList.remove(old);
+      el.classList.remove('note-al-f');
       if(pct<100)el.classList.add('note-w-'+pct);
       setResizeLive(pct);setResizeTick(t=>t+1);
     };
@@ -16487,10 +16493,38 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   };
   // Centering applies to a loose image (images inside a grid already fill their cell).
   const canCenterTools=!!toolsEl&&toolsEl.tagName==='IMG'&&!toolsEl.closest('.note-image-grid,.note-image-row,.note-image-cell');
+  // Alignment of a loose image: left (none), centre, right or full width.
+  const IMG_AL={l:'',c:'note-al-c',r:'note-al-r',f:'note-al-f'};
+  const imgAlignOf=el=>el?(el.classList.contains('note-al-c')?'c':el.classList.contains('note-al-r')?'r':el.classList.contains('note-al-f')?'f':'l'):null;
+  const setImgAlign=(el,mode)=>{
+    if(!el||!el.isConnected||!ref.current||!ref.current.contains(el))return;
+    el.classList.remove('note-al-c','note-al-r','note-al-f');
+    if(IMG_AL[mode])el.classList.add(IMG_AL[mode]);
+    if(mode==='f'){const w=widthClassOf(el);if(w)el.classList.remove(w);}
+    setResizeTick(t=>t+1);emit();
+  };
   const toggleCenterTools=()=>{
     const el=toolsEl;if(!el||!el.isConnected)return;
-    el.classList.toggle('note-al-c');
-    setResizeTick(t=>t+1);emit();
+    setImgAlign(el,el.classList.contains('note-al-c')?'l':'c');
+  };
+  // Text alignment: the browser applies it (native undo), then the inline
+  // text-align it writes is turned into a note-ta-* class (the sanitizer
+  // keeps classes, never styles).
+  const alignText=mode=>{
+    const ed=ref.current;if(!ed)return;
+    if(focusSelectionHost())return;
+    document.execCommand('styleWithCSS',false,true);
+    document.execCommand({l:'justifyLeft',c:'justifyCenter',r:'justifyRight',j:'justifyFull'}[mode]);
+    document.execCommand('styleWithCSS',false,false);
+    ed.querySelectorAll('[style*="text-align"],[align]').forEach(el=>{
+      const v=(el.style.textAlign||el.getAttribute('align')||'').toLowerCase();
+      el.removeAttribute('align');el.style.removeProperty('text-align');
+      if(!el.getAttribute('style'))el.removeAttribute('style');
+      const m=/justify/.test(v)?'j':/center/.test(v)?'c':/right|end/.test(v)?'r':/left|start/.test(v)?'l':null;
+      [...el.classList].filter(c=>/^note-ta-/.test(c)).forEach(c=>el.classList.remove(c));
+      if(m)el.classList.add('note-ta-'+m);
+    });
+    emit();updateFmt();
   };
   const deleteToolsImage=()=>{
     const el=toolsEl,ed=ref.current;if(!el||!ed||!el.isConnected||!ed.contains(el))return;
@@ -16882,6 +16916,13 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
   };
   const updateFmt=()=>{try{
     const next={bold:document.queryCommandState('bold'),italic:document.queryCommandState('italic'),underline:document.queryCommandState('underline'),strikeThrough:document.queryCommandState('strikeThrough'),insertUnorderedList:document.queryCommandState('insertUnorderedList'),insertOrderedList:document.queryCommandState('insertOrderedList')};
+    // Alignment of the block holding the caret (computed, so classes and nesting count).
+    const sel=window.getSelection(),ed=ref.current;let ta='';
+    if(sel&&sel.rangeCount&&ed&&ed.contains(sel.anchorNode)){
+      let n=sel.anchorNode;if(n.nodeType===3)n=n.parentElement;
+      if(n){const v=getComputedStyle(n).textAlign;ta=v==='center'?'c':v==='right'||v==='end'?'r':v==='justify'?'j':'l';}
+    }
+    next.ta=ta;
     // Mouseup used to allocate new state even when no format changed. Image
     // clicks therefore forced a needless RichEditor render just before click,
     // which read as a flash on image-heavy notes.
@@ -16961,6 +17002,22 @@ const RichEditor=React.memo(({noteId,initialHTML,onSave,saveTarget,apiRef,placeh
             <Icon name={b.icon} size={13}/>
           </button>
         ))}
+        <div style={{width:1,height:16,background:'var(--border)',margin:'0 4px'}}/>
+        {[['l','align-left','Alinhar texto à esquerda'],['c','align-center','Centralizar texto'],['r','align-right','Alinhar texto à direita'],['j','align-justify','Justificar texto']].map(([m,icon,title])=>(
+          <button key={'ta'+m} type="button" title={title} aria-label={title} aria-pressed={fmt.ta===m} className={'rich-toolbar-btn'+(fmt.ta===m?' active':'')}
+            onMouseDown={e=>{e.preventDefault();alignText(m);}}
+            onClick={e=>{if(e.detail===0)alignText(m);}}>
+            <Icon name={icon} size={13}/>
+          </button>
+        ))}
+        <div style={{width:1,height:16,background:'var(--border)',margin:'0 4px'}}/>
+        {(()=>{const pk=pickedImg&&pickedImg.isConnected?pickedImg:null,cur=imgAlignOf(pk);return [['l','align-horizontal-justify-start','Imagem à esquerda'],['c','align-horizontal-justify-center','Imagem ao centro'],['r','align-horizontal-justify-end','Imagem à direita'],['f','move-horizontal','Imagem em largura total']].map(([m,icon,title])=>(
+          <button key={'ia'+m} type="button" disabled={!pk} title={pk?title:title+' (clique numa imagem primeiro)'} aria-label={title} aria-pressed={cur===m} className={'rich-toolbar-btn'+(cur===m?' active':'')} style={pk?undefined:{opacity:.35,cursor:'default'}}
+            onMouseDown={e=>{e.preventDefault();setImgAlign(pk,m);}}
+            onClick={e=>{if(e.detail===0)setImgAlign(pk,m);}}>
+            <Icon name={icon} size={13}/>
+          </button>
+        ));})()}
         <div style={{width:1,height:16,background:'var(--border)',margin:'0 4px'}}/>
         <div className="note-size-wrap" style={{position:'relative',display:'inline-flex'}}>
           <button type="button" className={'rich-toolbar-btn'+(sizeOpen?' active':'')} title="Tamanho da fonte (selecione o texto)" aria-label="Tamanho da fonte" aria-haspopup="menu" aria-expanded={sizeOpen}
