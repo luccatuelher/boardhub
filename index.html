@@ -14211,15 +14211,16 @@ const bhPostUploadEnqueue=async(postId,files)=>{
   if(!_bhPostUploads.size&&typeof window!=='undefined')window.removeEventListener('beforeunload',_bhPostUploadWarn);
   _bhPostUploadNotify();
 };
-// Daily: the first Gallery tab (a virtual tab, not a folder). It is a unified
-// view of every Gallery post in a time range: the SAME posts as in their own
-// category tabs, only also shown here, so nothing about them changes. Grouped like the other tabs (month, year, list),
-// inside a group in category order, with a time range (last 30 days by
-// default) and pages. No action here deletes anything.
+// Daily: the first Gallery tab (a virtual tab, not a folder). It lists the
+// focus SESSIONS that left a Gallery post (the history of sessions, laid out
+// like the Gallery), over a time range, in pages. The posts are the SAME posts
+// as in their category tabs, only also shown here, so nothing about them
+// changes. Day, week and list show every session by itself (each with the
+// images it added); month and year fold the sessions of a post into one card.
 // @bh-test-begin sessgallery
 const BH_SESSIONS_TAB='__sessions__';
 const BH_SESSION_PRESETS=[['30d','Últimos 30 dias'],['month','Este mês'],['3m','3 meses'],['6m','Semestre'],['year','Ano'],['all','Tudo'],['custom','Personalizado']];
-const BH_SESSIONS_PER_PAGE=24;
+const BH_SESSIONS_PER_PAGE=36;
 const BH_SESSION_MODES=[['day','Dia'],['week','Semana'],['month','Mês'],['year','Ano'],['flat','Lista']];
 const bhIsSessionPost=p=>!!p&&((p.sourceSessionId!=null&&p.sourceSessionId!=='')||(Array.isArray(p.sourceSessionIds)&&p.sourceSessionIds.some(x=>x!=null&&x!=='')));
 const bhSessionIdsOf=p=>[...new Set([p&&p.sourceSessionId,...(p&&Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[])].filter(x=>x!=null&&x!=='').map(String))];
@@ -14243,64 +14244,130 @@ const bhSessionRange=(preset,today,custom)=>{
   }
 };
 const bhSessionRowMap=rows=>{const m=new Map();(Array.isArray(rows)?rows:[]).forEach(r=>{if(r&&r.id!=null)m.set(String(r.id),r);});return m;};
-// Focus facts of a post from the session rows: seconds (all its sessions) and the latest end time.
-const bhSessionFacts=(post,rows)=>{
-  const byId=rows instanceof Map?rows:bhSessionRowMap(rows);
-  let secs=0,endedAt='';
-  bhSessionIdsOf(post).forEach(id=>{const r=byId.get(id);if(r){secs+=Math.max(0,Number(r.durationSeconds)||0);if(String(r.endedAt||'')>endedAt)endedAt=String(r.endedAt||'');}});
-  return{secs,endedAt};
+const bhLocalDay=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?localDateISO(d):'';};
+// One entry per session of each live post. The images a session added are cut
+// from the post's images in the order the sessions were filed (the counts
+// each row kept); when the counts no longer add up (images edited since) the
+// entries carry no images of their own and the card shows the post cover.
+const bhSessionEntries=(posts,rows)=>{
+  const byId=bhSessionRowMap(rows),out=[];
+  (Array.isArray(posts)?posts:[]).forEach(p=>{
+    if(!p||p.deleted)return;
+    const ids=bhSessionIdsOf(p);
+    if(!ids.length)return;
+    const images=Array.isArray(p.images)?p.images:[];
+    const counts=ids.map(id=>Math.max(0,Number(byId.get(id)&&byId.get(id).imageCount)||0));
+    const exact=ids.length>1&&counts.reduce((a,b)=>a+b,0)===images.length;
+    let offset=0;
+    const mine=[];
+    ids.forEach((id,i)=>{
+      const r=byId.get(id);
+      const own=ids.length===1?images:exact?images.slice(offset,offset+counts[i]):null;
+      offset+=counts[i];
+      if(!r)return;
+      const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt)||bhSessionDay(p);
+      mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),images:own});
+    });
+    // A post whose session rows are gone still shows once, on its own date.
+    if(!mine.length)mine.push({key:String(p.id)+':'+ids[0],post:p,sid:ids[0],day:bhSessionDay(p),endedAt:'',secs:0,title:String(p.title||''),images:images});
+    out.push(...mine);
+  });
+  return out;
 };
-// Every live Gallery post in the range (by the post's own date, like the other tabs) matching the search.
-const bhSessionList=(posts,{from='',to='',query=''}={})=>{
+const bhSessionFilter=(entries,{from='',to='',query=''}={})=>{
   const tokens=String(query||'').toLowerCase().split(/\s+/).filter(Boolean);
-  return (Array.isArray(posts)?posts:[]).filter(p=>{
-    if(!p||p.deleted)return false;
-    const day=bhSessionDay(p);
-    if(from&&(!day||day<from))return false;
-    if(to&&(!day||day>to))return false;
-    if(tokens.length){const hay=(String(p.title||'')+' '+String(p.content||'').replace(/<[^>]*>/g,' ')+' '+day).toLowerCase();if(!tokens.every(t=>hay.includes(t)))return false;}
+  return (Array.isArray(entries)?entries:[]).filter(e=>{
+    if(from&&(!e.day||e.day<from))return false;
+    if(to&&(!e.day||e.day>to))return false;
+    if(tokens.length){const hay=(e.title+' '+String(e.post.title||'')+' '+String(e.post.content||'').replace(/<[^>]*>/g,' ')+' '+e.day).toLowerCase();if(!tokens.every(t=>hay.includes(t)))return false;}
     return true;
   });
 };
-// Inside each group the posts follow the order of the categories (meta: id -> {idx}); the sort inside a category is kept.
-const bhSessionByCategory=(groups,meta)=>groups.map(([label,ps])=>[label,ps.map((p,i)=>({p,i,k:(meta.get(String(p.id))||{idx:1e9}).idx})).sort((a,b)=>a.k-b.k||a.i-b.i).map(x=>x.p)]);
-// Pages over the posts in display order; each page keeps its group labels.
-const bhSessionPage=(groups,page,perPage=BH_SESSIONS_PER_PAGE)=>{
-  const total=groups.reduce((n,[,ps])=>n+ps.length,0);
+const bhMondayOf=day=>{const d=new Date(day+'T12:00:00');return bhIsoShift(day,{days:-((d.getDay()+6)%7)});};
+const bhDailyLabel=(mode,key)=>{
+  if(key==='nodate')return 'Sem data';
+  const d=new Date((mode==='year'?key+'-01-01':mode==='month'?key+'-01':key)+'T12:00:00');
+  if(isNaN(d))return 'Sem data';
+  if(mode==='year')return String(d.getFullYear());
+  if(mode==='month')return d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
+  if(mode==='week'){
+    const end=new Date(bhIsoShift(key,{days:6})+'T12:00:00');
+    const f=x=>x.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');
+    return 'Semana de '+f(d)+' a '+f(end)+' de '+end.getFullYear();
+  }
+  if(mode==='day')return d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  return '';
+};
+// Groups -> days -> cards. Week mode has one "day" per weekday that has sessions (Monday first),
+// every other mode a single unlabeled one. Day, week and list: a card per session; month and year:
+// a card per post (its sessions folded). Inside a day the cards follow the order of the categories
+// (meta: post id -> {idx}), keeping the chosen sort within a category.
+const bhDailyGroups=(entries,mode,order,meta)=>{
+  const fold=mode==='month'||mode==='year';
+  const asc=order==='oldest';
+  const cmp=(a,b)=>order==='az'?String(a.title).localeCompare(String(b.title),'pt-BR')
+    :order==='za'?String(b.title).localeCompare(String(a.title),'pt-BR')
+    :(asc?1:-1)*(a.day.localeCompare(b.day)||a.endedAt.localeCompare(b.endedAt))||String(a.key).localeCompare(String(b.key));
+  const keyOf=day=>!day?'nodate':mode==='year'?day.slice(0,4):mode==='month'?day.slice(0,7):mode==='week'?bhMondayOf(day):mode==='day'?day:'all';
+  const buckets=new Map();
+  (Array.isArray(entries)?entries:[]).forEach(e=>{const k=keyOf(e.day);if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(e);});
+  const idxOf=c=>((meta&&meta.get(String(c.post.id)))||{idx:1e9}).idx;
+  const byCategory=cards=>cards.map((c,i)=>({c,i})).sort((a,b)=>idxOf(a.c)-idxOf(b.c)||a.i-b.i).map(x=>x.c);
+  const makeCards=list=>{
+    const sorted=[...list].sort(cmp);
+    if(!fold)return sorted.map(e=>({key:e.key,post:e.post,entries:[e],day:e.day,endedAt:e.endedAt,secs:e.secs,title:e.title,images:e.images,folded:false}));
+    const byPost=new Map();
+    sorted.forEach(e=>{const id=String(e.post.id);if(!byPost.has(id))byPost.set(id,{key:'p:'+id,post:e.post,entries:[],day:e.day,endedAt:e.endedAt,secs:0,title:String(e.post.title||e.title),images:null,folded:true});const c=byPost.get(id);c.entries.push(e);c.secs+=e.secs;if(e.day>c.day||(e.day===c.day&&e.endedAt>c.endedAt)){c.day=e.day;c.endedAt=e.endedAt;}});
+    return [...byPost.values()].sort(cmp);
+  };
+  const keys=[...buckets.keys()].filter(k=>k!=='nodate').sort((a,b)=>asc?a.localeCompare(b):b.localeCompare(a));
+  if(buckets.has('nodate'))keys.push('nodate');
+  return keys.map(k=>{
+    const cards=makeCards(buckets.get(k));
+    let days;
+    if(mode==='week'&&k!=='nodate'){
+      const byDay=new Map();
+      cards.forEach(c=>{if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(c);});
+      days=[...byDay.keys()].sort().map(d=>({key:d,label:new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'}),cards:byCategory(byDay.get(d))}));
+    }else days=[{key:'all',label:'',cards:byCategory(cards)}];
+    return{key:k,label:mode==='flat'?'':bhDailyLabel(mode,k),days};
+  });
+};
+// Pages over the cards in display order; each page keeps its group and day labels.
+const bhDailyPage=(groups,page,perPage=BH_SESSIONS_PER_PAGE)=>{
+  const total=groups.reduce((n,g)=>n+g.days.reduce((m,d)=>m+d.cards.length,0),0);
   const pageCount=Math.max(1,Math.ceil(total/perPage));
   const at=Math.max(0,Math.min(pageCount-1,Number(page)||0));
   let from=at*perPage,to=from+perPage;
   const out=[];
-  groups.forEach(([label,ps])=>{const slice=ps.slice(Math.max(0,from),Math.max(0,to));from-=ps.length;to-=ps.length;if(slice.length)out.push([label,slice]);});
+  groups.forEach(g=>{
+    const days=[];
+    g.days.forEach(d=>{const slice=d.cards.slice(Math.max(0,from),Math.max(0,to));from-=d.cards.length;to-=d.cards.length;if(slice.length)days.push({...d,cards:slice});});
+    if(days.length)out.push({...g,days});
+  });
   return{page:at,pageCount,total,groups:out};
 };
-// Week (Monday to Sunday) and day groups over a list already sorted by date; undated posts form a last group.
-const bhSessionGroupBy=(sorted,mode)=>{
-  const groups=new Map(),undated=[];
-  (Array.isArray(sorted)?sorted:[]).forEach(p=>{
-    const day=bhSessionDay(p);
-    if(!day){undated.push(p);return;}
-    let key=day,label;
-    const d=new Date(day+'T12:00:00');
-    if(mode==='week'){
-      const back=(d.getDay()+6)%7;
-      key=bhIsoShift(day,{days:-back});
-      const end=bhIsoShift(key,{days:6});
-      const f=x=>new Date(x+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');
-      label='Semana de '+f(key)+' a '+f(end)+' de '+end.slice(0,4);
-    }else label=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
-    if(!groups.has(key))groups.set(key,[label,[]]);
-    groups.get(key)[1].push(p);
-  });
-  const out=[...groups.values()];
-  if(undated.length)out.push(['Sem data',undated]);
-  return out;
-};
 // @bh-test-end sessgallery
-// Survives the unmount when a post is opened and closed again (not saved anywhere).
-let _bhSessionsUi={preset:'30d',custom:{from:'',to:''},query:'',page:0,mode:'month',order:'newest'};
+// The period, custom range, grouping and order are remembered on this device (localStorage);
+// the search and the page only survive the unmount when a post is opened and closed again.
+const BH_DAILY_UI_KEY='boardhub_daily_ui';
+const bhDailyUiLoad=()=>{
+  const base={preset:'30d',custom:{from:'',to:''},query:'',page:0,mode:'day',order:'newest'};
+  try{
+    const v=JSON.parse(localStorage.getItem(BH_DAILY_UI_KEY)||'{}')||{};
+    const iso=x=>/^\d{4}-\d{2}-\d{2}$/.test(x)?x:'';
+    return{...base,
+      preset:BH_SESSION_PRESETS.some(([k])=>k===v.preset)?v.preset:base.preset,
+      custom:{from:iso(v.custom&&v.custom.from),to:iso(v.custom&&v.custom.to)},
+      mode:BH_SESSION_MODES.some(([k])=>k===v.mode)?v.mode:base.mode,
+      order:GALLERY_SORT_ORDERS.some(([k])=>k===v.order)?v.order:base.order};
+  }catch{return base;}
+};
+const bhDailyUiSave=v=>{try{localStorage.setItem(BH_DAILY_UI_KEY,JSON.stringify({preset:v.preset,custom:v.custom,mode:v.mode,order:v.order}));}catch{/*silent-ok: the choice then lasts until the page is reloaded*/}};
+let _bhSessionsUi=null;
 const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
   const today=localDateISO();
+  if(!_bhSessionsUi)_bhSessionsUi=bhDailyUiLoad();
   const [preset,setPreset]=useState(_bhSessionsUi.preset);
   const [custom,setCustom]=useState(_bhSessionsUi.custom);
   const [query,setQuery]=useState(_bhSessionsUi.query);
@@ -14308,40 +14375,44 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
   const [mode,setMode]=useState(_bhSessionsUi.mode);
   const [order,setOrder]=useState(_bhSessionsUi.order);
   _bhSessionsUi={preset,custom,query,page,mode,order};
+  useEffect(()=>{bhDailyUiSave({preset,custom,mode,order});},[preset,custom,mode,order]);
   const firstRun=useRef(true);
   const range=useMemo(()=>bhSessionRange(preset,today,custom),[preset,today,custom]);
-  const list=useMemo(()=>bhSessionList(posts,{...range,query}),[posts,range,query]);
-  const groups=useMemo(()=>bhSessionByCategory(mode==='day'||mode==='week'?bhSessionGroupBy(galleryGroupPosts(list,'flat',order).flatMap(([,ps])=>ps),mode):galleryGroupPosts(list,mode,order),meta),[list,mode,order,meta]);
-  const rowMap=useMemo(()=>bhSessionRowMap(sessionRows),[sessionRows]);
-  const paged=bhSessionPage(groups,page);
+  const entries=useMemo(()=>bhSessionEntries(posts,sessionRows),[posts,sessionRows]);
+  const groups=useMemo(()=>bhDailyGroups(bhSessionFilter(entries,{...range,query}),mode,order,meta),[entries,range,query,mode,order,meta]);
+  const paged=bhDailyPage(groups,page);
   useEffect(()=>{if(firstRun.current){firstRun.current=false;return;}setPage(0);},[preset,custom,query,mode,order]);
-  const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace(/\./g,'');}catch{return day;}};
+  const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');}catch{return day;}};
   const fmtTime=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';};
-  const renderCard=post=>{
-    const images=Array.isArray(post.images)?post.images:[];
-    const src=images.length>0?(post.bannerImage||images[0]):null;
-    const {secs,endedAt}=bhSessionFacts(post,rowMap);
+  const renderCard=card=>{
+    const post=card.post;
+    const own=Array.isArray(card.images)?card.images:null;
+    const postImages=Array.isArray(post.images)?post.images:[];
+    const imgs=own&&own.length?own:postImages;
+    const src=own&&own.length?(own.find(x=>!isVideoSrc(x))||own[0]):(postImages.length?(post.bannerImage||postImages[0]):null);
     const info=meta.get(String(post.id));
-    const time=fmtTime(endedAt);
-    return <div key={post.id} className="card" style={{overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>onOpen(post)}
+    const time=card.folded?'':fmtTime(card.endedAt);
+    return <div key={card.key} className="card" style={{overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>onOpen(post)}
       {...keyActivate(()=>onOpen(post),'Abrir post '+(post.title||''),true)}>
-      <div className="cover-wrap" style={{aspectRatio:'16/9',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
-        {src==null?<Icon name="image" size={28} style={{opacity:.2}}/>
+      <div className="cover-wrap" style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+        {src==null?<Icon name="image" size={22} style={{opacity:.2}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
           :<Img src={src} className="img-zoom" alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
+        {imgs.length>1&&<span style={{position:'absolute',right:6,bottom:6,fontSize:'.62rem',background:'rgba(0,0,0,.6)',color:'#fff',borderRadius:6,padding:'1px 6px'}}>{imgs.length}</span>}
       </div>
-      <div style={{padding:'12px 14px'}}>
-        <div style={{fontWeight:600,fontSize:'.82rem',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{post.title||'Sem título'}</div>
-        {info&&<div title={'Categoria: '+info.category+(info.section?' · Seção: '+info.section:'')} style={{fontSize:'.66rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--session-accent,var(--muted))',marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.category}{info.section&&' › '+info.section}</div>}
-        <div style={{fontSize:'.72rem',color:'var(--muted)'}}>{dayLabel(bhSessionDay(post))}{time&&' · '+time}{secs>0&&' · '+pomoFmtSecs(secs)+' de foco'}</div>
+      <div style={{padding:'8px 10px'}}>
+        <div style={{fontWeight:600,fontSize:'.74rem',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={card.title||post.title}>{card.title||post.title||'Sem título'}</div>
+        {info&&<div title={'Categoria: '+info.category+(info.section?' · Seção: '+info.section:'')} style={{fontSize:'.6rem',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'var(--session-accent,var(--muted))',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.category}{info.section&&' › '+info.section}</div>}
+        <div style={{fontSize:'.66rem',color:'var(--muted)'}}>{mode==='week'||mode==='day'?'':dayLabel(card.day)+(time?' · ':'')}{time}{card.folded&&card.entries.length>1?(card.entries.length+' sessões'):''}{card.secs>0&&((time||card.folded&&card.entries.length>1||mode!=='week'&&mode!=='day'?' · ':'')+pomoFmtSecs(card.secs))}</div>
       </div>
     </div>;
   };
+  const cols=isMobile?'repeat(3,1fr)':'repeat(6,1fr)';
   return <div className="gallery-sessions">
     <div className="gallery-sortbar" style={{flexWrap:'wrap'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flex:'1 1 220px',minWidth:0}}>
         <span className="gallery-sortbar-label">Período</span>
-        <select value={preset} onChange={e=>setPreset(e.target.value)} aria-label="Período dos posts" className="gallery-sort-select">
+        <select value={preset} onChange={e=>setPreset(e.target.value)} aria-label="Período das sessões" className="gallery-sort-select">
           {BH_SESSION_PRESETS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
         </select>
         {preset==='custom'&&<>
@@ -14351,7 +14422,7 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
         </>}
         <label className="gallery-search">
           <Icon name="search" size={12}/>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar posts" aria-label="Buscar posts" onKeyDown={e=>{if(e.key==='Escape')setQuery('');}}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar sessões" aria-label="Buscar sessões" onKeyDown={e=>{if(e.key==='Escape')setQuery('');}}/>
           {query&&<button type="button" onClick={()=>setQuery('')} aria-label="Limpar busca"><Icon name="x" size={11}/></button>}
         </label>
       </div>
@@ -14359,17 +14430,19 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
         {BH_SESSION_MODES.map(([m,label])=>(
           <button key={m} role="radio" aria-checked={mode===m} onClick={()=>setMode(m)} className={`btn ${mode===m?'btn-dark':'btn-outline'}`} style={{padding:'5px 10px',fontSize:'.72rem'}}>{label}</button>
         ))}
-        <select value={order} onChange={e=>setOrder(e.target.value)} aria-label="Ordem dos posts" className="gallery-sort-select">
+        <select value={order} onChange={e=>setOrder(e.target.value)} aria-label="Ordem das sessões" className="gallery-sort-select">
           {GALLERY_SORT_ORDERS.map(([o,label])=><option key={o} value={o}>{label}</option>)}
         </select>
-        <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:6}}>{paged.total} {paged.total===1?'post':'posts'}</span>
       </div>
     </div>
     {paged.total===0
-      ?<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={query?'search-x':'timer'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{query?'Nenhum post encontrado.':'Nenhum post neste período.'}</div>
-      :paged.groups.map(([label,ps],gi)=><div key={label||'__all'} className={label&&gi%2===1?'gallery-period-alt':undefined} style={{marginBottom:isMobile?16:'clamp(16px,3vh,36px)'}}>
-        {label&&<div style={{borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:16}}><span className="label label-section"><StaveGlyph name="quarter"/>{label}<span className="gallery-section-count">{ps.length}</span></span></div>}
-        <div className="gallery-grid" style={{gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>{ps.map(renderCard)}</div>
+      ?<div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={query?'search-x':'timer'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{query?'Nenhuma sessão encontrada.':'Nenhuma sessão neste período.'}</div>
+      :paged.groups.map((g,gi)=><div key={g.key} className={g.label&&gi%2===1?'gallery-period-alt':undefined} style={{marginBottom:isMobile?16:'clamp(16px,3vh,36px)'}}>
+        {g.label&&<div style={{borderBottom:'1px solid var(--border)',paddingBottom:8,marginBottom:12}}><span className="label label-section"><StaveGlyph name="quarter"/>{g.label}</span></div>}
+        {g.days.map(d=><div key={d.key} style={{marginBottom:d.label?12:0}}>
+          {d.label&&<div style={{fontSize:'.72rem',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:'var(--muted)',margin:'4px 0 8px'}}>{d.label}</div>}
+          <div className="gallery-grid" style={{gridTemplateColumns:cols,gap:isMobile?8:10}}>{d.cards.map(renderCard)}</div>
+        </div>)}
       </div>)}
     {paged.pageCount>1&&<div className="rank-session-pagination" style={{marginTop:18}}>
       <button className="btn btn-outline" disabled={paged.page===0} onClick={()=>setPage(paged.page-1)} aria-label="Página anterior"><Icon name="arrow-left" size={13}/> Anterior</button>
@@ -14550,7 +14623,6 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const active=useMemo(()=>galleryOnlyPosts.filter(p=>trash?p.deleted:(!p.deleted&&homeOf(p)===String(activeFolder))),[galleryOnlyPosts,trash,activeFolder,homeOf]);
   const sessionsTab=!trash&&activeFolder===BH_SESSIONS_TAB;
   const sessionPosts=useMemo(()=>galleryOnlyPosts.filter(p=>!p.deleted),[galleryOnlyPosts]);
-  const sessionTabCount=sessionPosts.length;
   // Where each session post lives in the other tabs: category (tab order) and section.
   const sessionMeta=useMemo(()=>{
     const m=new Map();
@@ -15299,8 +15371,8 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         <div style={{display:'flex',alignItems:'stretch',borderBottom:'1px solid var(--border)',marginBottom:'clamp(10px,1.5vh,18px)',flexShrink:0,gap:0,overflowX:'auto'}}>
           <div style={{display:'flex',alignItems:'center',paddingRight:2,marginRight:4,borderBottom:activeFolder===BH_SESSIONS_TAB?'2px solid var(--text)':'2px solid transparent',marginBottom:-1}}>
             <button className="tab-btn" onClick={()=>setActiveFolder(BH_SESSIONS_TAB)} aria-pressed={activeFolder===BH_SESSIONS_TAB}
-              style={{color:activeFolder===BH_SESSIONS_TAB?'var(--text)':'var(--muted)',borderBottom:'none',margin:0,padding:'10px 6px 10px 8px',whiteSpace:'nowrap',userSelect:'none'}}
-            >Daily{sessionTabCount?<span className="gallery-tab-count">{sessionTabCount}</span>:null}</button>
+              style={{color:activeFolder===BH_SESSIONS_TAB?'var(--text)':'var(--muted)',borderBottom:'none',margin:0,padding:'8px 8px 8px 8px',whiteSpace:'nowrap',userSelect:'none',fontSize:'1.12rem',fontWeight:700,letterSpacing:'.01em'}}
+            >Daily</button>
           </div>
           {liveFolders.map((f,idx)=>(
             <div key={f.id}

@@ -3,28 +3,19 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
 const g = load(['date', 'sessgallery']);
-const { bhIsSessionPost, bhSessionRange, bhSessionList, bhSessionPage, bhSessionByCategory, bhSessionGroupBy, bhSessionFacts, bhIsoShift } = g;
+const { bhIsSessionPost, bhSessionRange, bhSessionEntries, bhSessionFilter, bhDailyGroups, bhDailyPage, bhIsoShift } = g;
 
 const post = (id, date, extra = {}) => ({ id, date, title: 't' + id, images: [], deleted: false, folder: 'f', ...extra });
-const posts = [
-  post('a', '2026-11-03', { sourceSessionId: 's1', sourceSessionIds: ['s1'] }),
-  post('b', '2026-11-02', { sourceSessionIds: ['s2', 's3'] }),
-  post('c', '2026-09-01', { sourceSessionId: 's4' }),
-  post('d', '2026-11-01'),                                  // not a session post
-  post('e', '2026-11-02', { sourceSessionId: 's5', deleted: true }),
-];
+const row = (id, date, hhmm, extra = {}) => ({ id, date, endedAt: `${date}T${hhmm}:00-03:00`, durationSeconds: 3600, imageCount: 0, ...extra });
 
-test('only posts a session created count as session posts', () => {
-  assert.equal(bhIsSessionPost(posts[0]), true);
-  assert.equal(bhIsSessionPost(posts[1]), true);
-  assert.equal(bhIsSessionPost(posts[3]), false);
-  assert.equal(bhIsSessionPost(null), false);
+test('session posts are recognised', () => {
+  assert.equal(bhIsSessionPost(post('a', '2026-11-03', { sourceSessionId: 's1' })), true);
+  assert.equal(bhIsSessionPost(post('a', '2026-11-03')), false);
 });
 
-test('presets: default is the last 30 days; month, 3 months, semester, year, all, custom', () => {
+test('presets: default 30 days; month, 3 months, semester, year, all, custom', () => {
   const today = '2026-11-03';
   assert.deepEqual(bhSessionRange('30d', today), { from: '2026-10-05', to: today });
-  assert.deepEqual(bhSessionRange(undefined, today), { from: '2026-10-05', to: today });
   assert.deepEqual(bhSessionRange('month', today), { from: '2026-11-01', to: today });
   assert.deepEqual(bhSessionRange('3m', today), { from: '2026-08-04', to: today });
   assert.deepEqual(bhSessionRange('6m', today), { from: '2026-05-04', to: today });
@@ -34,45 +25,86 @@ test('presets: default is the last 30 days; month, 3 months, semester, year, all
   assert.equal(bhIsoShift('2026-03-31', { months: -1 }), '2026-02-28');
 });
 
-test('list: range and search by the post date; deleted posts left out; every other gallery post counts; nothing is modified', () => {
-  const before = JSON.stringify(posts);
-  const r = bhSessionRange('30d', '2026-11-03');
-  assert.deepEqual(bhSessionList(posts, r).map(p => p.id), ['a', 'b', 'd']);
-  assert.deepEqual(bhSessionList(posts, { from: '', to: '' }).map(p => p.id), ['a', 'b', 'c', 'd']);
-  assert.deepEqual(bhSessionList(posts, { from: '2026-11-01', to: '2026-11-01' }).map(p => p.id), ['d']);
-  assert.deepEqual(bhSessionList(posts, { query: 'ta' }).map(p => p.id), ['a']);
-  assert.equal(JSON.stringify(posts), before);
+// A post with two one-hour sessions (2 + 1 images), plus one single-session post and one plain post.
+const posts = [
+  post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'], images: ['i1', 'i2', 'i3'] }),
+  post('B', '2026-11-03', { sourceSessionId: 's3', images: ['b1'] }),
+  post('P', '2026-11-03'),
+  post('D', '2026-11-03', { sourceSessionId: 's9', deleted: true }),
+];
+const rows = [
+  row('s1', '2026-11-03', '10:00', { imageCount: 2 }),
+  row('s2', '2026-11-03', '15:00', { imageCount: 1 }),
+  row('s3', '2026-10-20', '09:00', { imageCount: 1 }),
+];
+
+test('one entry per session; each session gets the images it added; plain and deleted posts are left out', () => {
+  const e = bhSessionEntries(posts, rows);
+  assert.deepEqual(e.map(x => x.sid), ['s1', 's2', 's3']);
+  assert.deepEqual(e[0].images, ['i1', 'i2']);
+  assert.deepEqual(e[1].images, ['i3']);
+  assert.deepEqual(e[2].images, ['b1']);
+  assert.equal(e[0].day, '2026-11-03');
 });
 
-test('facts sum the minutes of all sessions of a post', () => {
-  const rows = [{ id: 's2', durationSeconds: 600, endedAt: '2026-11-02T20:00:00Z' }, { id: 's3', durationSeconds: 1200, endedAt: '2026-11-02T21:45:00Z' }];
-  assert.deepEqual(bhSessionFacts(posts[1], rows), { secs: 1800, endedAt: '2026-11-02T21:45:00Z' });
+test('when image counts no longer add up, entries carry no images of their own', () => {
+  const e = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'], images: ['i1', 'i2', 'i3', 'i4'] })], rows);
+  assert.equal(e[0].images, null);
+  assert.equal(e[1].images, null);
 });
 
-test('inside a group, posts follow category order and keep the date order within a category', () => {
-  const ps = ['x1', 'y1', 'x2', 'z1'].map(id => post(id, '2026-11-01'));
-  const meta = new Map([['x1', { idx: 1 }], ['y1', { idx: 0 }], ['x2', { idx: 1 }], ['z1', { idx: 2 }]]);
-  const out = bhSessionByCategory([['novembro de 2026', ps]], meta);
-  assert.deepEqual(out[0][1].map(p => p.id), ['y1', 'x1', 'x2', 'z1']);
+test('a post whose session rows are gone still shows once', () => {
+  const e = bhSessionEntries([post('Z', '2026-11-02', { sourceSessionId: 'gone', images: ['z'] })], []);
+  assert.equal(e.length, 1);
+  assert.equal(e[0].day, '2026-11-02');
 });
 
-test('pages cover every post once and keep group labels', () => {
-  const mk = (n, pre) => Array.from({ length: n }, (_, i) => post(pre + i, '2026-11-01'));
-  const groups = [['nov', mk(20, 'n')], ['out', mk(10, 'o')]];
-  const p1 = bhSessionPage(groups, 0, 24), p2 = bhSessionPage(groups, 1, 24);
+test('filter by session day and search', () => {
+  const e = bhSessionEntries(posts, rows);
+  assert.deepEqual(bhSessionFilter(e, { from: '2026-11-01', to: '2026-11-30' }).map(x => x.sid), ['s1', 's2']);
+  assert.deepEqual(bhSessionFilter(e, { query: 'tB' }).map(x => x.sid), ['s3']);
+});
+
+test('day and week show each session by itself; month and year fold the sessions of a post', () => {
+  const e = bhSessionEntries(posts, rows);
+  const day = bhDailyGroups(e, 'day', 'newest', new Map());
+  assert.deepEqual(day.map(g => g.key), ['2026-11-03', '2026-10-20']);
+  assert.deepEqual(day[0].days[0].cards.map(c => c.entries.length), [1, 1]);
+  const month = bhDailyGroups(e, 'month', 'newest', new Map());
+  assert.deepEqual(month.map(g => g.key), ['2026-11', '2026-10']);
+  assert.equal(month[0].days[0].cards.length, 1);
+  assert.equal(month[0].days[0].cards[0].entries.length, 2);
+  assert.equal(month[0].days[0].cards[0].secs, 7200);
+  assert.equal(bhDailyGroups(e, 'year', 'newest', new Map())[0].days[0].cards.length, 2);
+  assert.equal(bhDailyGroups(e, 'flat', 'newest', new Map()).length, 1);
+});
+
+test('week: one line per weekday that has sessions, Monday first, sessions separate', () => {
+  const ps = [post('A', '2026-11-03', { sourceSessionId: 'a' }), post('B', '2026-11-01', { sourceSessionId: 'b' }), post('C', '2026-11-02', { sourceSessionId: 'c' })];
+  const rs = [row('a', '2026-11-03', '10:00'), row('b', '2026-11-01', '10:00'), row('c', '2026-11-02', '10:00')]; // Tue, Sun, Mon
+  const w = bhDailyGroups(bhSessionEntries(ps, rs), 'week', 'newest', new Map());
+  assert.equal(w.length, 2);                       // Sun 1 Nov belongs to the week of Mon 26 Oct
+  assert.deepEqual(w[0].days.map(d => d.key), ['2026-11-02', '2026-11-03']);
+  assert.deepEqual(w[1].days.map(d => d.key), ['2026-11-01']);
+});
+
+test('inside a day the cards follow category order', () => {
+  const ps = ['x', 'y', 'z'].map((id, i) => post(id, '2026-11-03', { sourceSessionId: 's' + id }));
+  const rs = ['x', 'y', 'z'].map((id, i) => row('s' + id, '2026-11-03', '1' + i + ':00'));
+  const meta = new Map([['x', { idx: 2 }], ['y', { idx: 0 }], ['z', { idx: 1 }]]);
+  const d = bhDailyGroups(bhSessionEntries(ps, rs), 'day', 'newest', meta);
+  assert.deepEqual(d[0].days[0].cards.map(c => c.post.id), ['y', 'z', 'x']);
+});
+
+test('pages cover every card once and keep labels', () => {
+  const ps = Array.from({ length: 50 }, (_, i) => post('p' + i, '2026-11-03', { sourceSessionId: 's' + i }));
+  const rs = ps.map((p, i) => row('s' + i, '2026-11-03', '10:00'));
+  const groups = bhDailyGroups(bhSessionEntries(ps, rs), 'day', 'newest', new Map());
+  const p1 = bhDailyPage(groups, 0, 36), p2 = bhDailyPage(groups, 1, 36);
   assert.equal(p1.pageCount, 2);
-  assert.equal(p1.total, 30);
-  assert.deepEqual(p1.groups.map(([l, ps]) => [l, ps.length]), [['nov', 20], ['out', 4]]);
-  assert.deepEqual(p2.groups.map(([l, ps]) => [l, ps.length]), [['out', 6]]);
-  assert.equal(bhSessionPage(groups, 9, 24).page, 1);
-  assert.equal(bhSessionPage([], 0).pageCount, 1);
-});
-
-test('week (Monday-Sunday) and day groups', () => {
-  const ps = [post('a', '2026-11-03'), post('b', '2026-11-02'), post('c', '2026-11-01'), post('u', '')];
-  const w = bhSessionGroupBy(ps, 'week');
-  assert.deepEqual(w.map(([, x]) => x.map(p => p.id)), [['a', 'b'], ['c'], ['u']]);
-  assert.equal(w[2][0], 'Sem data');
-  const d = bhSessionGroupBy(ps, 'day');
-  assert.deepEqual(d.map(([, x]) => x.length), [1, 1, 1, 1]);
+  assert.equal(p1.total, 50);
+  assert.equal(p1.groups[0].days[0].cards.length, 36);
+  assert.equal(p2.groups[0].days[0].cards.length, 14);
+  assert.equal(bhDailyPage(groups, 9, 36).page, 1);
+  assert.equal(bhDailyPage([], 0).pageCount, 1);
 });
