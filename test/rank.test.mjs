@@ -28,6 +28,17 @@ test('decay tiers: halved from 2026-09-01, old tiers before', () => {
   assert.equal(rankDecayForSeconds(90 * 60, '2026-10-05'), 0);
 });
 
+test('decay tiers: from 2026-11-04 under 30m -250, 30-59m -125, 1h+ 0', () => {
+  assert.equal(rankDecayForSeconds(0, '2026-11-04'), 250);
+  assert.equal(rankDecayForSeconds(29 * 60 + 59, '2026-11-04'), 250);
+  assert.equal(rankDecayForSeconds(30 * 60, '2026-11-04'), 125);
+  assert.equal(rankDecayForSeconds(59 * 60 + 59, '2026-11-05'), 125);
+  assert.equal(rankDecayForSeconds(60 * 60, '2026-11-04'), 0);
+  assert.equal(rankDecayForSeconds(120 * 60, '2026-11-10'), 0);
+  // earlier days keep their tiers (no retroactive refund)
+  assert.equal(rankDecayForSeconds(60 * 60, '2026-11-03'), 75);
+});
+
 test('rankPosition is monotonic and bounded', () => {
   assert.equal(rankPosition(0).rankIndex, 0);
   assert.ok(rankPosition(RANK_MAX).rankIndex >= rankPosition(RANK_MAX / 2).rankIndex);

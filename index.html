@@ -7105,8 +7105,13 @@ const rankPosition=points=>{
 // Days before RANK_DECAY_HALVED_FROM keep the old tiers: they were
 // settled under that rule, and the refund below checks them against it.
 const RANK_DECAY_HALVED_FROM='2026-09-01';
+// Simplified from 2026-11-04: under 30m -250, 30m to 59m -125, 1h or more 0.
+// Earlier days keep the tiers they were settled under (refund must not
+// rewrite history). Daily points (the 2h victory) are unchanged.
+const RANK_DECAY_SIMPLE_FROM='2026-11-04';
 const rankDecayForSeconds=(secs,dayKey)=>{
   const mins=Math.max(0,Number(secs)||0)/60;
+  if(dayKey&&dayKey>=RANK_DECAY_SIMPLE_FROM)return mins<30?250:mins<60?125:0;
   const f=dayKey&&dayKey<RANK_DECAY_HALVED_FROM?1:0.5;
   if(mins<15)return 500*f;if(mins<30)return 400*f;if(mins<45)return 300*f;
   if(mins<60)return 250*f;if(mins<75)return 150*f;if(mins<90)return 100*f;return 0;
@@ -8314,7 +8319,7 @@ const RankBadge=({rankIndex=0,size=72,className='',label})=>{
 };
 const rankSeasonDisplay=id=>{const[y,p]=String(id||'').split('-');return 'Temporada '+(RANK_ROMANS[Number(p)-1]||p)+' · '+y;};
 const RankGuide=({onClose})=>{
-  const decay=[['0–14m','−250'],['15–29m','−200'],['30–44m','−150'],['45–59m','−125'],['60–74m','−75'],['75–89m','−50'],['90m+','0']];
+  const decay=[['0–29m','−250'],['30–59m','−125'],['60m+','0']];
   return <Modal title="Ranks" onClose={onClose} width={780}>
     <div className="rank-guide">
       <p className="rank-guide-intro">A progressão acompanha suas horas de foco. Cada emblema possui seis divisões, de I a VI, e o rank mais alto é Virtuoso.</p>
@@ -8430,7 +8435,7 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
         <div className="rank-panel-title"><span>{pos.rankName}</span><strong>{pos.divisionRoman}</strong></div>
         <div className="rank-progress-track"><span style={{width:pct+'%'}}/></div>
         <div className="rank-profile-meta"><span>{pos.isMax?'Progressão completa':pos.divisionProgress.toLocaleString('pt-BR')+' / '+pos.needed.toLocaleString('pt-BR')+' pts para a próxima divisão'}</span><span>{rank.points.toLocaleString('pt-BR')} total</span></div>
-        {projectedLoss>0&&<div className="rank-decay-hint"><Icon name="alert-triangle" size={12}/><span><strong>Risco de decay: −{projectedLoss} pts.</strong> {projectedDrop?'Cairia para '+projectedPosition.rankName+' '+projectedPosition.divisionRoman+'. ':''}{pomoFmtRemaining(Math.max(0,5400-todaySecs))} de foco evita a perda.</span></div>}
+        {projectedLoss>0&&<div className="rank-decay-hint"><Icon name="alert-triangle" size={12}/><span><strong>Risco de decay: −{projectedLoss} pts.</strong> {projectedDrop?'Cairia para '+projectedPosition.rankName+' '+projectedPosition.divisionRoman+'. ':''}{pomoFmtRemaining(Math.max(0,3600-todaySecs))} de foco evita a perda.</span></div>}
       </div>
       <div className="rank-panel-footer">
         <div className="rank-panel-metric"><span>{rank.cycleSeconds>=7200?'Vitória do dia':'Próxima vitória'}</span><strong>{rank.cycleSeconds>=7200?'Concluída':pomoFmtRemaining(Math.max(0,7200-(rank.cycleSeconds||0)))}</strong><i><b style={{width:victoryPct+'%'}}/></i></div>
