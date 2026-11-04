@@ -3940,6 +3940,8 @@ const initFirebase=async()=>{
   try{
     if(!firebase.apps.length)firebase.initializeApp(cfg);
     _fbAuth=firebase.auth();
+    // Remember the Google login across visits/restarts (SDK default, made explicit).
+    try{_fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>bhLog('fb.authPersistence',e));}catch(e){bhLog('fb.authPersistence',e);}
     _fbDb=firebase.firestore();
     _fbStorage=firebase.storage();
     // Defaults retry a stalled lookup for 2 min and an upload for 10 min, which
