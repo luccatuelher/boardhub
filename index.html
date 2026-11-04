@@ -8477,11 +8477,9 @@ const bhSessionLinkSave=(folderId,projectId)=>{
 // @bh-test-begin sesstitle
 // Default title of a Gallery post made from a focus session: "08/10 - Back from
 // the brink" (the day of the session, then what it was about).
-const bhSessionPostTitle=(date,label)=>{
-  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(date||''));
-  const name=String(label||'').trim()||'Sem categoria';
-  return m?m[3]+'/'+m[2]+' - '+name:name;
-};
+// A session's default title is just what it was about (the task, else the section or category): no date
+// (the post shows its own date). `date` is kept in the signature for the callers.
+const bhSessionPostTitle=(date,label)=>String(label||'').trim()||'Sem categoria';
 // A new post made from a focus session goes to the TOP of the chosen section
 // (right after its marker in the folder's manualOrder), like any new post.
 // Returns the same array when the section marker is missing.
@@ -14269,7 +14267,7 @@ const bhSessionEntries=(posts,rows)=>{
       if(start>=0)offset+=counts[i];
       if(!r)return;
       const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt)||bhSessionDay(p);
-      mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),images:own});
+      mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),taskId:r.taskId!=null?String(r.taskId):'',images:own});
     });
     // A post whose session rows are gone still shows once, on its own date.
     if(!mine.length)mine.push({key:String(p.id)+':'+ids[0],post:p,sid:ids[0],day:bhSessionDay(p),endedAt:'',secs:0,title:String(p.title||''),images:images});
@@ -14368,7 +14366,7 @@ const bhDailyUiLoad=()=>{
 };
 const bhDailyUiSave=v=>{try{localStorage.setItem(BH_DAILY_UI_KEY,JSON.stringify({preset:v.preset,custom:v.custom,mode:v.mode,order:v.order}));}catch{/*silent-ok: the choice then lasts until the page is reloaded*/}};
 let _bhSessionsUi=null;
-const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
+const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
   const today=localDateISO();
   if(!_bhSessionsUi)_bhSessionsUi=bhDailyUiLoad();
   const [preset,setPreset]=useState(_bhSessionsUi.preset);
@@ -14384,6 +14382,13 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
   const entries=useMemo(()=>bhSessionEntries(posts,sessionRows),[posts,sessionRows]);
   const groups=useMemo(()=>bhDailyGroups(bhSessionFilter(entries,{...range,query}),mode,order,meta),[entries,range,query,mode,order,meta]);
   const paged=bhDailyPage(groups,page);
+  // A session shows the name of its task (no renaming system of its own); without a task, its title without the date prefix.
+  const taskNames=useMemo(()=>{const m=new Map();(Array.isArray(projects)?projects:[]).forEach(pr=>{if(!pr)return;(pr.projectTasks||[]).forEach(t=>t&&t.id!=null&&m.set(String(t.id),String(t.text||'')));(pr.miniProjects||[]).forEach(t=>t&&t.id!=null&&m.set(String(t.id),String(t.title||m.get(String(t.id))||'')));});return m;},[projects]);
+  const nameOf=card=>{
+    const ids=[...new Set(card.entries.map(e=>e.taskId).filter(Boolean))];
+    const task=ids.length===1&&card.entries.every(e=>e.taskId===ids[0])?(taskNames.get(ids[0])||'').trim():'';
+    return task||bhStripPostDate(card.folded?card.post.title:card.title)||card.post.title||'Sem título';
+  };
   useEffect(()=>{if(firstRun.current){firstRun.current=false;return;}setPage(0);},[preset,custom,query,mode,order]);
   const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');}catch{return day;}};
   const fmtTime=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';};
@@ -14404,7 +14409,7 @@ const GallerySessions=({posts,meta,sessionRows,isMobile,onOpen})=>{
         {imgs.length>1&&<span style={{position:'absolute',right:6,bottom:6,fontSize:'.62rem',background:'rgba(0,0,0,.6)',color:'#fff',borderRadius:6,padding:'1px 6px'}}>{imgs.length}</span>}
       </div>
       <div style={{padding:'8px 10px'}}>
-        <div style={{fontWeight:600,fontSize:'.74rem',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={card.title||post.title}>{card.title||post.title||'Sem título'}</div>
+        <div style={{fontWeight:600,fontSize:'.74rem',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={nameOf(card)}>{nameOf(card)}</div>
         {info&&<div title={'Categoria: '+info.category+(info.section?' · Seção: '+info.section:'')} style={{fontSize:'.6rem',fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'var(--session-accent,var(--muted))',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{info.category}{info.section&&' › '+info.section}</div>}
         <div style={{fontSize:'.66rem',color:'var(--muted)'}}>{mode==='week'||mode==='day'?'':dayLabel(card.day)+(time?' · ':'')}{time}{card.folded&&card.entries.length>1?(card.entries.length+' sessões'):''}{card.secs>0&&((time||card.folded&&card.entries.length>1||mode!=='week'&&mode!=='day'?' · ':'')+pomoFmtSecs(card.secs))}</div>
       </div>
@@ -15610,7 +15615,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           </div>
         </div>
       )}
-      {sessionsTab?<GallerySessions posts={sessionPosts} meta={sessionMeta} sessionRows={sessionRows} isMobile={isMobile} onOpen={setSelected}/>:sortMode==='manual' ? (
+      {sessionsTab?<GallerySessions posts={sessionPosts} meta={sessionMeta} sessionRows={sessionRows} projects={projects} isMobile={isMobile} onOpen={setSelected}/>:sortMode==='manual' ? (
         (filtering?shown.length===0:active.length===0&&!hasSections)
           ? <div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={filtering?'search-x':'image'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{filtering?'Nenhum post encontrado.':'Pasta vazia.'}</div>
           : <>{(()=>{let budget=renderLimit;hasMoreRef.current=false;return manualLayout.map((g,gi)=>{

@@ -4,13 +4,13 @@ import { load } from './harness.mjs';
 
 const { bhSessionPostTitle, bhPlaceInSection, pomoRetargetSession, pomoSessionParts, pomoRetargetPlan, pomoApplyRetargets, pomoNormalize, pomoMergeProgress, pomoCreditParts, rankDefault, pomoRefilePosts } = load(['date', 'sesstitle', 'rank']);
 
-test('default post title: day/month, a dash, then what the session was about', () => {
-  assert.equal(bhSessionPostTitle('2026-10-08', 'Back from the brink'), '08/10 - Back from the brink');
-  assert.equal(bhSessionPostTitle('2026-01-31T10:00:00', '  Roteiro '), '31/01 - Roteiro');
+test('default post title is what the session was about, with no date', () => {
+  assert.equal(bhSessionPostTitle('2026-10-08', 'Back from the brink'), 'Back from the brink');
+  assert.equal(bhSessionPostTitle('2026-01-31T10:00:00', '  Roteiro '), 'Roteiro');
 });
 
-test('no label falls back to "Sem categoria"; an unreadable date leaves just the name', () => {
-  assert.equal(bhSessionPostTitle('2026-03-02', ''), '02/03 - Sem categoria');
+test('no label falls back to "Sem categoria"', () => {
+  assert.equal(bhSessionPostTitle('2026-03-02', ''), 'Sem categoria');
   assert.equal(bhSessionPostTitle('', 'X'), 'X');
   assert.equal(bhSessionPostTitle(undefined, undefined), 'Sem categoria');
 });
