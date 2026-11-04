@@ -14247,8 +14247,16 @@ const bhLocalDay=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?localDateISO(
 // from the post's images in the order the sessions were filed (the counts
 // each row kept); when the counts no longer add up (images edited since) the
 // entries carry no images of their own and the card shows the post cover.
-const bhSessionEntries=(posts,rows)=>{
+// session id -> id of the task (or subtask) whose notes hold it. The note is where a session was
+// really filed (moving a note moves the session), so it wins over the row's own taskId.
+const bhSessionTaskMap=projects=>{
+  const m=new Map();
+  (Array.isArray(projects)?projects:[]).forEach(pr=>{if(!pr)return;(pr.miniProjects||[]).forEach(t=>{if(!t||t.id==null)return;(t.innerNotes||[]).forEach(n=>{if(n&&Array.isArray(n.sessionIds))n.sessionIds.forEach(sid=>{if(sid!=null&&sid!=='')m.set(String(sid),String(t.id));});});});});
+  return m;
+};
+const bhSessionEntries=(posts,rows,taskBySession)=>{
   const byId=bhSessionRowMap(rows),out=[];
+  const taskOf=(id,r)=>{const t=taskBySession&&taskBySession.get(String(id));return t||(r&&r.taskId!=null?String(r.taskId):'');};
   (Array.isArray(posts)?posts:[]).forEach(p=>{
     if(!p||p.deleted)return;
     const ids=bhSessionIdsOf(p);
@@ -14267,7 +14275,7 @@ const bhSessionEntries=(posts,rows)=>{
       if(start>=0)offset+=counts[i];
       if(!r)return;
       const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt)||bhSessionDay(p);
-      mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),taskId:r.taskId!=null?String(r.taskId):'',images:own});
+      mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),taskId:taskOf(id,r),images:own});
     });
     // A post whose session rows are gone still shows once, on its own date.
     if(!mine.length)mine.push({key:String(p.id)+':'+ids[0],post:p,sid:ids[0],day:bhSessionDay(p),endedAt:'',secs:0,title:String(p.title||''),images:images});
@@ -14299,7 +14307,7 @@ const bhDailyLabel=(mode,key)=>{
   if(mode==='day')return d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
   return '';
 };
-// Groups -> days -> cards. Week mode has one "day" per weekday that has sessions (Monday first),
+// Groups -> days -> cards. Week mode has one "day" per weekday that has sessions (newest day first unless the order is "oldest"),
 // every other mode a single unlabeled one. Day, week and list: a card per session; month and year:
 // a card per post (its sessions folded). Inside a day the cards follow the order of the categories
 // (meta: post id -> {idx}), keeping the chosen sort within a category.
@@ -14329,7 +14337,7 @@ const bhDailyGroups=(entries,mode,order,meta)=>{
     if(mode==='week'&&k!=='nodate'){
       const byDay=new Map();
       cards.forEach(c=>{if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(c);});
-      days=[...byDay.keys()].sort().map(d=>({key:d,label:new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'}),cards:byCategory(byDay.get(d))}));
+      days=[...byDay.keys()].sort((a,b)=>asc?a.localeCompare(b):b.localeCompare(a)).map(d=>({key:d,label:new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'}),cards:byCategory(byDay.get(d))}));
     }else days=[{key:'all',label:'',cards:byCategory(cards)}];
     return{key:k,label:mode==='flat'?'':bhDailyLabel(mode,k),days};
   });
@@ -14379,7 +14387,8 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
   useEffect(()=>{bhDailyUiSave({preset,custom,mode,order});},[preset,custom,mode,order]);
   const firstRun=useRef(true);
   const range=useMemo(()=>bhSessionRange(preset,today,custom),[preset,today,custom]);
-  const entries=useMemo(()=>bhSessionEntries(posts,sessionRows),[posts,sessionRows]);
+  const taskBySession=useMemo(()=>bhSessionTaskMap(projects),[projects]);
+  const entries=useMemo(()=>bhSessionEntries(posts,sessionRows,taskBySession),[posts,sessionRows,taskBySession]);
   const groups=useMemo(()=>bhDailyGroups(bhSessionFilter(entries,{...range,query}),mode,order,meta),[entries,range,query,mode,order,meta]);
   const paged=bhDailyPage(groups,page);
   // A session shows the name of its task (no renaming system of its own); without a task, its title without the date prefix.

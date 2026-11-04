@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
 const g = load(['date', 'sessgallery']);
-const { bhIsSessionPost, bhSessionRange, bhSessionEntries, bhSessionFilter, bhDailyGroups, bhDailyPage, bhIsoShift } = g;
+const { bhSessionTaskMap, bhIsSessionPost, bhSessionRange, bhSessionEntries, bhSessionFilter, bhDailyGroups, bhDailyPage, bhIsoShift } = g;
 
 const post = (id, date, extra = {}) => ({ id, date, title: 't' + id, images: [], deleted: false, folder: 'f', ...extra });
 const row = (id, date, hhmm, extra = {}) => ({ id, date, endedAt: `${date}T${hhmm}:00-03:00`, durationSeconds: 3600, imageCount: 0, ...extra });
@@ -83,12 +83,12 @@ test('day and week show each session by itself; month and year fold the sessions
   assert.equal(bhDailyGroups(e, 'flat', 'newest', new Map()).length, 1);
 });
 
-test('week: one line per weekday that has sessions, Monday first, sessions separate', () => {
+test('week: one line per weekday that has sessions, newest day first, sessions separate', () => {
   const ps = [post('A', '2026-11-03', { sourceSessionId: 'a' }), post('B', '2026-11-01', { sourceSessionId: 'b' }), post('C', '2026-11-02', { sourceSessionId: 'c' })];
   const rs = [row('a', '2026-11-03', '10:00'), row('b', '2026-11-01', '10:00'), row('c', '2026-11-02', '10:00')]; // Tue, Sun, Mon
   const w = bhDailyGroups(bhSessionEntries(ps, rs), 'week', 'newest', new Map());
   assert.equal(w.length, 2);                       // Sun 1 Nov belongs to the week of Mon 26 Oct
-  assert.deepEqual(w[0].days.map(d => d.key), ['2026-11-02', '2026-11-03']);
+  assert.deepEqual(w[0].days.map(d => d.key), ['2026-11-03', '2026-11-02']);
   assert.deepEqual(w[1].days.map(d => d.key), ['2026-11-01']);
 });
 
@@ -111,4 +111,24 @@ test('pages cover every card once and keep labels', () => {
   assert.equal(p2.groups[0].days[0].cards.length, 14);
   assert.equal(bhDailyPage(groups, 9, 36).page, 1);
   assert.equal(bhDailyPage([], 0).pageCount, 1);
+});
+
+test('week view lists days newest first (Friday on top), oldest order flips it', () => {
+  const e = bhSessionEntries(
+    [post('M', '2026-11-02', { sourceSessionId: 'm' }), post('F', '2026-11-06', { sourceSessionId: 'f' }), post('W', '2026-11-04', { sourceSessionId: 'w' })],
+    [row('m', '2026-11-02', '10:00'), row('f', '2026-11-06', '10:00'), row('w', '2026-11-04', '10:00')]);
+  assert.deepEqual(bhDailyGroups(e, 'week', 'newest', new Map())[0].days.map(d => d.key), ['2026-11-06', '2026-11-04', '2026-11-02']);
+  assert.deepEqual(bhDailyGroups(e, 'week', 'oldest', new Map())[0].days.map(d => d.key), ['2026-11-02', '2026-11-04', '2026-11-06']);
+});
+
+test('a session takes the subtask whose note holds it, over the row taskId', () => {
+  const projects = [{ miniProjects: [
+    { id: 'v1', title: 'V1', innerNotes: [{ id: 'n1', sessionIds: ['s1'] }] },
+    { id: 'v2', title: 'V2', parentId: 'v1', innerNotes: [{ id: 'n2', sessionIds: ['s2'] }] },
+  ] }];
+  const map = bhSessionTaskMap(projects);
+  const e = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'] })],
+    [row('s1', '2026-11-03', '10:00', { taskId: 'v1' }), row('s2', '2026-11-03', '15:00', { taskId: 'v1' })], map);
+  assert.deepEqual(e.map(x => x.taskId), ['v1', 'v2']);
+  assert.equal(bhSessionEntries([post('A', '2026-11-03', { sourceSessionId: 's9' })], [row('s9', '2026-11-03', '10:00', { taskId: 'v1' })])[0].taskId, 'v1');
 });
