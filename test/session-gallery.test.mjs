@@ -47,10 +47,14 @@ test('one entry per session; each session gets the images it added; plain and de
   assert.equal(e[0].day, '2026-11-03');
 });
 
-test('when image counts no longer add up, entries carry no images of their own', () => {
-  const e = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'], images: ['i1', 'i2', 'i3', 'i4'] })], rows);
-  assert.equal(e[0].images, null);
-  assert.equal(e[1].images, null);
+test('images the post had before its sessions are skipped; counts that exceed the images give none; unknown counts keep the old behaviour', () => {
+  const own = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'], images: ['own', 'i1', 'i2', 'i3'] })], rows);
+  assert.deepEqual(own[0].images, ['i1', 'i2']);
+  assert.deepEqual(own[1].images, ['i3']);
+  const fewer = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1', 's2'], images: ['i1'] })], rows);
+  assert.equal(fewer[0].images, null);
+  const legacy = bhSessionEntries([post('L', '2026-11-03', { sourceSessionId: 'old', images: ['a', 'b'] })], [{ id: 'old', date: '2026-11-03', endedAt: '2026-11-03T10:00:00-03:00', durationSeconds: 60 }]);
+  assert.deepEqual(legacy[0].images, ['a', 'b']);
 });
 
 test('a post whose session rows are gone still shows once', () => {

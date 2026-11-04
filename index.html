@@ -13639,7 +13639,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     <RichEditor key={'tasknote-'+note.id} noteId={'tasknote-'+note.id} initialHTML={bhTextToHTML(note.content)} onSave={saveInnerNoteContent} saveTarget={note.id} apiRef={innerNoteEditorApi}
                       placeholder="Notas, análises, referências... Cole imagens aqui."/>
                   </div>
-                  {Array.isArray(note.sessionIds)&&note.sessionIds.length>0&&(note.galleryPostId==null||note.galleryPostId==='')&&local.galleryFolder&&projectGalleryFolder&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/>
+                  {Array.isArray(note.sessionIds)&&note.sessionIds.length>0&&(note.galleryPostId==null||note.galleryPostId==='')&&local.galleryFolder&&projectGalleryFolder&&!(galleryPosts||[]).some(gp=>gp&&!gp.deleted&&bhSessionIdsOf(gp).includes(String(note.sessionIds[0])))&&<div className="gallery-linked-note"><Icon name="images" size={13} style={{flexShrink:0}}/>
                     <span style={{flex:'1 1 220px'}}>Esta sessão ainda não tem post na Galeria. Publicar cria o post em <strong>{projectGalleryFolder.label}</strong> com as imagens e o texto da nota, e liga os dois.</span>
                     <button type="button" className="gallery-chip" onClick={()=>publishNoteToGallery(note)}><Icon name="upload" size={11}/> Publicar na Galeria</button>
                     {(()=>{const opts=(galleryPosts||[]).filter(x=>x&&!x.deleted&&!isProjectScopedPost(x)&&String(x.folder)===String(local.galleryFolder)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
@@ -14256,14 +14256,17 @@ const bhSessionEntries=(posts,rows)=>{
     const ids=bhSessionIdsOf(p);
     if(!ids.length)return;
     const images=Array.isArray(p.images)?p.images:[];
+    const known=ids.every(id=>{const r=byId.get(id);return !r||Number.isFinite(Number(r.imageCount));});
     const counts=ids.map(id=>Math.max(0,Number(byId.get(id)&&byId.get(id).imageCount)||0));
-    const exact=ids.length>1&&counts.reduce((a,b)=>a+b,0)===images.length;
-    let offset=0;
+    const total=counts.reduce((a,b)=>a+b,0);
+    // Sessions append to the end of the post, so what comes before them is the post's own images.
+    const start=known&&total<=images.length?images.length-total:-1;
+    let offset=start;
     const mine=[];
     ids.forEach((id,i)=>{
       const r=byId.get(id);
-      const own=ids.length===1?images:exact?images.slice(offset,offset+counts[i]):null;
-      offset+=counts[i];
+      const own=start>=0?images.slice(offset,offset+counts[i]):(ids.length===1?images:null);
+      if(start>=0)offset+=counts[i];
       if(!r)return;
       const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt)||bhSessionDay(p);
       mine.push({key:String(p.id)+':'+id,post:p,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title:String(r.title||p.title||''),images:own});
@@ -14887,24 +14890,58 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   // Image edits go through the latest stored post (not the `selected`
   // snapshot) so they compose with uploads finishing in the background.
   const updPost=(postId,fn)=>setPosts(prev=>prev.map(p=>String(p.id)===String(postId)?fn({...p,images:Array.isArray(p.images)?p.images:[]}):p));
-  const [removedImg,setRemovedImg]=useState(null); // {postId,img,index,wasBanner}
+  const [removedImg,setRemovedImg]=useState(null); // {postId,items:[{img,index,wasBanner}]}
   const removedTimerRef=useRef(0);
   useEffect(()=>()=>clearTimeout(removedTimerRef.current),[]);
   // Removing also clears a banner that pointed at the removed image: the card
   // cover used to keep showing an image that was no longer in the post.
-  const removeImg=idx=>{
-    const img=selected.images[idx];
-    if(img==null)return;
-    const postId=selected.id,wasBanner=selected.bannerImage===img;
-    updPost(postId,p=>{const images=[...p.images];const at=images.indexOf(img);if(at>=0)images.splice(at,1);return {...p,images,bannerImage:p.bannerImage===img?'':p.bannerImage};});
+  const removeImgs=indices=>{
+    const list=selected.images;
+    const idxs=[...new Set(indices)].filter(i=>list[i]!=null).sort((a,b)=>a-b);
+    if(!idxs.length)return;
+    const postId=selected.id;
+    const items=idxs.map(i=>({img:list[i],index:i,wasBanner:selected.bannerImage===list[i]}));
+    updPost(postId,p=>{
+      const images=[...p.images];
+      // by position, from the end, so every index still means the image it meant
+      [...idxs].reverse().forEach(i=>{if(images[i]===list[i])images.splice(i,1);});
+      return {...p,images,bannerImage:items.some(it=>it.img===p.bannerImage)&&!images.includes(p.bannerImage)?'':p.bannerImage};
+    });
     clearTimeout(removedTimerRef.current);
-    setRemovedImg({postId,img,index:idx,wasBanner});
+    setRemovedImg({postId,items});
     removedTimerRef.current=setTimeout(()=>setRemovedImg(null),8000);
   };
+  const removeImg=idx=>removeImgs([idx]);
   const undoRemoveImg=()=>{
     const r=removedImg;if(!r)return;
-    updPost(r.postId,p=>{const images=[...p.images];images.splice(Math.min(r.index,images.length),0,r.img);return {...p,images,bannerImage:r.wasBanner?r.img:p.bannerImage};});
+    updPost(r.postId,p=>{
+      const images=[...p.images];
+      let banner=p.bannerImage;
+      [...r.items].sort((a,b)=>a.index-b.index).forEach(it=>{images.splice(Math.min(it.index,images.length),0,it.img);if(it.wasBanner)banner=it.img;});
+      return {...p,images,bannerImage:banner};
+    });
     clearTimeout(removedTimerRef.current);setRemovedImg(null);
+  };
+  // Several images at once: Ctrl/Cmd-click toggles one, Shift-click takes the range from the last one
+  // clicked; while some are ticked a plain click ticks too. Esc clears.
+  const [imgSel,setImgSel]=useState(()=>new Set());
+  const imgLastRef=useRef(null);
+  // The ticks are positions: they are dropped whenever the post's images change (reorder, remove, upload).
+  useEffect(()=>{setImgSel(new Set());imgLastRef.current=null;},[selected?.id,selected?.images]);
+  useEffect(()=>{
+    if(!imgSel.size)return;
+    const onKey=e=>{if(e.key==='Escape'){setImgSel(new Set());imgLastRef.current=null;}};
+    document.addEventListener('keydown',onKey);
+    return()=>document.removeEventListener('keydown',onKey);
+  },[imgSel.size]);
+  const pickImg=(i,e)=>{
+    if(e.shiftKey&&imgLastRef.current!=null){
+      const a=Math.min(imgLastRef.current,i),b=Math.max(imgLastRef.current,i);
+      setImgSel(prev=>{const next=new Set(e.ctrlKey||e.metaKey?prev:[]);for(let k=a;k<=b;k++)next.add(k);return next;});
+      return;
+    }
+    setImgSel(prev=>{const next=new Set(prev);if(next.has(i))next.delete(i);else next.add(i);return next;});
+    imgLastRef.current=i;
   };
   const moveImg=(from,to)=>{
     if(from===to||to<0||to>=selected.images.length)return;
@@ -15056,7 +15093,8 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
   const [selIds,setSelIds]=useState(()=>new Set());
   const [mergeDraft,setMergeDraft]=useState(null); // {ids:[],keepId,name}
   const multiDragRef=useRef(false);
-  const mergeable=p=>!!p&&!p.deleted&&!p.linkedTask&&!isProjectScopedPost(p);
+  // A post a task is linked to can be merged too: the task's link follows the surviving post (handlePostsMerged).
+  const mergeable=p=>!!p&&!p.deleted&&!isProjectScopedPost(p);
   const lastSelRef=useRef(null);
   // Shift (range=true) ticks every card between the last one ticked and this one,
   // in the order they are shown, whatever the sorting.
@@ -15097,7 +15135,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     const removed=new Set(r.removedIds),all=new Set([r.keepId,...r.removedIds]);
     // The posts as they are now, for Ctrl+Z.
     const before=[];
-    (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:(({taskFolder,...rest})=>rest)(p)});}); // the stored post, without the view's task folder
+    (posts||[]).forEach((p,index)=>{if(p&&all.has(String(p.id)))before.push({index,post:(({taskFolder,linkedTask,...rest})=>rest)(p)});}); // the stored post, without the view's task folder and task badge
     _galleryMergeUndo.push({keepId:r.keepId,removedIds:r.removedIds,before,after:{title:name,images:r.images,content:r.content}});
     if(_galleryMergeUndo.length>20)_galleryMergeUndo.shift();
     // United into the chosen post: the others are gone (no trash); Ctrl+Z restores them.
@@ -15281,10 +15319,18 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
         <textarea value={selected.content} onChange={e=>upd('content',e.target.value)} placeholder="Análise, insights, observações..."
           style={{width:'100%',border:'1px solid var(--field-border)',borderRadius:10,padding:'16px 20px',fontSize:'.92rem',outline:'none',resize:'vertical',minHeight:160,fontFamily:'Alegreya Sans,sans-serif',lineHeight:1.8,color:'var(--text)',backgroundColor:'var(--bg)',marginBottom:24}}/>
         <ImgClipBar onPaste={srcs=>updPost(selected.id,p=>{const images=bhAppendImages(p.images,srcs);return{...p,images,bannerImage:p.bannerImage||images.find(x=>!isVideoSrc(x))||''};})}/>
+        {imgSel.size>0&&<div className="gallery-linked-note" role="status" style={{marginBottom:10}}>
+          <Icon name="check" size={13} style={{flexShrink:0}}/>
+          <span style={{flex:'1 1 160px'}}>{imgSel.size} {imgSel.size===1?'imagem marcada':'imagens marcadas'}. Ctrl ou Shift + clique marca mais.</span>
+          <button type="button" className="gallery-chip" onClick={()=>setImgSel(new Set(selected.images.map((_,k)=>k)))}>Marcar todas</button>
+          <button type="button" className="gallery-chip" onClick={()=>{removeImgs([...imgSel]);setImgSel(new Set());imgLastRef.current=null;}}><Icon name="trash-2" size={11}/> Remover</button>
+          <button type="button" className="gallery-chip" onClick={()=>{setImgSel(new Set());imgLastRef.current=null;}}>Limpar</button>
+        </div>}
         <div className="cv-grid" style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,1fr)':'repeat(4,1fr)',gap:isMobile?10:14}}>
           {selected.images.map((img,i,list)=>(
             <div key={imgKey(img,i,list)} className="post-img-tile" {...imgReorderDragProps('gallery',i,moveImg)}
-              style={{position:'relative',borderRadius:10,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)',cursor:isVideoSrc(img)?'default':'zoom-in'}} onClick={()=>!isVideoSrc(img)&&setLightbox(lightboxPosOf(i))} {...keyActivate(()=>setLightbox(lightboxPosOf(i)),'Ampliar imagem '+(i+1),!isVideoSrc(img))}>
+              style={{position:'relative',borderRadius:10,overflow:'hidden',aspectRatio:'16/9',background:'var(--bg)',cursor:imgSel.size?'pointer':isVideoSrc(img)?'default':'zoom-in',outline:imgSel.has(i)?'3px solid var(--session-accent,#c9a26b)':'none',outlineOffset:-3}}
+              onClick={e=>{if(e.ctrlKey||e.metaKey||e.shiftKey||imgSel.size>0){e.preventDefault();pickImg(i,e);return;}if(!isVideoSrc(img))setLightbox(lightboxPosOf(i));}} {...keyActivate(()=>{if(imgSel.size>0)pickImg(i,{shiftKey:false});else setLightbox(lightboxPosOf(i));},'Ampliar imagem '+(i+1),!isVideoSrc(img)||imgSel.size>0)}>
               {isVideoSrc(img)
                 ?<Vid src={img} controls playsInline style={{width:'100%',height:'100%',objectFit:'contain',display:'block',borderRadius:10,background:'#000'}}/>
                 :<Img src={img} priority={i<(isMobile?6:9)} className="img-zoom-sm" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000'}}/>
@@ -15303,7 +15349,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           </div>
           {removedImg&&String(removedImg.postId)===String(selected.id)&&(
             <div className="post-img-undo" role="status">
-              <span>Imagem removida.</span>
+              <span>{removedImg.items&&removedImg.items.length>1?removedImg.items.length+' imagens removidas.':'Imagem removida.'}</span>
               <button type="button" onClick={undoRemoveImg}>Desfazer</button>
             </div>
           )}
@@ -20665,7 +20711,12 @@ const App=()=>{
       }
       const linkId=newPost?newPost.id:linkPost?String(linkPost.id):null;
       const sessionFolder=project.galleryFolder?String(project.galleryFolder):'';
-      const sessionPostId=sessionFolder&&(linkId||taskAlreadyLinked)?'session-post-'+session.id:null;
+      // The session's images go INTO the post the task is linked to (or is being linked to), added to
+      // what it holds, so a task keeps one post for all its sessions. Only when that post is not
+      // available (gone, trashed) the session gets a post of its own, as before.
+      const targetId=sessionFolder&&(linkId||taskAlreadyLinked)?(linkId||String(currentMini.galleryPostId)):null;
+      const targetPost=targetId?(newPost&&String(newPost.id)===targetId?newPost:galleryPosts.find(p=>p&&!p.deleted&&String(p.id)===targetId)||null):null;
+      const sessionPostId=targetId&&!targetPost?'session-post-'+session.id:null;
       const note={id:noteId,title:session.title||'Sessão',content:session.note||'',
         images:sessionPostId?[]:images,createdAt:new Date(day+'T12:00:00').toLocaleDateString('pt-BR'),date:day,sessionIds:[String(session.id)],
         ...(sessionPostId?{galleryPostId:sessionPostId}:{})};
@@ -20680,7 +20731,7 @@ const App=()=>{
       // still counts for a project that links only a post or a section of that
       // folder (pomoLinkedExtra reads the session's post): file it under the
       // post its task is linked to.
-      const filedPostId=session.targetType==='project'?null:(linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null)||sessionPostId);
+      const filedPostId=session.targetType==='project'?null:(sessionPostId||linkId||(currentMini&&currentMini.galleryPostId!=null&&currentMini.galleryPostId!==''?String(currentMini.galleryPostId):null));
       setProjects(prev=>prev.map(p=>{
         if(!p||String(p.id)!==projectId)return p;
         let projectTasks=p.projectTasks||[];const miniProjects=[...(p.miniProjects||[])];
@@ -20692,7 +20743,22 @@ const App=()=>{
           ...(link?{galleryPostId:linkId,postImagesSeparate:true}:{})};
         return{...p,projectTasks,miniProjects};
       }));
-      if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
+      if(targetPost){
+        const sk=session.targetType==='project'?'none':(session.targetKey||'none');
+        const addSession=post=>{
+          const ids=bhSessionIdsOf(post);
+          if(ids.includes(String(session.id)))return post; // a retry: already added
+          const imgs=[...(Array.isArray(post.images)?post.images:[]),...images];
+          return{...post,images:imgs,bannerImage:post.bannerImage||imgs.find(x=>!isVideoSrc(x))||'',
+            content:[post.content,session.note||''].filter(Boolean).join('\n\n— — —\n\n'),
+            sourceSessionId:post.sourceSessionId||session.id,sourceSessionIds:[...ids,String(session.id)],
+            sourceTargetKey:post.sourceTargetKey||sk,sourceTargetKeys:Array.from(new Set([...(Array.isArray(post.sourceTargetKeys)?post.sourceTargetKeys:[]),sk])),
+            sourceTargetType:post.sourceTargetType||'other',sourceSeasonId:post.sourceSeasonId||session.seasonId||rankSeasonForDate().id,
+            taskIds:Array.from(new Set([...(Array.isArray(post.taskIds)?post.taskIds:[]),taskId].map(String))),lastSessionAt:session.endedAt||new Date().toISOString()};
+        };
+        if(newPost)setGalleryPosts(prev=>[addSession(newPost),...(prev||[])]);
+        else setGalleryPosts(prev=>(prev||[]).map(x=>x&&String(x.id)===targetId?addSession(x):x));
+      }else if(newPost)setGalleryPosts(prev=>[newPost,...prev]);
       if(sessionPost){
         setGalleryPosts(prev=>(prev||[]).some(x=>x&&String(x.id)===sessionPostId)?prev:[sessionPost,...(prev||[])]);
         const sec=project.gallerySection?String(project.gallerySection):(session.sectionId?String(session.sectionId):'');
@@ -20755,7 +20821,8 @@ const App=()=>{
     if(destination==='gallery'&&!existing&&session.sectionId&&folderId)placePostInSection(folderId,postId,session.sectionId);
     setGalleryPosts(prev=>{
       const list=Array.isArray(prev)?prev:[];
-      if(!existing)return[newPost,...list.filter(p=>String(p.sourceSessionId)!==String(session.id)&&!(Array.isArray(p.sourceSessionIds)?p.sourceSessionIds:[]).map(String).includes(String(session.id)))];
+      // Only a post this session owns alone is replaced (a retry); a post shared with other sessions (a task's post) stays.
+      if(!existing)return[newPost,...list.filter(p=>{const own=bhSessionIdsOf(p);return !(own.length>0&&own.every(x=>x===String(session.id)));})];
       return list.map(post=>{
         if(String(post.id)!==String(existing.id))return post;
         const sourceSessionIds=Array.from(new Set([post.sourceSessionId,...(Array.isArray(post.sourceSessionIds)?post.sourceSessionIds:[]),session.id].filter(Boolean).map(String)));
@@ -21704,10 +21771,21 @@ const App=()=>{
     });
     setProjects(prev=>prev.map(p=>{
       if(!p)return p;
+      let out=p;
       const r=follow(p.galleryPost,p.galleryPostMergedFrom,keepId);
-      if(!r.changed)return p;
-      const out={...p,galleryPost:r.value,galleryPostMergedFrom:r.list};
-      if(!r.list.length)delete out.galleryPostMergedFrom;
+      if(r.changed){out={...p,galleryPost:r.value,galleryPostMergedFrom:r.list};if(!r.list.length)delete out.galleryPostMergedFrom;}
+      // Every task (subtasks share their parent's post, trashed tasks come back with their link) that
+      // pointed at a removed post follows it to the surviving one; undo walks the same list back.
+      const followMini=m=>{
+        if(!m)return m;
+        const t=follow(m.galleryPostId,m.galleryPostMergedFrom,keepId);
+        if(!t.changed)return m;
+        const nm={...m,galleryPostId:t.value,galleryPostMergedFrom:t.list};
+        if(!t.list.length)delete nm.galleryPostMergedFrom;
+        return nm;
+      };
+      if(Array.isArray(p.miniProjects)&&p.miniProjects.some(m=>followMini(m)!==m))out={...out,miniProjects:p.miniProjects.map(followMini)};
+      if(Array.isArray(p.taskTrash)&&p.taskTrash.some(e=>e&&followMini(e.mini)!==e.mini))out={...out,taskTrash:p.taskTrash.map(e=>e&&e.mini?{...e,mini:followMini(e.mini)}:e)};
       return out;
     }));
   },[]);
