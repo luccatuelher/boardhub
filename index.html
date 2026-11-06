@@ -10707,7 +10707,7 @@ const NarrativeBoard=({cards,onAdd,onEdit,onMove,onRemove})=>{
   return(
     <div style={{display:'flex',flexDirection:'column',gap:10}}>
       <div><button className="btn btn-outline" style={{padding:'4px 12px',fontSize:'.78rem'}} onClick={onAdd}><Icon name="plus" size={12}/> Nova nota</button></div>
-      <div style={{overflow:'auto',maxHeight:'70vh',border:'1px dashed var(--border)',borderRadius:10,background:'var(--surface)'}}>
+      <div style={{overflow:'auto',maxHeight:15*150+24,border:'1px dashed var(--border)',borderRadius:10,background:'var(--surface)'}}>
         <div style={{position:'relative',width,height}}>
           {cards.length===0&&<span style={{position:'absolute',left:16,top:14,fontSize:'.8rem',color:'var(--muted)'}}>Crie notas e arraste para organizar as batidas.</span>}
           {cards.map(c=>{const p=pos(c),active=drag&&drag.id===c.id;return(
@@ -10866,8 +10866,6 @@ const StoryPanel=({narrative,onChange})=>{
           onMove={(id,x,y)=>onChange(cur=>bhNarrativeBoardMove(cur,id,x,y))}
           onRemove={id=>onChange(cur=>bhNarrativeBoardRemove(cur,id))}/>
       </NarrativeSection>
-      <NarrativeSection title="Roteiro final" sub="O texto definitivo.">
-        <NarrativeTextarea label="Roteiro final" rows={16} value={n.script} onChange={v=>onChange(cur=>bhNarrativeSetField(cur,'script',v))} placeholder="Roteiro final…"/></NarrativeSection>
     </div>
   );
 };
