@@ -132,3 +132,18 @@ test('a session takes the subtask whose note holds it, over the row taskId', () 
   assert.deepEqual(e.map(x => x.taskId), ['v1', 'v2']);
   assert.equal(bhSessionEntries([post('A', '2026-11-03', { sourceSessionId: 's9' })], [row('s9', '2026-11-03', '10:00', { taskId: 'v1' })])[0].taskId, 'v1');
 });
+
+test('finished sessions with no gallery post still show; pending and repair rows do not', () => {
+  const rows = [
+    row('s9', '2026-11-04', '10:00', { status: 'saved', title: 'Solo' }),
+    row('s10', '2026-11-04', '11:00', { status: 'pending' }),
+    row('rp-x', '2026-11-04', '12:00', { status: 'saved' }),
+    row('s1', '2026-11-03', '09:00', { status: 'saved' }),
+  ];
+  const entries = bhSessionEntries([post('A', '2026-11-03', { sourceSessionIds: ['s1'] })], rows, new Map());
+  assert.deepEqual(entries.map(e => e.sid).sort(), ['s1', 's9']);
+  const solo = entries.find(e => e.sid === 's9');
+  assert.equal(solo.day, '2026-11-04');
+  assert.equal(solo.post.__noPost, true);
+  assert.equal(solo.secs, 3600);
+});

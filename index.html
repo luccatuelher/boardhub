@@ -2758,7 +2758,7 @@ const saveIdentity = id => { try { localStorage.setItem(ID_KEY, JSON.stringify(i
 // - SEED DATA -
 // Dynamic dates relative to today so new users see relevant timelines
 const _seedDate=(daysOffset)=>{const d=new Date();d.setDate(d.getDate()+daysOffset);return localDateISO(d);};
-const _seedFmt=(daysOffset)=>{const d=new Date();d.setDate(d.getDate()+daysOffset);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','');};
+const _seedFmt=(daysOffset)=>{const d=new Date();d.setDate(d.getDate()+daysOffset);return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.','');};
 const SEED = {
   projects:[
     {id:1,type:'work',title:"Comercial Nike Summer",client:"Wieden+Kennedy",status:"Em Andamento",startDate:_seedDate(-14),deadline:_seedDate(21),deleted:false,
@@ -7893,7 +7893,7 @@ const pomoFmtRemaining = function(secs) {
 const pomoFmtDay = function(dateStr) {
   try {
     var d = new Date(dateStr + 'T12:00:00');
-    return d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' });
+    return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
   } catch(e) { return dateStr; }
 };
 
@@ -8391,7 +8391,7 @@ const RankSessionHistory=({rank,onClose,onOpenPost,onResumeSession,galleryPosts=
     dayGroups.length===0?<div className="rank-history-empty"><Icon name="timer" size={24}/><span>As sessões concluídas vão aparecer aqui.</span></div>:
       <>
         <div className="rank-session-groups">{visibleGroups.map(group=><section className="rank-session-group" key={group.key}>
-          <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>{showPoints&&decayShown(group.key)>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{decayShown(group.key).toLocaleString('pt-BR')} pts</span>}</div>
+          <div className="rank-session-day"><span>{Number.isNaN(group.date.getTime())?'Data indisponível':group.date.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</span>{showPoints&&decayShown(group.key)>0&&<span className="rank-session-decay" title="Perda por foco insuficiente neste dia útil"><Icon name="alert-triangle" size={11}/> Decay −{decayShown(group.key).toLocaleString('pt-BR')} pts</span>}</div>
           {group.rows.length===0&&<div className="rank-session-decay-empty">Nenhuma sessão neste dia.</div>}
           {group.rows.map(row=>{const taskNote=row.taskNoteId?bhFindTaskNote(projects,row.taskNoteId):null;const postId=row.projectPostId||row.galleryPostId;const post=postId?(galleryPosts||[]).find(p=>p&&!p.deleted&&String(p.id)===String(postId)):null;const status=statusInfo(row,post,taskNote);const images=taskNote?bhNoteMedia(taskNote.note,(galleryPosts||[]).find(p=>p&&taskNote.note.galleryPostId!=null&&String(p.id)===String(taskNote.note.galleryPostId))):Array.isArray(post?.images)?post.images:[];const thumb=(taskNote?null:post?.bannerImage)||images[0]||null;const unregistered=!post&&!taskNote&&bhSessionUnregistered(row)&&!!onResumeSession;const opens=!!(post||taskNote)||unregistered;const open=()=>{if(!opens)return;onClose();if(unregistered)onResumeSession(row);else onOpenPost?.(row,taskNote?null:post);};return <div className={'rank-history-row rank-session-row '+(opens?'is-linked':'')} key={row.id} onClick={open} {...keyActivate(open,taskNote?'Abrir nota '+(taskNote.note.title||row.title||'da sessão'):post?'Abrir post '+(post.title||row.title||'da sessão'):unregistered?'Registrar sessão '+(row.title||row.targetLabel||''):undefined,opens)}>
             <div className="rank-session-date"><strong>{new Date(row.endedAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
@@ -8419,8 +8419,8 @@ const RankProfilePanel=({pomoData,isMobile=false,isSmall=false,onOpenPost,onResu
   // (the same per-day totals the decay and the streak read), not a session count.
   const seasonStart=rankSeasonStart(season.id),seasonEnd=rankSeasonEnd(season.id);
   const seasonFocusSecs=useMemo(()=>Object.entries(pomoData?.days||{}).reduce((sum,[key,secs])=>/^\d{4}-\d{2}-\d{2}$/.test(key)&&key>=seasonStart&&key<=seasonEnd?sum+Math.max(0,Number(secs)||0):sum,0),[pomoData?.days,seasonStart,seasonEnd]);
-  const seasonDateShort=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-  const seasonDateLong=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'});
+  const seasonDateShort=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const seasonDateLong=key=>rankDateFromKey(key).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const todayKey=rankDateKey(),todaySecs=Number(pomoData?.days?.[todayKey]||0),weekday=rankDateFromKey(todayKey).getDay();
   const projectedLoss=(weekday===0||weekday===6)?0:Math.min(rank.points,rankDecayForSeconds(todaySecs,todayKey));
   const projectedPosition=rankPosition(Math.max(0,rank.points-projectedLoss));
@@ -8791,7 +8791,7 @@ const RankStatusOverlay=({notice,onDone})=>{
       <span>{seasonLabel}</span>
       <h2 id="rank-status-title">{isSeason?'Temporada encerrada':isRefund?'Pontos devolvidos':notice.relegated?'Rebaixamento por decay':'Decay aplicado'}</h2>
       {isRefund?<><div className="rank-status-loss" style={{color:'#3f9d63'}}>+{Number(notice.refund||0).toLocaleString('pt-BR')} pts</div><p>Alguns dias foram cobrados com decay antes de o foco registrado em outro dispositivo chegar. Os pontos cobrados a mais foram devolvidos{position.rankIndex>(notice.previousPosition?.rankIndex??position.rankIndex)||position.division>(notice.previousPosition?.division??position.division)?<>. Seu nível agora é <strong>{position.rankName} {position.divisionRoman}</strong></>:null}.</p>
-        {Array.isArray(notice.days)&&notice.days.length>0&&(()=>{const back=notice.days.filter(r=>r.back>0),adjust=notice.days.reduce((sum,r)=>r.back<0?sum+r.back:sum,0);const row={display:'flex',justifyContent:'space-between',gap:10,fontSize:'.76rem',padding:'4px 8px',borderRadius:6,background:'rgba(63,157,99,.08)'};return <div className="rank-refund-list" style={{width:'100%',maxHeight:180,overflowY:'auto',display:'grid',gap:4,margin:'4px 0 2px'}}>{back.map(r=><div key={r.day} style={row}><span>{rankDateFromKey(r.day).toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})} · cobrado −{Number(r.charged||0).toLocaleString('pt-BR')}</span><strong style={{color:'#3f9d63'}}>+{Number(r.back).toLocaleString('pt-BR')}</strong></div>)}{adjust<0&&<div style={{...row,background:'rgba(192,86,43,.08)'}}><span>Dias seguintes que o saldo devolvido passa a cobrir</span><strong style={{color:'#c0562b'}}>−{Math.abs(adjust).toLocaleString('pt-BR')}</strong></div>}</div>;})()}</>:
+        {Array.isArray(notice.days)&&notice.days.length>0&&(()=>{const back=notice.days.filter(r=>r.back>0),adjust=notice.days.reduce((sum,r)=>r.back<0?sum+r.back:sum,0);const row={display:'flex',justifyContent:'space-between',gap:10,fontSize:'.76rem',padding:'4px 8px',borderRadius:6,background:'rgba(63,157,99,.08)'};return <div className="rank-refund-list" style={{width:'100%',maxHeight:180,overflowY:'auto',display:'grid',gap:4,margin:'4px 0 2px'}}>{back.map(r=><div key={r.day} style={row}><span>{rankDateFromKey(r.day).toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'})} · cobrado −{Number(r.charged||0).toLocaleString('pt-BR')}</span><strong style={{color:'#3f9d63'}}>+{Number(r.back).toLocaleString('pt-BR')}</strong></div>)}{adjust<0&&<div style={{...row,background:'rgba(192,86,43,.08)'}}><span>Dias seguintes que o saldo devolvido passa a cobrir</span><strong style={{color:'#c0562b'}}>−{Math.abs(adjust).toLocaleString('pt-BR')}</strong></div>}</div>;})()}</>:
       isSeason
         ?<p>Você terminou em <strong>{position.rankName} {position.divisionRoman}</strong> com {Number(notice.points||0).toLocaleString('pt-BR')} pontos. A {rankSeasonDisplay(notice.nextSeasonId)} começa agora com a pontuação zerada.</p>
         :<><div className="rank-status-loss"><Icon name="alert-triangle" size={13}/> −{Number(notice.loss||0).toLocaleString('pt-BR')} pts</div><p>{notice.relegated?<>Seu novo nível é <strong>{position.rankName} {position.divisionRoman}</strong>. </>:null}O decay considera apenas dias úteis e nunca reduz a pontuação abaixo de zero.</p></>}
@@ -10159,7 +10159,7 @@ const Dashboard=React.memo(({projects,notes,mentors,tasks,setTasks,setView,setNo
       <div className="dashboard-header" style={{marginBottom:isMobile?10:isSmall?8:12,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between',gap:isMobile?9:18,flexDirection:isMobile?'column':'row'}}>
         <div style={{minWidth:0,width:isMobile?'100%':'auto',flex:1}}>
           <h1 className="serif stave-title" style={{fontSize:isMobile?'1.9rem':isSmall?'2rem':'2.5rem',fontWeight:300,letterSpacing:'-0.02em',marginBottom:2,lineHeight:1.1,overflow:'visible'}}><StaveTitleNotes fig="big" w={66} style={{top:'calc(50% + 4px)'}}/>{greeting}{streakDays>2?<>, <em style={{color:'var(--muted)'}}>{'dia '+streakDays+' de foco.'}</em></>:<>, <em>Artista.</em></>}</h1>
-          <p style={{color:'var(--muted)',fontSize:isSmall?'.76rem':'.82rem'}}>{new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
+          <p style={{color:'var(--muted)',fontSize:isSmall?'.76rem':'.82rem'}}>{new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})}</p>
         </div>
       </div>
       {!rankIsPaused(pomoData?.rank)&&<RankProfilePanel pomoData={pomoData} isMobile={isMobile} isSmall={isSmall} onOpenPost={onOpenSessionPost} onResumeSession={onResumeSession} galleryPosts={galleryPosts} projects={projects}/>}
@@ -11888,14 +11888,14 @@ const fmtBRL=v=>{const n=Number(v);if(!n||isNaN(n))return null;return n.toLocale
 const deadlineInfo=deadline=>{
   if(!deadline)return null;
   const diff=daysBetween(todayISO(),deadline);
-  const date=new Date(deadline+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','');
+  const date=new Date(deadline+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.','');
   if(diff<0)return{label:'atrasado '+Math.abs(diff)+'d',date,color:'var(--danger-fg)',bg:'var(--danger-bg)',urgent:true};
   if(diff===0)return{label:'hoje!',date,color:'var(--danger-fg)',bg:'var(--danger-bg)',urgent:true};
   if(diff===1)return{label:'amanhã',date,color:'var(--warn-fg)',bg:'var(--warn-bg)',urgent:true};
   if(diff<=7)return{label:'em '+diff+'d',date,color:'var(--warn-fg)',bg:'var(--warn-bg)',urgent:false};
   return{label:'em '+diff+'d',date,color:'var(--muted)',bg:'var(--bg)',urgent:false};
 };
-const fmtShort=d=>{if(!d)return'';const dt=new Date(d+'T12:00:00');return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});};
+const fmtShort=d=>{if(!d)return'';const dt=new Date(d+'T12:00:00');return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});};
 
 // "Esta semana" per project, remembered across visits AND app restarts (it
 // lived in sessionStorage, which forgets on every relaunch of the app).
@@ -12034,9 +12034,9 @@ const GanttTimeline=({tasks,onUpdateTasks,projectStart,projectEnd,onTaskClick,on
   const addTask=(parentId=null)=>{
     if(!newTaskName.trim())return;
     const id=bhNewId();
-    // When "this week" view is active, default to today so the task is visible immediately.
-    let s=thisWeek?today:(projectStart||today);
-    let e=thisWeek?addDays(today,7):(projectEnd||addDays(today,7));
+    // New tasks always start today and are due in 7 days (not the project's own dates).
+    let s=today;
+    let e=addDays(today,7);
     // A sub-task starts with its parent's dates.
     const parent=parentId!=null?tasks.find(x=>x&&String(x.id)===String(parentId)&&!bhIsChildTask(x,new Set(tasks.map(y=>y&&String(y.id))))):null;
     if(parent){s=parent.startDate||s;e=parent.dueDate||e;}
@@ -12627,7 +12627,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const n=((local.miniProjects||[]).filter(m=>String(m.parentId||'')===String(parentId)).length)+1;
     const id=bhNewId(),title='Rodada '+n;
     const mini={id,title,status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR'),parentId:parent.id,...(parent.galleryPostId!=null&&parent.galleryPostId!==''?{galleryPostId:parent.galleryPostId,postImagesSeparate:true}:null)};
-    const pt={id,text:title,status:'Pendente',startDate:pt0.startDate||local.startDate||todayISO(),dueDate:pt0.dueDate||local.deadline||addDays(todayISO(),7),notes:'',parentId:parent.id};
+    const pt={id,text:title,status:'Pendente',startDate:pt0.startDate||todayISO(),dueDate:pt0.dueDate||addDays(todayISO(),7),notes:'',parentId:parent.id};
     edit(prev=>({...prev,miniProjects:bhInsertChild(prev.miniProjects,parent.id,mini),projectTasks:bhInsertChild(prev.projectTasks,parent.id,pt)}));
     setActiveMiniId(id);setActiveInnerNoteId(null);
     setExpandedMiniIds(x=>{const s2=new Set(x);s2.add(parent.id);s2.add(id);return s2;});
@@ -12636,7 +12636,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
     const id=bhNewId();
     const n={id,title:'Nova Tarefa',status:'Pendente',notes:'',frames:[],innerNotes:[],createdAt:new Date().toLocaleDateString('pt-BR')};
     const today0=todayISO();
-    const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:today0,dueDate:local.deadline&&local.deadline>=today0?local.deadline:addDays(today0,7),notes:''};
+    const pt={id,text:'Nova Tarefa',status:'Pendente',startDate:today0,dueDate:addDays(today0,7),notes:''};
     edit(prev=>({...prev,miniProjects:[n,...(prev.miniProjects||[])],projectTasks:[pt,...(prev.projectTasks||[])]}));
     setActiveMiniId(id);
   };
@@ -12821,7 +12821,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
   };
   const noteDateLabel=note=>{
     const d=note?.date?new Date(String(note.date).slice(0,10)+'T12:00:00'):null;
-    return d&&!Number.isNaN(d.getTime())?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.',''):(note?.createdAt||'');
+    return d&&!Number.isNaN(d.getTime())?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.',''):(note?.createdAt||'');
   };
   const [activeInnerNoteId,setActiveInnerNoteId]=useState(()=>openTaskTarget?.noteId??null);
   // An open request for this project while its page is already mounted (the
@@ -13388,7 +13388,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                 {(local.taskTrash||[]).length===0&&<div style={{fontSize:'.8rem',color:'var(--muted)',padding:'12px 4px',textAlign:'center'}}>A lixeira está vazia.</div>}
                 {(local.taskTrash||[]).map(entry=>{
                   const task=entry.task||entry;
-                  const when=entry.deletedAt?new Date(entry.deletedAt).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.',''):'';
+                  const when=entry.deletedAt?new Date(entry.deletedAt).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.',''):'';
                   return <div className="task-trash-row" key={entry.id||task.id}>
                     <Icon name="archive" size={13} style={{color:'var(--muted)',flexShrink:0}}/>
                     <div><strong>{task.text||task.title||'Tarefa sem título'}</strong><span>{when?'Excluída em '+when:'Excluída'}</span></div>
@@ -13777,7 +13777,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                   :<h3 style={{fontFamily:'Cormorant Garamond,serif',fontSize:'1.5rem',fontWeight:500,margin:0,lineHeight:1.2,color:'var(--text)'}}>{galleryPopup.title}</h3>}
                 {galleryPopupEditing
                   ?<BhDateInput aria-label="Data do post" value={(galleryPopup.date||'').slice(0,10)} onChange={e=>updateGalleryPopup('date',e.target.value)} style={{marginTop:7,border:'1px solid var(--field-border)',borderRadius:7,padding:'4px 8px',fontSize:'.74rem',color:'var(--text)',background:'var(--bg)',outline:'none'}}/>
-                  :<div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:3}}>{(()=>{try{return new Date(galleryPopup.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});}catch{return galleryPopup.date;}})()}</div>}
+                  :<div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:3}}>{(()=>{try{return new Date(galleryPopup.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});}catch{return galleryPopup.date;}})()}</div>}
               </div>
               <div style={{display:'flex',gap:6,flexShrink:0}}>
                 <button onClick={deleteGalleryPopup} className="btn btn-danger" title="Excluir post" style={{padding:'6px 10px'}}><Icon name="trash-2" size={13}/>{!isMobile&&'Excluir'}</button>
@@ -14288,6 +14288,16 @@ const bhSessionEntries=(posts,rows,taskBySession)=>{
     if(!mine.length)mine.push({key:String(p.id)+':'+ids[0],post:p,sid:ids[0],day:bhSessionDay(p),endedAt:'',secs:0,title:String(p.title||''),images:images});
     out.push(...mine);
   });
+  // Every finished session shows, also when no gallery post carries it (a stand-in post keeps the card shape).
+  const used=new Set(out.map(e=>String(e.sid)));
+  (Array.isArray(rows)?rows:[]).forEach(r=>{
+    if(!r||r.id==null||r.status==='pending'||used.has(String(r.id))||String(r.id).startsWith('rp-'))return;
+    const id=String(r.id);
+    const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt);
+    const title=String(r.title||r.targetLabel||'Sessão');
+    const images=Array.isArray(r.images)?r.images.filter(x=>typeof x==='string'&&x):[];
+    out.push({key:'s:'+id,post:{id:'session-'+id,title,date:day,content:String(r.note||''),images,deleted:false,__noPost:true},sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title,taskId:taskOf(id,r),images});
+  });
   return out;
 };
 const bhSessionFilter=(entries,{from='',to='',query=''}={})=>{
@@ -14308,10 +14318,10 @@ const bhDailyLabel=(mode,key)=>{
   if(mode==='month')return d.toLocaleString('pt-BR',{month:'long',year:'numeric'});
   if(mode==='week'){
     const end=new Date(bhIsoShift(key,{days:6})+'T12:00:00');
-    const f=x=>x.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');
-    return 'Semana de '+f(d)+' a '+f(end)+' de '+end.getFullYear();
+    const f=x=>x.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\./g,'');
+    return 'Semana de '+f(d)+' a '+f(end);
   }
-  if(mode==='day')return d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  if(mode==='day')return d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});
   return '';
 };
 // Groups -> days -> cards. Week mode has one "day" per weekday that has sessions (newest day first unless the order is "oldest"),
@@ -14344,7 +14354,7 @@ const bhDailyGroups=(entries,mode,order,meta)=>{
     if(mode==='week'&&k!=='nodate'){
       const byDay=new Map();
       cards.forEach(c=>{if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(c);});
-      days=[...byDay.keys()].sort((a,b)=>asc?a.localeCompare(b):b.localeCompare(a)).map(d=>({key:d,label:new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'}),cards:byCategory(byDay.get(d))}));
+      days=[...byDay.keys()].sort((a,b)=>asc?a.localeCompare(b):b.localeCompare(a)).map(d=>({key:d,label:new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}),cards:byCategory(byDay.get(d))}));
     }else days=[{key:'all',label:'',cards:byCategory(cards)}];
     return{key:k,label:mode==='flat'?'':bhDailyLabel(mode,k),days};
   });
@@ -14406,7 +14416,7 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
     return task||bhStripPostDate(card.folded?card.post.title:card.title)||card.post.title||'Sem título';
   };
   useEffect(()=>{if(firstRun.current){firstRun.current=false;return;}setPage(0);},[preset,custom,query,mode,order]);
-  const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace(/\./g,'');}catch{return day;}};
+  const dayLabel=day=>{try{const d=new Date(day+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\./g,'');}catch{return day;}};
   const fmtTime=iso=>{const d=new Date(iso);return iso&&!isNaN(d)?d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';};
   const renderCard=card=>{
     const post=card.post;
@@ -14416,8 +14426,9 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
     const src=own&&own.length?(own.find(x=>!isVideoSrc(x))||own[0]):(postImages.length?(post.bannerImage||postImages[0]):null);
     const info=meta.get(String(post.id));
     const time=card.folded?'':fmtTime(card.endedAt);
-    return <div key={card.key} className="card" style={{overflow:'hidden',cursor:'pointer',position:'relative'}} onClick={()=>onOpen(post)}
-      {...keyActivate(()=>onOpen(post),'Abrir post '+(post.title||''),true)}>
+    const open=()=>{if(!post.__noPost)onOpen(post);};
+    return <div key={card.key} className="card" style={{overflow:'hidden',cursor:post.__noPost?'default':'pointer',position:'relative'}} onClick={open}
+      {...(post.__noPost?{}:keyActivate(open,'Abrir post '+(post.title||''),true))}>
       <div className="cover-wrap" style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
         {src==null?<Icon name="image" size={22} style={{opacity:.2}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
@@ -14440,9 +14451,9 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
           {BH_SESSION_PRESETS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
         </select>
         {preset==='custom'&&<>
-          <input type="date" value={custom.from} max={custom.to||today} onChange={e=>setCustom(c=>({...c,from:e.target.value}))} aria-label="Início do período" className="gallery-sort-select"/>
+          <BhDateInput value={custom.from} onChange={e=>setCustom(c=>({...c,from:e.target.value}))} aria-label="Início do período" className="gallery-sort-select"/>
           <span style={{color:'var(--muted)',fontSize:'.75rem'}}>até</span>
-          <input type="date" value={custom.to} min={custom.from||undefined} max={today} onChange={e=>setCustom(c=>({...c,to:e.target.value}))} aria-label="Fim do período" className="gallery-sort-select"/>
+          <BhDateInput value={custom.to} onChange={e=>setCustom(c=>({...c,to:e.target.value}))} aria-label="Fim do período" className="gallery-sort-select"/>
         </>}
         <label className="gallery-search">
           <Icon name="search" size={12}/>
@@ -14997,7 +15008,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
     setPosts(p=>p.filter(x=>String(x.id)!==String(id)));}};
 
   const clearGalleryDragMarks=()=>document.querySelectorAll('.drag-over,.drag-over-left,.drag-before,.drag-after').forEach(el=>el.classList.remove('drag-over','drag-over-left','drag-before','drag-after'));
-  const formatPostDate=date=>{try{const d=new Date(String(date||'').slice(0,10)+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace('.','');}catch{return date||'';}};
+  const formatPostDate=date=>{try{const d=new Date(String(date||'').slice(0,10)+'T12:00:00');return isNaN(d)?'Sem data':d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.','');}catch{return date||'';}};
   // One card for every browse mode. `manual` adds the drag behaviour; trash
   // mode adds restore/delete and disables opening.
   const cardDropSide=e=>{const r=e.currentTarget.getBoundingClientRect();return e.clientX<r.left+r.width/2?'before':'after';};
@@ -19447,7 +19458,7 @@ const SyncHub=React.memo(({appState,onImport,onApplyMediaMap,onClearSave,fbUser,
       {onSetRanksEnabled&&(()=>{
         const rank=rankNormalize(appState?.pomoData?.rank);
         const pos=rankPosition(rank.points);
-        const since=rank.paused?.since?new Date(rank.paused.since+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).replace('.',''):null;
+        const since=rank.paused?.since?new Date(rank.paused.since+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace('.',''):null;
         return(
         <div className="card" style={{padding:isMobile?16:18,marginBottom:10}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
