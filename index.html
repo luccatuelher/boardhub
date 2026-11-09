@@ -14259,6 +14259,16 @@ const bhSessionTaskMap=projects=>{
   (Array.isArray(projects)?projects:[]).forEach(pr=>{if(!pr)return;(pr.miniProjects||[]).forEach(t=>{if(!t||t.id==null)return;(t.innerNotes||[]).forEach(n=>{if(n&&Array.isArray(n.sessionIds))n.sessionIds.forEach(sid=>{if(sid!=null&&sid!=='')m.set(String(sid),String(t.id));});});});});
   return m;
 };
+// The task note a session was filed in: the note listing the session wins (moving a note moves its
+// sessions), then the note id the row kept. null when the session is not in a task note.
+const bhFindSessionNote=(projects,sid,row)=>{
+  const id=String(sid);
+  for(const p of (Array.isArray(projects)?projects:[])){
+    if(!p||p.deleted)continue;
+    for(const m of (Array.isArray(p.miniProjects)?p.miniProjects:[]))for(const n of (Array.isArray(m&&m.innerNotes)?m.innerNotes:[]))if(n&&Array.isArray(n.sessionIds)&&n.sessionIds.some(x=>String(x)===id))return{projectId:String(p.id),taskId:String(m.id),noteId:String(n.id)};
+  }
+  return row&&row.taskNoteId!=null?bhFindTaskNote(projects,row.taskNoteId):null;
+};
 const bhSessionEntries=(posts,rows,taskBySession)=>{
   const byId=bhSessionRowMap(rows),out=[];
   const taskOf=(id,r)=>{const t=taskBySession&&taskBySession.get(String(id));return t||(r&&r.taskId!=null?String(r.taskId):'');};
@@ -14294,7 +14304,8 @@ const bhSessionEntries=(posts,rows,taskBySession)=>{
     const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt);
     const title=String(r.title||r.targetLabel||'Sessão');
     const images=Array.isArray(r.images)?r.images.filter(x=>typeof x==='string'&&x):[];
-    out.push({key:'s:'+id,post:{id:'session-'+id,title,date:day,content:String(r.note||''),images,deleted:false,__noPost:true},sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title,taskId:taskOf(id,r),images});
+    const banner=typeof r.bannerImage==='string'?r.bannerImage:'';
+    out.push({key:'s:'+id,post:{id:'session-'+id,title,date:day,content:String(r.note||''),images,bannerImage:banner,deleted:false,__noPost:true},row:r,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title,taskId:taskOf(id,r),images});
   });
   return out;
 };
@@ -14389,7 +14400,7 @@ const bhDailyUiLoad=()=>{
 };
 const bhDailyUiSave=v=>{try{localStorage.setItem(BH_DAILY_UI_KEY,JSON.stringify({preset:v.preset,custom:v.custom,mode:v.mode,order:v.order}));}catch{/*silent-ok: the choice then lasts until the page is reloaded*/}};
 let _bhSessionsUi=null;
-const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
+const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen,onOpenSession,onSessionBanner})=>{
   const today=localDateISO();
   if(!_bhSessionsUi)_bhSessionsUi=bhDailyUiLoad();
   const [preset,setPreset]=useState(_bhSessionsUi.preset);
@@ -14421,16 +14432,22 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
     const own=Array.isArray(card.images)?card.images:null;
     const postImages=Array.isArray(post.images)?post.images:[];
     const imgs=own&&own.length?own:postImages;
-    const src=own&&own.length?(own.find(x=>!isVideoSrc(x))||own[0]):(postImages.length?(post.bannerImage||postImages[0]):null);
+    const src=post.__noPost&&post.bannerImage?post.bannerImage:own&&own.length?(own.find(x=>!isVideoSrc(x))||own[0]):(postImages.length?(post.bannerImage||postImages[0]):null);
     const info=meta.get(String(post.id));
     const time=card.folded?'':fmtTime(card.endedAt);
-    const open=()=>{if(!post.__noPost)onOpen(post);};
-    return <div key={card.key} className="card" style={{overflow:'hidden',cursor:post.__noPost?'default':'pointer',position:'relative'}} onClick={open}
-      {...(post.__noPost?{}:keyActivate(open,'Abrir post '+(post.title||''),true))}>
+    const sid=post.__noPost?String(post.id).replace(/^session-/,''):'';
+    const noteTarget=post.__noPost?bhFindSessionNote(projects,sid,card.entries[0]&&card.entries[0].row):null;
+    const taskTarget=post.__noPost&&!noteTarget&&card.entries[0]&&card.entries[0].taskId?card.entries[0].taskId:'';
+    const opens=!post.__noPost||!!(noteTarget||taskTarget)&&!!onOpenSession;
+    const open=()=>{if(!post.__noPost)onOpen(post);else if(opens)onOpenSession({id:sid,taskNoteId:noteTarget?noteTarget.noteId:null,taskId:taskTarget||(noteTarget?noteTarget.taskId:'')});};
+    const pickBanner=e=>{e.stopPropagation();const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=()=>bhPickImage({target:inp},url=>onSessionBanner(sid,url),'o banner');inp.click();};
+    return <div key={card.key} className="card" style={{overflow:'hidden',cursor:opens?'pointer':'default',position:'relative'}} onClick={open}
+      {...(opens?keyActivate(open,post.__noPost?'Abrir a tarefa da sessão '+(post.title||''):'Abrir post '+(post.title||''),true):{})}>
       <div className="cover-wrap" style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
         {src==null?<Icon name="image" size={22} style={{opacity:.2}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
           :<Img src={src} className="img-zoom" alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
+        {post.__noPost&&onSessionBanner&&<button type="button" onClick={pickBanner} title={post.bannerImage?'Trocar o banner':'Escolher um banner'} aria-label="Escolher um banner" style={{position:'absolute',top:6,right:6,width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',padding:0,border:0,borderRadius:'50%',background:'rgba(28,25,23,.55)',color:'#fff',cursor:'pointer'}}><Icon name="image-plus" size={12}/></button>}
         {imgs.length>1&&<span style={{position:'absolute',right:6,bottom:6,fontSize:'.62rem',background:'rgba(0,0,0,.6)',color:'#fff',borderRadius:6,padding:'1px 6px'}}>{imgs.length}</span>}
       </div>
       <div style={{padding:'8px 10px'}}>
@@ -14484,7 +14501,7 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen})=>{
     </div>}
   </div>;
 };
-const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,folders,setFolders,navTick,isMobile,projects,sessionRows})=>{
+const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPostsMerged,onPostsPurged,onPostsRefiled,onOpenSession,onSessionBanner,folders,setFolders,navTick,isMobile,projects,sessionRows})=>{
   const _galleryUi=useMemo(()=>bhUiLoad('gallery'),[]);
   const galleryFolderList=Array.isArray(folders)?folders:DEFAULT_GALLERY_FOLDERS;
   const liveFolders=useMemo(()=>galleryFolderList.filter(f=>f&&!f.deleted&&!f.archived).map(normalizeGalleryFolder),[folders]);
@@ -15640,7 +15657,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           </div>
         </div>
       )}
-      {sessionsTab?<GallerySessions posts={sessionPosts} meta={sessionMeta} sessionRows={sessionRows} projects={projects} isMobile={isMobile} onOpen={setSelected}/>:sortMode==='manual' ? (
+      {sessionsTab?<GallerySessions posts={sessionPosts} meta={sessionMeta} sessionRows={sessionRows} projects={projects} isMobile={isMobile} onOpen={setSelected} onOpenSession={onOpenSession} onSessionBanner={onSessionBanner}/>:sortMode==='manual' ? (
         (filtering?shown.length===0:active.length===0&&!hasSections)
           ? <div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={filtering?'search-x':'image'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{filtering?'Nenhum post encontrado.':'Pasta vazia.'}</div>
           : <>{(()=>{let budget=renderLimit;hasMoreRef.current=false;return manualLayout.map((g,gi)=>{
@@ -21830,11 +21847,27 @@ const App=()=>{
     });
   },[galleryFolders]);
   const handleOpenTask=useCallback((projectId,taskId)=>openProjectAt(projectId,{tab:'Tarefas',taskId:String(taskId)}),[openProjectAt]);
+  // A banner picked for a Daily card whose session has no gallery post lives on the session row.
+  const handleSessionBanner=useCallback((sid,url)=>{
+    setPomoData(prev=>{
+      const base=pomoNormalize(prev);
+      const rank=rankNormalize(base.rank);
+      let hit=false;
+      const sessions=(rank.sessions||[]).map(s=>{if(s&&String(s.id)===String(sid)){hit=true;return{...s,bannerImage:url};}return s;});
+      return hit?{...base,rank:{...rank,sessions}}:prev;
+    });
+  },[]);
   const handleOpenSessionPost=useCallback((session,post)=>{
     // A project session saved as a task note opens that note on the project page.
     if(!post&&session?.taskNoteId){
       const note=bhFindTaskNote(projects,session.taskNoteId);
       if(note)openProjectAt(note.projectId,{tab:'Tarefas',taskId:note.taskId,noteId:note.noteId});
+      return;
+    }
+    // A session with no note: its task, found by id.
+    if(!post&&session?.taskId){
+      const owner=(projects||[]).find(p=>p&&!p.deleted&&(p.miniProjects||[]).some(m=>m&&String(m.id)===String(session.taskId)));
+      if(owner)openProjectAt(String(owner.id),{tab:'Tarefas',taskId:String(session.taskId)});
       return;
     }
     if(!post)return;
@@ -22236,7 +22269,7 @@ const App=()=>{
         <div style={{display:view==='dashboard'?'contents':'none'}} aria-hidden={view==='dashboard'?undefined:true}><ViewBoundary key="dashboard" name="Painel"><Dashboard onOpenNote={handleSelectNote} projects={projects} notes={notes} mentors={mentors} tasks={tasks} setTasks={setTasks} setView={navigate} setNotes={setNotes} pomoData={pomoData} setPomoData={setPomoData} galleryFolders={galleryFolders} galleryPosts={galleryPostsView} isMobile={isMobile} onSelectProject={handleSelectProject} onSessionComplete={handleSessionComplete} onOpenSessionPost={handleOpenSessionPost} onResumeSession={resumeDeferredSession}/></ViewBoundary></div>
         {view==='projects'       &&<ViewBoundary key="projects" name="Projetos" onHome={()=>navigate('dashboard')}><ProjectsList projects={projects} setProjects={setProjects} onSelect={handleSelectProject} onAdd={handleAddProject} isMobile={isMobile} galleryPosts={galleryPosts} setGalleryPosts={setGalleryPosts} galleryFolders={galleryFolders}/></ViewBoundary>}
         {view==='project-detail' &&selectedProject&&<ViewBoundary key={'project-detail-'+selectedProject.id} name="Projeto" onHome={()=>navigate('dashboard')}><ProjectDetail notes={notes} onOpenNote={handleSelectNote} onPeekNote={setNotePeek} project={selectedProject} onBack={handleBackToProjects} onUpdate={handleUpdateProject} onSoftDelete={handleSoftDeleteSelected} onDuplicate={handleDuplicateProject} globalMentors={mentors} onAddGlobalMentor={handleAddGlobalMentor} galleryPosts={galleryPostsView} setGalleryPosts={setGalleryPosts} onPostsPurged={handlePostsPurged} onPlacePost={placePostInSection} focus={projectFocus} galleryFolders={galleryFolders} pomoData={pomoData} isMobile={isMobile} projectChoices={projectChoices} onMoveTask={moveTaskToProject}/></ViewBoundary>} 
-        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} sessionRows={pomoData?.rank?.sessions} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
+        {view==='gallery'        &&<ViewBoundary key="gallery" name="Galeria" onHome={()=>navigate('dashboard')}><Gallery posts={galleryPostsView} setPosts={setGalleryPosts} onOpenTask={handleOpenTask} onSectionFolderMoved={handleGallerySectionMoved} onPostsMerged={handlePostsMerged} onPostsPurged={handlePostsPurged} onPostsRefiled={handlePostsRefiled} onOpenSession={s=>handleOpenSessionPost(s,null)} onSessionBanner={handleSessionBanner} sessionRows={pomoData?.rank?.sessions} folders={galleryFolders} setFolders={setGalleryFolders} navTick={navTick} isMobile={isMobile} projects={projects}/></ViewBoundary>}
         {view==='ideas'          &&<ViewBoundary key="ideas" name="Anotações" onHome={()=>navigate('dashboard')}><IdeasLab notes={notes} setNotes={setNotes} navTick={navTick} isMobile={isMobile} projects={projects} setProjects={setProjects} onOpenTask={handleOpenTask}/></ViewBoundary>}
         {view==='studies'        &&<ViewBoundary key="studies" name="Estudos" onHome={()=>navigate('dashboard')}><StudiesHub studies={studies} setStudies={setStudies} isMobile={isMobile}/></ViewBoundary>}
         {view==='mentors'        &&<ViewBoundary key="mentors" name="Inspirações" onHome={()=>navigate('dashboard')}><MentorsHub mentors={mentors} setMentors={setMentors} isMobile={isMobile}/></ViewBoundary>}

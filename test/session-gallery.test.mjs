@@ -147,3 +147,19 @@ test('finished sessions with no gallery post still show; pending and repair rows
   assert.equal(solo.post.__noPost, true);
   assert.equal(solo.secs, 3600);
 });
+
+test('a session with no gallery post carries its own banner and its row', () => {
+  const r = row('x1', '2026-11-04', '11:00', { bannerImage: 'https://img/x.png', taskId: 't1' });
+  const e = bhSessionEntries([], [r, row('x2', '2026-11-04', '12:00')]);
+  const a = e.find(x => x.sid === 'x1'), b = e.find(x => x.sid === 'x2');
+  assert.equal(a.post.__noPost, true);
+  assert.equal(a.post.bannerImage, 'https://img/x.png');
+  assert.equal(a.row, r);
+  assert.equal(b.post.bannerImage, '');
+});
+
+test('the note of a session is found by the note that lists it, then by the row', () => {
+  const projects = [{ id: 'p1', miniProjects: [{ id: 't1', innerNotes: [{ id: 'n1', sessionIds: ['s1'] }, { id: 'n2', sessionIds: [] }] }] }];
+  assert.deepEqual({ ...g.bhFindSessionNote(projects, 's1', null) }, { projectId: 'p1', taskId: 't1', noteId: 'n1' });
+  assert.equal(g.bhFindSessionNote(projects, 'zz', null), null);
+});
