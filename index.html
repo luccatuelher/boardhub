@@ -13391,7 +13391,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
         <div style={{display:'flex',gap:16,flexDirection:isMobile?'column':'row'}}>
           {/* Left: tasks list */}
           {(!isMobile||(isMobile&&!activeMiniId))&&(
-          <div style={{width:isMobile?'100%':210,flexShrink:0,display:'flex',flexDirection:'column',gap:4}}>
+          <div style={{width:isMobile?'100%':'clamp(210px,24%,300px)',flexShrink:0,display:'flex',flexDirection:'column',gap:4}}>
             <button className="btn btn-dark" style={{width:'100%',justifyContent:'center',marginBottom:6}} onClick={addMini}><Icon name="plus" size={13}/> Nova Tarefa</button>
             <button className={`btn ${showTaskTrash?'btn-danger':'btn-outline'}`} style={{width:'100%',justifyContent:'center',marginBottom:6,padding:'6px 10px',fontSize:'.76rem'}} onClick={()=>{setShowTaskTrash(v=>!v);setActiveMiniId(null);setActiveInnerNoteId(null);}}><Icon name="trash-2" size={12}/> {showTaskTrash?'Voltar às tarefas':'Lixeira'}{(local.taskTrash||[]).length>0&&` (${(local.taskTrash||[]).length})`}</button>
             {showTaskTrash
@@ -13444,7 +13444,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     </button>
                     <Icon name="folder" size={13} style={{flexShrink:0,color:isMiniActive?'var(--bg)':'var(--muted)'}}/>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:600,fontSize:'.82rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isMiniActive?'var(--bg)':'var(--text)'}}>{m.title}</div>
+                      <div title={m.title} style={{fontWeight:600,fontSize:'.82rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isMiniActive?'var(--bg)':'var(--text)'}}>{m.title}</div>
                     </div>
                     <span style={{position:'relative',display:'flex',flexShrink:0}} onClick={e=>e.stopPropagation()}>
                       <button title="Adicionar nota ou subtarefa" aria-label="Adicionar nota ou subtarefa" aria-haspopup="menu" aria-expanded={addMenuMiniId===m.id}
