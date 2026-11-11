@@ -6527,6 +6527,8 @@ const bhSearchPreview=value=>String(value||'')
   .replace(/\s+/g,' ')
   .trim();
 
+// The modifier of this machine, for shortcut labels: the sidebar said "Cmd+K" on Windows too.
+const BH_MOD_LABEL=(()=>{try{return /Mac|iPhone|iPad|iPod/i.test(navigator.platform||navigator.userAgent||'')?'Cmd':'Ctrl';}catch{return 'Ctrl';}})();
 // - COMMAND PALETTE (Cmd+K) -
 // A palette hit on a mentor or client used to open only the list. The request
 // is parked in the UI session store and announced by an event, so the view
@@ -6843,7 +6845,7 @@ const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForce
       <div style={{fontSize:'.62rem',color:'var(--muted)',letterSpacing:'.1em',textTransform:'uppercase',marginTop:3}}>{osName||'Storyboard OS'}</div>
     </div>
     <button onClick={onOpenCmd} className="hover-border-text" style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:400,color:'var(--muted)',transition:'all .15s',width:'100%',marginBottom:16,textAlign:'left'}}>
-      <Icon name="search" size={13}/><span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>Cmd+K</span>
+      <Icon name="search" size={13}/><span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>{BH_MOD_LABEL}+K</span>
     </button>
     {activeProjects.length>0&&(
       <>
@@ -6965,7 +6967,7 @@ const SidebarMobile=React.memo(({activeView,setView,resetView,setForceMobile,hub
               </React.Fragment>
             ))}
             <button onClick={()=>{onOpenCmd();setMoreOpen(false);}} className="more-sheet-item">
-                <Icon name="search" size={20}/>Buscar (Cmd+K)
+                <Icon name="search" size={20}/>Buscar
               </button>
             <div style={{borderTop:'1px solid var(--border)',marginTop:8,paddingTop:12}}>
               <button onClick={()=>{setForceMobile(false);setMoreOpen(false);}}
