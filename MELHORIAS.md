@@ -141,6 +141,15 @@ Análise de `index.html` (commit `b0fc9a4`, out/2026), revisada por um consultor
 
 **Not done:** rollback from v4 to legacy (legacy docs miss every edit after activation); weekly cloud backup JSON in Storage (needs a `storage.rules` path); IndexedDB as primary state (a mirror was judged riskier than useful: browsers evict localStorage and IndexedDB together).
 
+## Status update (fourth pass, 11/11/2026)
+
+**Browser pass** (headless Chromium, desktop 1440x900, phone 390x844, both themes, seeded data; no Firebase):
+- Fixed: the first "Em andamento" row lost its top border on hover; Daily sessions without an image were black boxes; on a phone the sort select covered the search box in Inspirações and Estudos and status chips were cut in project and contact rows; the project task list cut names to a few letters; the search shortcut said "Cmd+K" on Windows.
+- Checked and working: Daily in every grouping, banner upload for a session without a gallery post, click-through from such a session to its task or task note, dd/mm/yyyy dates, new task dates, narrative models, command palette, session history. No console errors on any screen.
+- CI: `.github/workflows/test.yml` runs `npm ci`, `npm test` and `npm run build` on every push to `main` and on pull requests.
+
+**Not verified:** anything that needs a Google sign-in (sync, Storage uploads, agenda export), a real Pomodoro session from start to finish, real phones (Safari/iOS), and touch drag and drop.
+
 ## Ordem sugerida de execução
 1. **Armazenamento local:** `storage.persist()`, evicção/limite no cache de mídia, separar `syncbase`/entidades, acabar com a cópia integral no localStorage, planejar estado primário no IndexedDB.
 2. **Tornar o sync v4 o padrão**, com detecção de clientes antigos e testes; política de retenção para `rank.sessions`/`pomoData.days`.
