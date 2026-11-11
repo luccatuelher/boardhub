@@ -925,6 +925,9 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
    got 18 px of the 33 px it needs and its lines overlapped. They keep their height; the list scrolls, or on short
    windows (overflow:hidden below) the rows that do not fit are cut whole and "Ver todos" has the rest. */
 .dashboard-project-list>*{flex-shrink:0}
+/* A hovered row lifts 2 px (.card-project:hover). The list clips its overflow, so the first row lost its top
+   border while hovered; the list starts 3 px higher and pads the same 3 px, leaving room for the lift. */
+.dashboard-project-list{padding-top:3px;margin-top:-3px}
 /* Reduced motion, the rest of the app: the entrance animations (view, dialogs, palette, sheets,
    toast, check, image fade-in) collapse to their end state instead of sliding and scaling, and
    scrolling stops gliding. Durations, not animation:none, so an element whose base style is the
