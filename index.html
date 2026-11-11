@@ -385,6 +385,9 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .gallery-chip{display:inline-flex;align-items:center;gap:4px}
 .gallery-chip:hover:not(:disabled){border-color:var(--text);color:var(--text)}
 .gallery-chip:disabled{opacity:.35;cursor:default}
+/* Search box with the sort select inside it (Inspirações, Estudos): on a phone the select is 16 px text and wider
+   than the room the input reserves, so it covered the placeholder. There it sits beside the input instead. */
+@media (max-width:768px){.search-sort{display:flex;align-items:center;gap:8px}.search-sort>.input-box{flex:1;min-width:0;padding-right:12px!important}.search-sort>select{position:static!important;transform:none!important;flex:0 1 auto;max-width:46%;min-width:0}}
 @media (max-width:768px){.gallery-chip{padding:7px 14px}.gallery-section-tools button{padding:9px}.gallery-sort-select{margin-left:0}}
 /* :hover is more specific than .on: without the second selector a selected chip's text took the background's color under the pointer. */
 .gallery-chip.on,.gallery-chip.on:hover:not(:disabled){border-color:var(--text);background:var(--text);color:var(--bg)}
@@ -19881,7 +19884,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
         </div>
       </>}
       {!trash&&mentors.filter(m=>!m.deleted).length>0&&(
-        <div style={{position:'relative',marginBottom:16}}>
+        <div className="search-sort" style={{position:'relative',marginBottom:16}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="Buscar inspirações..." aria-label="Buscar inspirações" style={{paddingLeft:36,paddingRight:150}}/>
@@ -20173,7 +20176,7 @@ const StudiesHub=React.memo(({studies,setStudies,isMobile})=>{
         </div>
       </>}
       {!trash&&liveCount>0&&(
-        <div style={{position:'relative',marginBottom:12}}>
+        <div className="search-sort" style={{position:'relative',marginBottom:12}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar estudos..." aria-label="Buscar estudos" style={{paddingLeft:36,paddingRight:150}}/>
           <select value={sort} onChange={e=>changeSort(e.target.value)} aria-label="Ordenar estudos" className="gallery-sort-select" style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
