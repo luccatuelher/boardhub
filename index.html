@@ -267,6 +267,8 @@ body:has(.overlay.note-peek) .lightbox{left:0!important}
 /* Gallery — sort bar, manual sections and post chips */
 .gallery-sortbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:8px 10px;background:var(--bg);border-radius:9px;flex-wrap:wrap}
 .gallery-sortbar-label{font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+/* Daily: a session with no image is a quiet paper tile with a timer, not a black box. */
+.daily-noimg{background:repeating-linear-gradient(135deg,rgba(var(--ink),.035) 0 8px,transparent 8px 16px),var(--bg);color:var(--muted)}
 .gallery-sort-select{margin-left:6px;border:1px solid var(--field-border);border-radius:8px;padding:5px 8px;font:600 .72rem 'Alegreya Sans',sans-serif;color:var(--text);background:var(--surface);cursor:pointer}
 .gallery-grid{display:grid}
 .gallery-folder-edit{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:5px;line-height:0;opacity:.55;transition:opacity .12s,background .12s}
@@ -14446,8 +14448,8 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen,onOpenSe
     const pickBanner=e=>{e.stopPropagation();const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=()=>bhPickImage({target:inp},url=>onSessionBanner(sid,url),'o banner');inp.click();};
     return <div key={card.key} className="card" style={{overflow:'hidden',cursor:opens?'pointer':'default',position:'relative'}} onClick={open}
       {...(opens?keyActivate(open,post.__noPost?'Abrir a tarefa da sessão '+(post.title||''):'Abrir post '+(post.title||''),true):{})}>
-      <div className="cover-wrap" style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
-        {src==null?<Icon name="image" size={22} style={{opacity:.2}}/>
+      <div className={'cover-wrap'+(src==null?' daily-noimg':'')} style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:src==null?undefined:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+        {src==null?<Icon name={post.__noPost?'timer':'image'} size={22} style={{opacity:.45}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
           :<Img src={src} className="img-zoom" alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
         {post.__noPost&&onSessionBanner&&<button type="button" onClick={pickBanner} title={post.bannerImage?'Trocar o banner':'Escolher um banner'} aria-label="Escolher um banner" style={{position:'absolute',top:6,right:6,width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',padding:0,border:0,borderRadius:'50%',background:'rgba(28,25,23,.55)',color:'#fff',cursor:'pointer'}}><Icon name="image-plus" size={12}/></button>}
