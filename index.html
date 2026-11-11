@@ -439,6 +439,11 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .compact-row-info{flex:1;min-width:0;}
 .compact-row-title{font-weight:600;font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;}
 .compact-row-meta{font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* A meta line that ends in status chips: the text gives way (ellipsis) and the chips stay whole. As one nowrap line
+   the chips were what got cut on a phone ("EM ANDAMENTO…" with the deadline chip gone). */
+.compact-row-meta.has-chips{display:flex;align-items:center;gap:5px}
+.compact-row-meta.has-chips>.crm-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.compact-row-meta.has-chips>.tag,.compact-row-meta.has-chips>.crm-chip{flex-shrink:0}
 /* Segmented tabs */
 .seg-tabs{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:16px;}
 .seg-tab{flex:1 0 auto;padding:10px 8px;border-radius:8px;border:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.84rem;font-weight:600;text-align:center;white-space:nowrap;transition:all .2s cubic-bezier(.4,0,.2,1);background:transparent;color:var(--muted);}
@@ -11727,7 +11732,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                   </div>
                   <div className="compact-row-info">
                     <div className="compact-row-title">{p.title}</div>
-                    <div className="compact-row-meta">{p.client} · <span className={`tag ${statusTag(p.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.65rem'}}>{p.status}</span>{(()=>{const di=deadlineInfo(p.deadline);return di&&p.status==='Em Andamento'?<span style={{marginLeft:5,fontSize:'.62rem',fontWeight:700,padding:'1px 6px',borderRadius:4,background:di.bg,color:di.color}}>{di.label}</span>:null;})()}</div>
+                    <div className="compact-row-meta has-chips">{p.client&&<span className="crm-text">{p.client}</span>}<span className={`tag ${statusTag(p.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.65rem'}}>{p.status}</span>{(()=>{const di=deadlineInfo(p.deadline);return di&&p.status==='Em Andamento'?<span className="crm-chip" style={{fontSize:'.62rem',fontWeight:700,padding:'1px 6px',borderRadius:4,background:di.bg,color:di.color}}>{di.label}</span>:null;})()}</div>
                   </div>
                   <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
                 </div>
@@ -18700,7 +18705,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
                 :<div style={{width:44,height:44,borderRadius:'50%',backgroundColor:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Cormorant Garamond,serif',fontSize:'1.1rem',fontWeight:500,flexShrink:0}}>{c.name.charAt(0)}</div>}
               <div className="compact-row-info">
                 <div className="compact-row-title">{c.name}</div>
-                <div className="compact-row-meta">{c.role}{c.role&&c.company?' · ':''}{c.company} · <span className={`tag ${tagColor(c.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.62rem'}}>{c.status}</span></div>
+                <div className="compact-row-meta has-chips">{(c.role||c.company)&&<span className="crm-text">{c.role}{c.role&&c.company?' · ':''}{c.company}</span>}<span className={`tag ${tagColor(c.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.62rem'}}>{c.status}</span></div>
               </div>
               <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
             </div>
