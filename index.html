@@ -14284,10 +14284,17 @@ const bhFindSessionNote=(projects,sid,row)=>{
   }
   return row&&row.taskNoteId!=null?bhFindTaskNote(projects,row.taskNoteId):null;
 };
-// session id -> images of the task note that holds it (the images added in the session editor).
-const bhSessionImageMap=projects=>{
-  const m=new Map();
-  (Array.isArray(projects)?projects:[]).forEach(pr=>{if(!pr||pr.deleted)return;(pr.miniProjects||[]).forEach(t=>{(t&&t.innerNotes||[]).forEach(n=>{if(!n||!Array.isArray(n.sessionIds)||!Array.isArray(n.images))return;const imgs=n.images.filter(x=>typeof x==='string'&&x);if(imgs.length)n.sessionIds.forEach(sid=>{if(sid!=null&&sid!==''&&!m.has(String(sid)))m.set(String(sid),imgs);});});});});
+// session id -> every image of the task note that holds it, read the way the note editor shows
+// them (bhNoteMedia): images stored on the note, the ones pasted inside its text, and those of its
+// linked Gallery post. A note id key ('n:<id>') covers rows that only kept taskNoteId.
+const bhSessionImageMap=(projects,galleryPosts)=>{
+  const m=new Map(),posts=Array.isArray(galleryPosts)?galleryPosts:[];
+  (Array.isArray(projects)?projects:[]).forEach(pr=>{if(!pr||pr.deleted)return;(pr.miniProjects||[]).forEach(t=>{(t&&t.innerNotes||[]).forEach(n=>{if(!n)return;
+    const post=n.galleryPostId!=null&&n.galleryPostId!==''?posts.find(p=>p&&!p.deleted&&String(p.id)===String(n.galleryPostId))||null:null;
+    const imgs=bhNoteMedia(n,post).filter(x=>typeof x==='string'&&x);
+    if(!imgs.length)return;
+    if(n.id!=null&&!m.has('n:'+n.id))m.set('n:'+n.id,imgs);
+    if(Array.isArray(n.sessionIds))n.sessionIds.forEach(sid=>{if(sid!=null&&sid!==''&&!m.has(String(sid)))m.set(String(sid),imgs);});});});});
   return m;
 };
 const bhSessionEntries=(posts,rows,taskBySession,noteImages)=>{
@@ -14325,7 +14332,7 @@ const bhSessionEntries=(posts,rows,taskBySession,noteImages)=>{
     const day=(/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))?r.date:'')||bhLocalDay(r.endedAt);
     const title=String(r.title||r.targetLabel||'Sessão');
     const own=Array.isArray(r.images)?r.images.filter(x=>typeof x==='string'&&x):[];
-    const images=own.length?own:((noteImages&&noteImages.get(id))||[]);
+    const images=own.length?own:((noteImages&&(noteImages.get(id)||(r.taskNoteId!=null?noteImages.get('n:'+r.taskNoteId):null)))||[]);
     out.push({key:'s:'+id,post:{id:'session-'+id,title,date:day,content:String(r.note||''),images,bannerImage:'',deleted:false,__noPost:true},row:r,sid:id,day,endedAt:String(r.endedAt||''),secs:Math.max(0,Number(r.durationSeconds)||0),title,taskId:taskOf(id,r),images});
   });
   return out;
@@ -14421,7 +14428,7 @@ const bhDailyUiLoad=()=>{
 };
 const bhDailyUiSave=v=>{try{localStorage.setItem(BH_DAILY_UI_KEY,JSON.stringify({preset:v.preset,custom:v.custom,mode:v.mode,order:v.order}));}catch{/*silent-ok: the choice then lasts until the page is reloaded*/}};
 let _bhSessionsUi=null;
-const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen,onOpenSession})=>{
+const GallerySessions=({posts,allPosts,meta,sessionRows,projects,isMobile,onOpen,onOpenSession})=>{
   const today=localDateISO();
   if(!_bhSessionsUi)_bhSessionsUi=bhDailyUiLoad();
   const [preset,setPreset]=useState(_bhSessionsUi.preset);
@@ -14435,7 +14442,7 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen,onOpenSe
   const firstRun=useRef(true);
   const range=useMemo(()=>bhSessionRange(preset,today,custom),[preset,today,custom]);
   const taskBySession=useMemo(()=>bhSessionTaskMap(projects),[projects]);
-  const noteImages=useMemo(()=>bhSessionImageMap(projects),[projects]);
+  const noteImages=useMemo(()=>bhSessionImageMap(projects,allPosts),[projects,allPosts]);
   const entries=useMemo(()=>bhSessionEntries(posts,sessionRows,taskBySession,noteImages),[posts,sessionRows,taskBySession,noteImages]);
   const groups=useMemo(()=>bhDailyGroups(bhSessionFilter(entries,{...range,query}),mode,order,meta),[entries,range,query,mode,order,meta]);
   const paged=bhDailyPage(groups,page);
@@ -15677,7 +15684,7 @@ const Gallery=React.memo(({posts,setPosts,onOpenTask,onSectionFolderMoved,onPost
           </div>
         </div>
       )}
-      {sessionsTab?<GallerySessions posts={sessionPosts} meta={sessionMeta} sessionRows={sessionRows} projects={projects} isMobile={isMobile} onOpen={setSelected} onOpenSession={onOpenSession}/>:sortMode==='manual' ? (
+      {sessionsTab?<GallerySessions posts={sessionPosts} allPosts={posts} meta={sessionMeta} sessionRows={sessionRows} projects={projects} isMobile={isMobile} onOpen={setSelected} onOpenSession={onOpenSession}/>:sortMode==='manual' ? (
         (filtering?shown.length===0:active.length===0&&!hasSections)
           ? <div style={{textAlign:'center',padding:isMobile?40:60,color:'var(--muted)',fontSize:'.9rem'}}><Icon name={filtering?'search-x':'image'} size={28} style={{display:'block',margin:'0 auto 12px',opacity:.3}}/>{filtering?'Nenhum post encontrado.':'Pasta vazia.'}</div>
           : <>{(()=>{let budget=renderLimit;hasMoreRef.current=false;return manualLayout.map((g,gi)=>{
