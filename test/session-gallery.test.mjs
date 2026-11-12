@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 
-const g = load(['date', 'sessgallery']);
+const g = load(['date', 'tasklinks', 'sessgallery']);
 const { bhSessionTaskMap, bhIsSessionPost, bhSessionRange, bhSessionEntries, bhSessionFilter, bhDailyGroups, bhDailyPage, bhIsoShift } = g;
 
 const post = (id, date, extra = {}) => ({ id, date, title: 't' + id, images: [], deleted: false, folder: 'f', ...extra });
@@ -164,4 +164,18 @@ test('the note of a session is found by the note that lists it, then by the row'
   const projects = [{ id: 'p1', miniProjects: [{ id: 't1', innerNotes: [{ id: 'n1', sessionIds: ['s1'] }, { id: 'n2', sessionIds: [] }] }] }];
   assert.deepEqual({ ...g.bhFindSessionNote(projects, 's1', null) }, { projectId: 'p1', taskId: 't1', noteId: 'n1' });
   assert.equal(g.bhFindSessionNote(projects, 'zz', null), null);
+});
+
+test('a session note\'s images count wherever the editor finds them: inline in its text, via its linked post, or by the row\'s note id', () => {
+  const projects = [{ id: 'p1', miniProjects: [{ id: 't1', innerNotes: [
+    { id: 'n1', sessionIds: ['a'], content: '<p>x</p><img src="inline.png">' },
+    { id: 'n2', sessionIds: ['b'], galleryPostId: 'G', images: ['own.png'] },
+    { id: 'n3', sessionIds: [], content: '<img src="byid.png">' },
+  ] }] }];
+  const posts = [{ id: 'G', images: ['post1.png'] }];
+  const map = g.bhSessionImageMap(projects, posts);
+  const e = bhSessionEntries([], [row('a', '2026-11-04', '10:00'), row('b', '2026-11-04', '11:00'), row('c', '2026-11-04', '12:00', { taskNoteId: 'n3' })], undefined, map);
+  assert.deepEqual([...e.find(x => x.sid === 'a').images], ['inline.png']);
+  assert.deepEqual([...e.find(x => x.sid === 'b').images], ['post1.png', 'own.png']);
+  assert.deepEqual([...e.find(x => x.sid === 'c').images], ['byid.png']);
 });
