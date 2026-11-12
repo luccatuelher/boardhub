@@ -148,14 +148,16 @@ test('finished sessions with no gallery post still show; pending and repair rows
   assert.equal(solo.secs, 3600);
 });
 
-test('a session with no gallery post carries its own banner and its row', () => {
-  const r = row('x1', '2026-11-04', '11:00', { bannerImage: 'https://img/x.png', taskId: 't1' });
-  const e = bhSessionEntries([], [r, row('x2', '2026-11-04', '12:00')]);
-  const a = e.find(x => x.sid === 'x1'), b = e.find(x => x.sid === 'x2');
+test('a session with no gallery post takes its images from its row, then from its task note', () => {
+  const r = row('x1', '2026-11-04', '11:00', { images: ['row.png'], taskId: 't1' });
+  const projects = [{ id: 'p1', miniProjects: [{ id: 't1', innerNotes: [{ id: 'n1', sessionIds: ['x2'], images: ['note1.png', 'note2.png'] }] }] }];
+  const e = bhSessionEntries([], [r, row('x2', '2026-11-04', '12:00'), row('x3', '2026-11-04', '13:00')], undefined, g.bhSessionImageMap(projects));
+  const a = e.find(x => x.sid === 'x1'), b = e.find(x => x.sid === 'x2'), c = e.find(x => x.sid === 'x3');
   assert.equal(a.post.__noPost, true);
-  assert.equal(a.post.bannerImage, 'https://img/x.png');
   assert.equal(a.row, r);
-  assert.equal(b.post.bannerImage, '');
+  assert.deepEqual([...a.images], ['row.png']);
+  assert.deepEqual([...b.images], ['note1.png', 'note2.png']);
+  assert.deepEqual([...c.images], []);
 });
 
 test('the note of a session is found by the note that lists it, then by the row', () => {
