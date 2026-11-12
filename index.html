@@ -267,6 +267,8 @@ body:has(.overlay.note-peek) .lightbox{left:0!important}
 /* Gallery — sort bar, manual sections and post chips */
 .gallery-sortbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:8px 10px;background:var(--bg);border-radius:9px;flex-wrap:wrap}
 .gallery-sortbar-label{font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+/* Daily: a session with no image is a quiet paper tile with a timer, not a black box. */
+.daily-noimg{background:repeating-linear-gradient(135deg,rgba(var(--ink),.035) 0 8px,transparent 8px 16px),var(--bg);color:var(--muted)}
 .gallery-sort-select{margin-left:6px;border:1px solid var(--field-border);border-radius:8px;padding:5px 8px;font:600 .72rem 'Alegreya Sans',sans-serif;color:var(--text);background:var(--surface);cursor:pointer}
 .gallery-grid{display:grid}
 .gallery-folder-edit{background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;border-radius:5px;line-height:0;opacity:.55;transition:opacity .12s,background .12s}
@@ -383,6 +385,9 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .gallery-chip{display:inline-flex;align-items:center;gap:4px}
 .gallery-chip:hover:not(:disabled){border-color:var(--text);color:var(--text)}
 .gallery-chip:disabled{opacity:.35;cursor:default}
+/* Search box with the sort select inside it (Inspirações, Estudos): on a phone the select is 16 px text and wider
+   than the room the input reserves, so it covered the placeholder. There it sits beside the input instead. */
+@media (max-width:768px){.search-sort{display:flex;align-items:center;gap:8px}.search-sort>.input-box{flex:1;min-width:0;padding-right:12px!important}.search-sort>select{position:static!important;transform:none!important;flex:0 1 auto;max-width:46%;min-width:0}}
 @media (max-width:768px){.gallery-chip{padding:7px 14px}.gallery-section-tools button{padding:9px}.gallery-sort-select{margin-left:0}}
 /* :hover is more specific than .on: without the second selector a selected chip's text took the background's color under the pointer. */
 .gallery-chip.on,.gallery-chip.on:hover:not(:disabled){border-color:var(--text);background:var(--text);color:var(--bg)}
@@ -434,6 +439,11 @@ body:has(.deck-root) .lightbox{left:0!important;padding:0!important}
 .compact-row-info{flex:1;min-width:0;}
 .compact-row-title{font-weight:600;font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;}
 .compact-row-meta{font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* A meta line that ends in status chips: the text gives way (ellipsis) and the chips stay whole. As one nowrap line
+   the chips were what got cut on a phone ("EM ANDAMENTO…" with the deadline chip gone). */
+.compact-row-meta.has-chips{display:flex;align-items:center;gap:5px}
+.compact-row-meta.has-chips>.crm-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.compact-row-meta.has-chips>.tag,.compact-row-meta.has-chips>.crm-chip{flex-shrink:0}
 /* Segmented tabs */
 .seg-tabs{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:16px;}
 .seg-tab{flex:1 0 auto;padding:10px 8px;border-radius:8px;border:none;cursor:pointer;font-family:'Alegreya Sans',sans-serif;font-size:.84rem;font-weight:600;text-align:center;white-space:nowrap;transition:all .2s cubic-bezier(.4,0,.2,1);background:transparent;color:var(--muted);}
@@ -925,6 +935,9 @@ div:hover>.tl-sub-add,.tl-sub-add:focus-visible{opacity:1}
    got 18 px of the 33 px it needs and its lines overlapped. They keep their height; the list scrolls, or on short
    windows (overflow:hidden below) the rows that do not fit are cut whole and "Ver todos" has the rest. */
 .dashboard-project-list>*{flex-shrink:0}
+/* A hovered row lifts 2 px (.card-project:hover). The list clips its overflow, so the first row lost its top
+   border while hovered; the list starts 3 px higher and pads the same 3 px, leaving room for the lift. */
+.dashboard-project-list{padding-top:3px;margin-top:-3px}
 /* Reduced motion, the rest of the app: the entrance animations (view, dialogs, palette, sheets,
    toast, check, image fade-in) collapse to their end state instead of sliding and scaling, and
    scrolling stops gliding. Durations, not animation:none, so an element whose base style is the
@@ -6514,6 +6527,8 @@ const bhSearchPreview=value=>String(value||'')
   .replace(/\s+/g,' ')
   .trim();
 
+// The modifier of this machine, for shortcut labels: the sidebar said "Cmd+K" on Windows too.
+const BH_MOD_LABEL=(()=>{try{return /Mac|iPhone|iPad|iPod/i.test(navigator.platform||navigator.userAgent||'')?'Cmd':'Ctrl';}catch{return 'Ctrl';}})();
 // - COMMAND PALETTE (Cmd+K) -
 // A palette hit on a mentor or client used to open only the list. The request
 // is parked in the UI session store and announced by an event, so the view
@@ -6830,7 +6845,7 @@ const SidebarDesktop=React.memo(({activeView,setView,resetView,isMobile,setForce
       <div style={{fontSize:'.62rem',color:'var(--muted)',letterSpacing:'.1em',textTransform:'uppercase',marginTop:3}}>{osName||'Storyboard OS'}</div>
     </div>
     <button onClick={onOpenCmd} className="hover-border-text" style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontFamily:'Alegreya Sans,sans-serif',fontSize:'.78rem',fontWeight:400,color:'var(--muted)',transition:'all .15s',width:'100%',marginBottom:16,textAlign:'left'}}>
-      <Icon name="search" size={13}/><span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>Cmd+K</span>
+      <Icon name="search" size={13}/><span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Buscar...</span><span className="cmd-kbd" style={{fontSize:'.62rem'}}>{BH_MOD_LABEL}+K</span>
     </button>
     {activeProjects.length>0&&(
       <>
@@ -6952,7 +6967,7 @@ const SidebarMobile=React.memo(({activeView,setView,resetView,setForceMobile,hub
               </React.Fragment>
             ))}
             <button onClick={()=>{onOpenCmd();setMoreOpen(false);}} className="more-sheet-item">
-                <Icon name="search" size={20}/>Buscar (Cmd+K)
+                <Icon name="search" size={20}/>Buscar
               </button>
             <div style={{borderTop:'1px solid var(--border)',marginTop:8,paddingTop:12}}>
               <button onClick={()=>{setForceMobile(false);setMoreOpen(false);}}
@@ -11719,7 +11734,7 @@ const ProjectsList=React.memo(({projects,setProjects,onSelect,onAdd,isMobile,gal
                   </div>
                   <div className="compact-row-info">
                     <div className="compact-row-title">{p.title}</div>
-                    <div className="compact-row-meta">{p.client} · <span className={`tag ${statusTag(p.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.65rem'}}>{p.status}</span>{(()=>{const di=deadlineInfo(p.deadline);return di&&p.status==='Em Andamento'?<span style={{marginLeft:5,fontSize:'.62rem',fontWeight:700,padding:'1px 6px',borderRadius:4,background:di.bg,color:di.color}}>{di.label}</span>:null;})()}</div>
+                    <div className="compact-row-meta has-chips">{p.client&&<span className="crm-text">{p.client}</span>}<span className={`tag ${statusTag(p.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.65rem'}}>{p.status}</span>{(()=>{const di=deadlineInfo(p.deadline);return di&&p.status==='Em Andamento'?<span className="crm-chip" style={{fontSize:'.62rem',fontWeight:700,padding:'1px 6px',borderRadius:4,background:di.bg,color:di.color}}>{di.label}</span>:null;})()}</div>
                   </div>
                   <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
                 </div>
@@ -13378,7 +13393,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
         <div style={{display:'flex',gap:16,flexDirection:isMobile?'column':'row'}}>
           {/* Left: tasks list */}
           {(!isMobile||(isMobile&&!activeMiniId))&&(
-          <div style={{width:isMobile?'100%':210,flexShrink:0,display:'flex',flexDirection:'column',gap:4}}>
+          <div style={{width:isMobile?'100%':'clamp(210px,24%,300px)',flexShrink:0,display:'flex',flexDirection:'column',gap:4}}>
             <button className="btn btn-dark" style={{width:'100%',justifyContent:'center',marginBottom:6}} onClick={addMini}><Icon name="plus" size={13}/> Nova Tarefa</button>
             <button className={`btn ${showTaskTrash?'btn-danger':'btn-outline'}`} style={{width:'100%',justifyContent:'center',marginBottom:6,padding:'6px 10px',fontSize:'.76rem'}} onClick={()=>{setShowTaskTrash(v=>!v);setActiveMiniId(null);setActiveInnerNoteId(null);}}><Icon name="trash-2" size={12}/> {showTaskTrash?'Voltar às tarefas':'Lixeira'}{(local.taskTrash||[]).length>0&&` (${(local.taskTrash||[]).length})`}</button>
             {showTaskTrash
@@ -13431,7 +13446,7 @@ const ProjectDetail=React.memo(({project,onBack,onUpdate,onSoftDelete,onDuplicat
                     </button>
                     <Icon name="folder" size={13} style={{flexShrink:0,color:isMiniActive?'var(--bg)':'var(--muted)'}}/>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:600,fontSize:'.82rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isMiniActive?'var(--bg)':'var(--text)'}}>{m.title}</div>
+                      <div title={m.title} style={{fontWeight:600,fontSize:'.82rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isMiniActive?'var(--bg)':'var(--text)'}}>{m.title}</div>
                     </div>
                     <span style={{position:'relative',display:'flex',flexShrink:0}} onClick={e=>e.stopPropagation()}>
                       <button title="Adicionar nota ou subtarefa" aria-label="Adicionar nota ou subtarefa" aria-haspopup="menu" aria-expanded={addMenuMiniId===m.id}
@@ -14443,8 +14458,8 @@ const GallerySessions=({posts,meta,sessionRows,projects,isMobile,onOpen,onOpenSe
     const pickBanner=e=>{e.stopPropagation();const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.onchange=()=>bhPickImage({target:inp},url=>onSessionBanner(sid,url),'o banner');inp.click();};
     return <div key={card.key} className="card" style={{overflow:'hidden',cursor:opens?'pointer':'default',position:'relative'}} onClick={open}
       {...(opens?keyActivate(open,post.__noPost?'Abrir a tarefa da sessão '+(post.title||''):'Abrir post '+(post.title||''),true):{})}>
-      <div className="cover-wrap" style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
-        {src==null?<Icon name="image" size={22} style={{opacity:.2}}/>
+      <div className={'cover-wrap'+(src==null?' daily-noimg':'')} style={{aspectRatio:'4/3',overflow:'hidden',backgroundColor:src==null?undefined:'#000',display:'flex',alignItems:'center',justifyContent:'center',position:'relative'}}>
+        {src==null?<Icon name={post.__noPost?'timer':'image'} size={22} style={{opacity:.45}}/>
           :isVideoSrc(src)?<Vid src={src} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
           :<Img src={src} className="img-zoom" alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#000',color:'transparent'}}/>}
         {post.__noPost&&onSessionBanner&&<button type="button" onClick={pickBanner} title={post.bannerImage?'Trocar o banner':'Escolher um banner'} aria-label="Escolher um banner" style={{position:'absolute',top:6,right:6,width:24,height:24,display:'flex',alignItems:'center',justifyContent:'center',padding:0,border:0,borderRadius:'50%',background:'rgba(28,25,23,.55)',color:'#fff',cursor:'pointer'}}><Icon name="image-plus" size={12}/></button>}
@@ -18692,7 +18707,7 @@ const Clients=React.memo(({clients:allClients,setClients,isMobile,projects,onSel
                 :<div style={{width:44,height:44,borderRadius:'50%',backgroundColor:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Cormorant Garamond,serif',fontSize:'1.1rem',fontWeight:500,flexShrink:0}}>{c.name.charAt(0)}</div>}
               <div className="compact-row-info">
                 <div className="compact-row-title">{c.name}</div>
-                <div className="compact-row-meta">{c.role}{c.role&&c.company?' · ':''}{c.company} · <span className={`tag ${tagColor(c.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.62rem'}}>{c.status}</span></div>
+                <div className="compact-row-meta has-chips">{(c.role||c.company)&&<span className="crm-text">{c.role}{c.role&&c.company?' · ':''}{c.company}</span>}<span className={`tag ${tagColor(c.status)}`} style={{display:'inline',padding:'1px 6px',fontSize:'.62rem'}}>{c.status}</span></div>
               </div>
               <Icon name="chevron-right" size={16} style={{color:'var(--muted)',flexShrink:0}}/>
             </div>
@@ -19876,7 +19891,7 @@ const MentorsHub=React.memo(({mentors,setMentors,isMobile})=>{
         </div>
       </>}
       {!trash&&mentors.filter(m=>!m.deleted).length>0&&(
-        <div style={{position:'relative',marginBottom:16}}>
+        <div className="search-sort" style={{position:'relative',marginBottom:16}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="Buscar inspirações..." aria-label="Buscar inspirações" style={{paddingLeft:36,paddingRight:150}}/>
@@ -20168,7 +20183,7 @@ const StudiesHub=React.memo(({studies,setStudies,isMobile})=>{
         </div>
       </>}
       {!trash&&liveCount>0&&(
-        <div style={{position:'relative',marginBottom:12}}>
+        <div className="search-sort" style={{position:'relative',marginBottom:12}}>
           <Icon name="search" size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'var(--muted)',pointerEvents:'none'}}/>
           <input className="input-box" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar estudos..." aria-label="Buscar estudos" style={{paddingLeft:36,paddingRight:150}}/>
           <select value={sort} onChange={e=>changeSort(e.target.value)} aria-label="Ordenar estudos" className="gallery-sort-select" style={{position:'absolute',right:6,top:'50%',transform:'translateY(-50%)'}}>
